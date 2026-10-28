@@ -1,0 +1,143 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reminder-shortcut",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "h",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reminder-focus",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Remind me\"]:focus"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "relative-reminder",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Remind me"
+      },
+      "value": {
+        "source": "literal",
+        "value": "3 days"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "parsed-date-option",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".quick-results button.active"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "apply-relative-reminder",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Remind me\"]"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reminder-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[role=\"dialog\"]"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "snoozed-row-hidden",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".mail-row[aria-label^=\"Jordan Lee:\"]"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "undo-reminder",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".toast button:has-text(\"Undo\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "unsnoozed-row-restored",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".mail-row[aria-label^=\"Jordan Lee:\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ],
+    "after_each_step": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ]
+  }
+}

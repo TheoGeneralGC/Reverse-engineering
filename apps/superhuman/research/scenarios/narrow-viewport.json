@@ -1,0 +1,59 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "narrow-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".mail-row[aria-label^=\"Jordan Lee:\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ],
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "url"
+    ]
+  }
+}

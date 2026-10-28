@@ -1,0 +1,20 @@
+{
+  "name": "@reconstruction/superhuman-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-strip-types --env-file-if-exists=.env --watch src/server.ts",
+    "start": "node --experimental-strip-types --env-file-if-exists=.env src/server.ts",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "0.5.1",
+    "parse5": "8.0.1",
+    "sanitize-html": "2.18.1",
+    "markdown-it": "15.0.3"
+  },
+  "devDependencies": {
+    "@types/sanitize-html": "2.16.2"
+  }
+}

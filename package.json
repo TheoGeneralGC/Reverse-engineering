@@ -1,0 +1,23 @@
+{
+  "name": "reverse-engineering",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo for evidence-driven application reconstructions",
+  "workspaces": ["apps/*", "apps/*/web", "apps/*/api", "packages/*", "tools/*"],
+  "scripts": {
+    "dev:dashboard": "npm run dev --workspace @re/progress-dashboard",
+    "build:dashboard": "npm run build --workspace @re/progress-dashboard",
+    "start:dashboard": "npm run start --workspace @re/progress-dashboard",
+    "test:dashboard": "npm test --workspace @re/progress-dashboard",
+    "dev:superhuman": "bash scripts/superhuman-dev.sh",
+    "build:superhuman": "npm run build --workspace @re/superhuman-web",
+    "test:superhuman": "npm test --workspace @reconstruction/superhuman-api && npm test --workspace @re/superhuman-web",
+    "inspect:superhuman": "bash scripts/inspection-browser.sh",
+    "rea": "bash scripts/rea.sh",
+    "rea:doctor": "bash scripts/rea.sh doctor --client codex --json",
+    "rea:setup:plan": "bash scripts/rea.sh setup --client codex --dry-run --json"
+  },
+  "devDependencies": {
+    "rea-agents": "6.8.0"
+  }
+}

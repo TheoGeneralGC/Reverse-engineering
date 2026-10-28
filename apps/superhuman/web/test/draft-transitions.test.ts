@@ -1,0 +1,737 @@
+import { after,test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync,readdirSync } from 'node:fs';
+import { fileURLToPath,pathToFileURL } from 'node:url';
+import { registerHooks } from 'node:module';
+import { transformWithOxc } from 'vite';
+import { JSDOM } from 'jsdom';
+
+// Exercise the actual React application, not a duplicate transition model. The
+// hook compiles our local TSX only; provider traffic is replaced below.
+const compiled=new Map<string,string>();const sourceDirectory=fileURLToPath(new URL('../src/',import.meta.url));
+await Promise.all(readdirSync(sourceDirectory,{recursive:true,encoding:'utf8'}).filter(name=>name.endsWith('.tsx')).map(async name=>{const path=sourceDirectory+name;const result=await transformWithOxc(readFileSync(path,'utf8'),path,{jsx:{runtime:'automatic'}});compiled.set(pathToFileURL(path).href,result.code)}));
+const hook=registerHooks({load(url,context,next){if(url.endsWith('.css'))return{format:'module',shortCircuit:true,source:''};const source=compiled.get(url);if(source!==undefined)return{format:'module',shortCircuit:true,source};return next(url,context)}});
+const dom=new JSDOM('<!doctype html><html><body></body></html>',{url:'http://127.0.0.1:5173'}),window=dom.window;
+for(const key of ['window','document','navigator','Node','DocumentFragment','CharacterData','Event','CustomEvent','HTMLOListElement','Text','Element','HTMLElement','Range','Selection','MutationObserver','NodeFilter','DOMParser','HTMLAnchorElement','HTMLBRElement','HTMLDivElement','HTMLSpanElement','HTMLLIElement','HTMLInputElement','HTMLImageElement','KeyboardEvent','InputEvent','DOMRect','getComputedStyle'])Object.defineProperty(globalThis,key,{configurable:true,value:window[key as keyof typeof window]});
+Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true,requestAnimationFrame:(fn:FrameRequestCallback)=>setTimeout(()=>fn(Date.now()),0),cancelAnimationFrame:(id:ReturnType<typeof setTimeout>)=>clearTimeout(id)});
+window.HTMLElement.prototype.scrollIntoView=()=>{};
+window.Range.prototype.getBoundingClientRect=()=>new window.DOMRect();window.Range.prototype.getClientRects=()=>Object.assign([],{item:()=>null}) as unknown as DOMRectList;
+const {act,createElement,StrictMode}=await import('react');const {createRoot}=await import('react-dom/client');const {default:App}=await import('../src/App.tsx');await import('../src/calendar/CalendarWorkspace.tsx');after(()=>hook.deregister());
+const response=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
+const deferred=<T,>()=>{let resolve!:(value:T)=>void;let reject!:(error:Error)=>void;const promise=new Promise<T>((yes,no)=>{resolve=yes;reject=no});return{promise,resolve,reject}};
+type Request={path:string;method:string;body:any;signal?:AbortSignal|null};
+type AppFixture={draftPatch?:Record<string,unknown>;draftRequest?:(request:Request)=>Response|undefined|Promise<Response|undefined>;calendar?:(request:Request)=>Response|undefined|Promise<Response|undefined>;emptyInitialDrafts?:boolean;strict?:boolean;compose?:boolean;readContext?:(url:URL,signal?:AbortSignal|null)=>unknown|Promise<unknown>;bootstrapFailures?:number;preferences?:Record<string,unknown>;draftHeaders?:{to?:string;cc?:string;bcc?:string};readContacts?:(url:URL,signal?:AbortSignal|null)=>unknown|Promise<unknown>;readPage?:(url:URL)=>unknown|Promise<unknown>;readThread?:(id:string)=>unknown|Promise<unknown>;action?:(id:string,body:any)=>unknown|Promise<unknown>;chat?:(request:Request)=>Response|undefined|Promise<Response|undefined>};
+const aiSession=(accountId:string,id='chat-'+accountId,patch:Record<string,unknown>={})=>({id,accountId,title:'Synthetic conversation',createdAt:'2026-10-28T00:00:00Z',updatedAt:'2026-10-28T00:00:00Z',revision:0,turnCount:0,activeTurnId:null,...patch});
+const aiTurn=(body:any,patch:Record<string,unknown>={})=>({id:'turn-'+body.clientRequestId,sessionId:'chat-'+body.accountId,accountId:body.accountId,clientRequestId:body.clientRequestId,prompt:body.prompt,context:body.context,seq:1,state:'completed',phase:'finished',revision:2,lastEventSeq:0,provider:'anthropic',model:'synthetic-model',providerRequestIds:[],dispatchCount:1,partial:{markdown:'Synthetic answer',thinkingSummary:null},answer:{markdown:'Synthetic answer',plainText:'Synthetic answer',citations:[],sourceIds:[],finishReason:'end_turn',truncated:false},sources:[],limits:{providerRounds:1,toolCalls:0,summaryHits:0,fullThreadReads:0,contextBytes:0,outputTokens:10,exhausted:[]},usage:{inputTokens:10,outputTokens:10},coverage:[],error:null,cancellation:{requestedAt:null,localStoppedAt:null,providerOutcome:'response_observed'},...patch});
+const aiCompleted=(body:any,text:string,patch:Record<string,unknown>={})=>{const turn=aiTurn(body,{partial:{markdown:text,thinkingSummary:null},answer:{markdown:text,plainText:text,citations:[],sourceIds:[],finishReason:'end_turn',truncated:false},...patch});return{session:aiSession(body.accountId,turn.sessionId,{revision:2,turnCount:1}),turn}};
+async function mount(initialBody='Initial body',fixture:AppFixture={}){
+ window.localStorage.clear();const requests:Request[]=[];let savedDraft:any={id:'synthetic-draft',accountId:'demo',to:'approved@example.test',cc:'',bcc:'',subject:'Synthetic',body:initialBody,status:'draft',createdAt:'2026-10-27T12:00:00Z',updatedAt:'2026-10-27T12:00:00Z',attachments:[{id:'synthetic-attachment',name:'fixture.txt',mimeType:'text/plain',size:4}],...fixture.draftHeaders,...fixture.draftPatch};
+ let draftExists=!fixture.emptyInitialDrafts;
+ let preferences:any={activeAccountId:'demo',splitInbox:['Important','Other','Calendar'],snippets:[],...fixture.preferences};
+ let bootstrapFailures=fixture.bootstrapFailures||0,pageReader=fixture.readPage,threadReader=fixture.readThread,actionReader=fixture.action;
+ let deliveryReply:{status:string;pending?:boolean;unavailable?:boolean}={status:'draft'};
+ let pendingSave:ReturnType<typeof deferred<Response>>|null=null,pendingDispatch:ReturnType<typeof deferred<Response>>|null=null,preferenceFailure=false;
+ const accounts=[{id:'demo',provider:'demo',name:'Demo User',email:'demo@example.test'},{id:'other',provider:'demo',name:'Other User',email:'other@example.test'}];
+ const chatTurns=new Map<string,any>(),chatSessions=new Map<string,any>();for(const account of accounts)for(const id of ['chat-'+account.id,'chat-history-'+account.id])chatSessions.set(id,aiSession(account.id,id));
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(input,init)=>{
+  const path=String(input),method=init?.method||'GET',body=init?.body?JSON.parse(String(init.body)):undefined;requests.push({path,method,body,signal:init?.signal});
+  if(path.startsWith('/api/ai/chat')){
+   const url=new URL(path,'http://127.0.0.1:5173'),accountId=body?.accountId||url.searchParams.get('accountId')||'demo';
+   const custom=await fixture.chat?.({path,method,body,signal:init?.signal});
+   if(custom){if(custom.ok){const payload=await custom.clone().json();if(payload.session)chatSessions.set(payload.session.id,payload.session);if(payload.turn)chatTurns.set(payload.turn.id,payload.turn)}return custom}
+   if(url.pathname==='/api/ai/chat/status')return response({status:{implemented:true,configured:!!fixture.chat,provider:'anthropic',model:'synthetic-model',missing:fixture.chat?[]:['ANTHROPIC_API_KEY','ANTHROPIC_MODEL'],capabilities:[],policyVersion:'synthetic',coverage:[],limitations:[]}});
+   if(url.pathname==='/api/ai/chat/sessions'&&method==='GET')return response({sessions:[...chatSessions.values()].filter(session=>session.accountId===accountId),nextCursor:null,hasMore:false});
+   if(url.pathname==='/api/ai/chat/sessions'&&method==='POST'){const session=aiSession(accountId,'chat-new-'+chatSessions.size);chatSessions.set(session.id,session);return response({session},201)}
+   const byRequest=url.pathname.match(/^\/api\/ai\/chat\/sessions\/([^/]+)\/turns\/by-request\/([^/]+)$/);if(byRequest){const turn=[...chatTurns.values()].find(turn=>turn.accountId===accountId&&turn.sessionId===byRequest[1]&&turn.clientRequestId===byRequest[2]);return turn?response({session:chatSessions.get(turn.sessionId),turn}):response({error:{code:'ai_chat_not_found',message:'Chat resource not found'}},404)}
+   const detail=url.pathname.match(/^\/api\/ai\/chat\/sessions\/([^/]+)$/);if(detail){const session=chatSessions.get(detail[1]);return response({session,turns:[...chatTurns.values()].filter(turn=>turn.sessionId===detail[1]),nextBeforeSeq:null,hasMore:false})}
+   const turn=url.pathname.match(/^\/api\/ai\/chat\/turns\/([^/]+)$/);if(turn){const item=chatTurns.get(turn[1]);return response({session:chatSessions.get(item?.sessionId),turn:item})}
+   if(url.pathname.endsWith('/events')){const id=url.pathname.split('/').at(-2);return response({events:[],nextSeq:Number(url.searchParams.get('afterSeq')||0),hasMore:false,turnRevision:chatTurns.get(id!)?.revision||0,terminal:true})}
+   throw new Error('Unexpected mocked chat request: '+method+' '+path);
+  }
+  if(path.startsWith('/api/drafts/')){const custom=await fixture.draftRequest?.({path,method,body,signal:init?.signal});if(custom)return custom}
+  if(path.startsWith('/api/calendar')){const custom=await fixture.calendar?.({path,method,body,signal:init?.signal});if(custom)return custom}
+  if(path.startsWith('/api/contacts/context?')){const url=new URL(path,'http://127.0.0.1:5173');return response(fixture.readContext?await fixture.readContext(url,init?.signal):{contact:{name:'',email:url.searchParams.get('email')},threads:[],matched:false,source:'local-message-participants',limited:true})}
+  if(path.startsWith('/api/contacts/suggestions?'))return response(fixture.readContacts?await fixture.readContacts(new URL(path,'http://127.0.0.1:5173'),init?.signal):{contacts:[],source:'local-message-participants',limited:true});
+  if(path==='/api/bootstrap?includeThreads=false'){if(bootstrapFailures-->0)throw new TypeError('Synthetic startup connection unavailable');return response({accounts,activeAccountId:preferences.activeAccountId,threads:[],drafts:draftExists&&savedDraft.status!=='sent'?[savedDraft]:[],labels:[],preferences,providerStatus:{google:{configured:false}}})}
+  if(path.startsWith('/api/calendar/calendars?'))return response({calendars:[],sync:{phase:'initial',partial:true},providerStatus:{enabled:false,configured:false,grant:null,capabilities:{list:false,read:false,readOwned:false,writeOwned:false,freebusy:false},writesEnabled:false,liveVerified:false}});
+  if(path.startsWith('/api/thread-summaries?'))return response(pageReader?await pageReader(new URL(path,'http://127.0.0.1:5173')):{threads:[],total:0,counts:{inbox:0,important:0,other:0,calendar:0},hasMore:false,nextCursor:null});
+  const action=path.match(/^\/api\/threads\/([^/]+)\/actions$/);if(action&&actionReader)return response(await actionReader(decodeURIComponent(action[1]),body));
+  const thread=path.match(/^\/api\/threads\/([^/]+)$/);if(thread&&method==='GET'&&threadReader)return response({thread:await threadReader(decodeURIComponent(thread[1]))});
+  if(path==='/api/drafts'&&method==='POST'){draftExists=true;return response({draft:savedDraft})}
+  if(path==='/api/drafts/synthetic-draft'&&method==='DELETE'){draftExists=false;return response({deleted:true})}
+  if(path==='/api/drafts/synthetic-draft'&&method==='GET'){if(deliveryReply.unavailable)throw new TypeError('Synthetic status connection unavailable');return response({draft:{...savedDraft,status:deliveryReply.status},deliveryPending:!!deliveryReply.pending})}
+  if(path==='/api/drafts/synthetic-draft/reconcile'){assert.equal(method,'POST');return response({draft:{...savedDraft,status:deliveryReply.status}})}
+  if(path==='/api/drafts/synthetic-draft'&&method==='PATCH'){if(pendingSave){const result=(await pendingSave.promise).clone();if(result.ok)savedDraft={...savedDraft,...body};return result}savedDraft={...savedDraft,...body};return response({draft:savedDraft})}
+  if(path==='/api/drafts/synthetic-draft/send'||path==='/api/drafts/synthetic-draft/schedule'){const result=pendingDispatch?await pendingDispatch.promise:response({draft:{...savedDraft,status:path.endsWith('/schedule')?'scheduled':'sent',...(body?.scheduledAt?{scheduledAt:body.scheduledAt}:{})}});if(result.ok){const payload=await result.clone().json();savedDraft={...savedDraft,...payload.draft,status:payload.draft?.status||(path.endsWith('/schedule')?'scheduled':'sent')}}return result}
+  if(path==='/api/preferences'&&method==='PATCH'){if(preferenceFailure)return response({error:{message:'Synthetic preferences failure'}},500);preferences={...preferences,...body};return response({preferences})}
+  throw new Error(`Unexpected mocked request: ${method} ${path}`);
+ };
+ const host=window.document.createElement('div');window.document.body.append(host);const root=createRoot(host);await act(async()=>{root.render(fixture.strict?createElement(StrictMode,null,createElement(App)):createElement(App))});
+ const button=(name:string)=>{const result=Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(item=>item.getAttribute('aria-label')===name||item.textContent?.trim()===name);assert.ok(result,`Missing button ${name}`);return result};
+ const click=async(name:string)=>{await act(async()=>{button(name).click()})};
+ if(fixture.compose!==false)await click('Compose');
+ return{host,requests,button,click,setPageReader:(read:NonNullable<AppFixture['readPage']>)=>pageReader=read,setThreadReader:(read:NonNullable<AppFixture['readThread']>)=>threadReader=read,key:async(value:string)=>{await act(async()=>{window.document.body.dispatchEvent(new window.KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true}))})},getDraft:()=>savedDraft,holdSave:()=>pendingSave=deferred<Response>(),holdDispatch:()=>pendingDispatch=deferred<Response>(),failPreferences:()=>preferenceFailure=true,deliveryStatus:(status:string,pending=false,unavailable=false)=>deliveryReply={status,pending,unavailable},close:async()=>{await act(async()=>root.unmount());host.remove();globalThis.fetch=originalFetch}};
+}
+
+test('actual composer locks from pre-save through delayed dispatch and admits only one send',async()=>{
+ const app=await mount();try{
+  const save=app.holdSave(),dispatch=app.holdDispatch();await act(async()=>{app.button('Send').click();app.button('Send').click()});
+  const locked=()=>{assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="To"]')?.readOnly,true);assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.readOnly,true);assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'true');for(const name of ['Attach file','Remove fixture.txt','Send later','Insert snippet','Discard draft'])assert.equal(app.button(name).disabled,true,name)};
+  locked();assert.equal(app.requests.filter(item=>item.path.endsWith('/send')).length,0);
+  await act(async()=>{save.resolve(response({draft:app.getDraft()}))});locked();assert.equal(app.requests.filter(item=>item.path.endsWith('/send')).length,1);
+  await act(async()=>{dispatch.resolve(response({draft:{...app.getDraft(),status:'sent'}}))});assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);
+ }finally{await app.close()}
+});
+
+test('failed pre-send save retains the editable draft and never dispatches mail',async()=>{
+ const app=await mount();try{
+  const save=app.holdSave();await app.click('Send');await act(async()=>{save.resolve(response({error:{message:'Synthetic save failure'}},500))});
+  assert.equal(app.requests.some(item=>item.path.endsWith('/send')),false);assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="To"]')?.readOnly,false);assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'false');assert.match(app.host.textContent||'',/Synthetic save failure/);
+ }finally{await app.close()}
+});
+
+test('account switch snapshots unsaved rich content before changing preferences or discarding the editor',async()=>{
+ const app=await mount();try{
+  const save=app.holdSave();const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;
+  // This event occurs well before the 600 ms debounce. The explicit switch save
+  // must read the live editor and cannot rely on a prior autosave response.
+  await act(async()=>{body.innerHTML='<div>Latest <b>unsaved</b> content</div>';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});
+  await app.click('Manage accounts');await app.click('OOther Userother@example.test');
+  const write=app.requests.find(item=>item.path==='/api/drafts/synthetic-draft'&&item.method==='PATCH');assert.ok(write);assert.equal(write.body.body,'Latest unsaved content');assert.match(write.body.html,/<b>unsaved<\/b>/);
+  assert.equal(app.requests.some(item=>item.path==='/api/preferences'),false);assert.ok(app.host.querySelector('[aria-label="Message body"]'));
+  await act(async()=>{save.resolve(response({draft:{...app.getDraft(),...write.body}}))});assert.equal(app.requests.find(item=>item.path==='/api/preferences')?.body.activeAccountId,'other');assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);
+ }finally{await app.close()}
+});
+
+test('failed account preference update keeps the saved composer open instead of silently dropping it',async()=>{
+ const app=await mount();try{app.failPreferences();await app.click('Manage accounts');await app.click('OOther Userother@example.test');assert.ok(app.host.querySelector('[aria-label="Message body"]'));assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'false');assert.match(app.host.textContent||'',/Synthetic preferences failure/)}finally{await app.close()}
+});
+
+test('failed account-switch draft save leaves the account and unsaved editor in place',async()=>{
+ const app=await mount();try{
+  const save=app.holdSave();await app.click('Manage accounts');await app.click('OOther Userother@example.test');
+  assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'true');
+  await act(async()=>{save.resolve(response({error:{message:'Synthetic account-switch save failure'}},500))});
+  assert.equal(app.requests.some(item=>item.path==='/api/preferences'),false);assert.ok(app.host.querySelector('[aria-label="Message body"]'));assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'false');assert.match(app.host.textContent||'',/Synthetic account-switch save failure/);
+ }finally{await app.close()}
+});
+
+
+test('ambiguous provider failure retains a locked unknown draft and offers explicit Sent reconciliation',async()=>{
+ const app=await mount();try{
+  const dispatch=app.holdDispatch();app.deliveryStatus('delivery_unknown');await app.click('Send');await act(async()=>{dispatch.resolve(response({error:{message:'Synthetic ambiguous provider outcome'}},502))});
+  assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'true');assert.equal(app.button('Send').disabled,true);assert.ok(app.button('Check Sent status'));assert.match(app.host.textContent||'',/Delivery status is unknown/);assert.equal(app.requests.some(item=>item.path.endsWith('/reconcile')),false);
+  await app.click('Check Sent status');assert.equal(app.requests.filter(item=>item.path.endsWith('/reconcile')).length,1);assert.equal(app.button('Send').disabled,true);
+  app.deliveryStatus('sent');await app.click('Check Sent status');assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);assert.match(app.host.textContent||'',/Delivery confirmed in Sent/);assert.equal(app.requests.filter(item=>item.path.endsWith('/send')).length,1);
+ }finally{await app.close()}
+});
+
+test('failed delivery preflight unlocks only after an authoritative nonpending draft result',async()=>{
+ const app=await mount();try{
+  const dispatch=app.holdDispatch();app.deliveryStatus('draft');await app.click('Send');await act(async()=>{dispatch.resolve(response({error:{message:'Synthetic recipient preflight failure'}},400))});
+  assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'false');assert.equal(app.button('Send').disabled,false);assert.equal(app.requests.filter(item=>item.path==='/api/drafts/synthetic-draft'&&item.method==='GET').length,1);assert.equal(app.requests.some(item=>item.path.endsWith('/reconcile')),false);
+ }finally{await app.close()}
+});
+
+test('a queued send remains locked even when stored status is draft, and read-only polling confirms sent',async()=>{
+ const app=await mount();try{
+  const dispatch=app.holdDispatch();app.deliveryStatus('draft',true);await app.click('Send');await act(async()=>{dispatch.resolve(response({error:{message:'Synthetic lost dispatch response'}},502))});
+  assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'true');assert.match(app.host.textContent||'',/Delivery is in progress. Checking status/);assert.ok(app.button('Check Sent status'));
+  app.deliveryStatus('sent');await act(async()=>{await new Promise(resolve=>setTimeout(resolve,1600))});
+  assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);assert.match(app.host.textContent||'',/Delivery confirmed in Sent/);assert.equal(app.requests.filter(item=>item.path.endsWith('/send')).length,1);assert.equal(app.requests.some(item=>item.path.endsWith('/reconcile')),false);
+ }finally{await app.close()}
+});
+
+test('unavailable delivery status stays locked and manual refresh never blindly resends',async()=>{
+ const app=await mount();try{
+  const dispatch=app.holdDispatch();app.deliveryStatus('draft',false,true);await app.click('Send');await act(async()=>{dispatch.reject(new TypeError('Synthetic network failure'))});
+  assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'true');assert.match(app.host.textContent||'',/Delivery is unconfirmed because its status is unavailable/);assert.ok(app.button('Check Sent status'));
+  await app.click('Check Sent status');assert.equal(app.button('Send').disabled,true);assert.equal(app.requests.filter(item=>item.path.endsWith('/send')).length,1);assert.equal(app.requests.some(item=>item.path.endsWith('/reconcile')),false);
+  app.deliveryStatus('draft');await app.click('Check Sent status');assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'false');assert.equal(app.button('Send').disabled,false);
+ }finally{await app.close()}
+});
+
+for(const hideCaretBetweenUndoAndRedo of [false,true])test(hideCaretBetweenUndoAndRedo?'negative control: screenshot caret-style mutations invalidate otherwise working keyboard redo':'actual keyboard link undo/redo retains history across React updates, focus changes and autosave',async()=>{
+ const app=await mount('');try{
+  const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;
+  const key=async(target:HTMLElement,value:string,shiftKey=false)=>{await act(async()=>{target.dispatchEvent(new window.KeyboardEvent('keydown',{key:value,code:value.length===1?'Key'+value.toUpperCase():value,metaKey:value!=='Enter',shiftKey,bubbles:true,cancelable:true}));target.dispatchEvent(new window.KeyboardEvent('keyup',{key:value,metaKey:value!=='Enter',shiftKey,bubbles:true,cancelable:true}))})};
+  await act(async()=>{body.focus();body.textContent='REA formatting sample';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});
+  await act(async()=>{const range=window.document.createRange();range.selectNodeContents(body);const selected=window.getSelection()!;selected.removeAllRanges();selected.addRange(range);window.document.dispatchEvent(new window.Event('selectionchange'))});
+  await key(body,'b');assert.ok(body.querySelector('b,strong'));
+  await key(body,'k');const input=app.host.querySelector<HTMLInputElement>('[aria-label="Link URL"]');assert.ok(input);
+  await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(input,'https://example.test/keyboard-history');input.dispatchEvent(new window.Event('input',{bubbles:true}))});
+  await key(input,'Enter');assert.ok(body.querySelector('a[href="https://example.test/keyboard-history"]'));
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,650))});assert.ok(app.requests.some(item=>item.method==='PATCH'&&item.body.html.includes('keyboard-history')));
+  await key(body,'z');assert.equal(body.querySelector('a'),null);assert.ok(body.querySelector('b,strong'));
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,650))});
+  if(hideCaretBetweenUndoAndRedo)await act(async()=>{body.style.setProperty('caret-color','transparent','important');await Promise.resolve();body.style.setProperty('caret-color','','');await Promise.resolve()});
+  await key(body,'Z',true);const restored=body.querySelector('a[href="https://example.test/keyboard-history"]');if(hideCaretBetweenUndoAndRedo)assert.equal(restored,null);else assert.ok(restored);
+ }finally{await app.close()}
+});
+
+
+const row=(id:string,position:number,accountId='demo')=>({id,accountId,subject:'Subject '+id,snippet:'Snippet '+id,sender:{name:'Sender '+id,email:id+'@example.test'},participants:[],lastMessageAt:new Date(Date.UTC(2026,9,27,12,0,-position)).toISOString(),unread:false,starred:false,important:true,folder:'inbox',labels:[],messageCount:1,hasAttachments:false});
+const full=(item:ReturnType<typeof row>)=>({...item,messages:[{id:'message-'+item.id,sender:item.sender,to:[],date:item.lastMessageAt,text:'Full body '+item.id,attachments:[]}]});
+const thinPage=(items:ReturnType<typeof row>[],total=items.length,cursor:string|null=null)=>({threads:items,total,counts:{inbox:1234,important:1000,other:234,calendar:7},hasMore:!!cursor,nextCursor:cursor});
+const paged=(items:()=>ReturnType<typeof row>[])=>async(url:URL)=>{const rows=items(),cursor=url.searchParams.get('cursor'),offset=cursor?rows.findIndex(item=>item.id===cursor)+1:0;const part=rows.slice(offset,offset+2);return thinPage(part,rows.length,offset+2<rows.length?part.at(-1)!.id:null)};
+function focusedId(host:HTMLElement){return host.querySelector('.mail-row.focused .mail-subject')?.textContent?.trim()}
+async function fillInput(input:HTMLInputElement,value:string){await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new window.Event('input',{bubbles:true}))})}
+
+test('actual App requests thin bootstrap and server-filtered summaries, uses true counts and lazily fetches full conversation',async()=>{
+ const one=row('one',1),two=row('two',2);const app=await mount('',{compose:false,preferences:{'Hide Empty Split Inboxes':true},readPage:async()=>thinPage([one,two],1000,'next'),readThread:async id=>full(id==='one'?one:two)});try{
+  assert.equal(app.requests.some(item=>item.path==='/api/bootstrap'),false);assert.equal(app.requests.some(item=>item.path.startsWith('/api/threads?')),false);const request=app.requests.find(item=>item.path.startsWith('/api/thread-summaries?'));assert.ok(request);const url=new URL(request.path,'http://local');assert.equal(url.searchParams.get('split'),'important');assert.equal(url.searchParams.get('limit'),'50');assert.equal(app.requests.some(item=>/^\/api\/threads\/[^/]+$/.test(item.path)),false);
+  assert.match(app.host.querySelector('.splits')?.textContent||'',/Important 1000/);assert.match(app.host.querySelector('.splits')?.textContent||'',/Calendar 7/);assert.equal(app.host.querySelectorAll('[role="button"].mail-row').length,2);
+  await app.key('Enter');assert.match(app.host.querySelector('.message-text')?.textContent||'',/Full body one/);assert.equal(app.requests.filter(item=>item.path==='/api/threads/one').length,1);
+ }finally{await app.close()}
+});
+
+test('actual App appends pages, preserves selected thread across head refresh and discovers new arrivals on refresh',async()=>{
+ let rows=[row('one',1),row('two',2),row('three',3),row('four',4)];const app=await mount('',{compose:false,readPage:paged(()=>rows)});try{
+  await app.click('Load more conversations');assert.equal(app.host.querySelectorAll('[role="button"].mail-row').length,4);await app.key('j');await app.key('j');await app.key('j');assert.equal(focusedId(app.host),'Subject four');rows=[row('new',0),...rows];await app.click('Refresh conversations');assert.equal(focusedId(app.host),'Subject four');assert.match(app.host.textContent||'',/Subject new/);assert.equal(app.host.querySelectorAll('[role="button"].mail-row').length,5);
+ }finally{await app.close()}
+});
+
+test('actual keyboard crosses a pending page once without losing repeated navigation',async()=>{
+ const next=deferred<unknown>();const app=await mount('',{compose:false,readPage:async url=>url.searchParams.has('cursor')?next.promise:thinPage([row('one',1),row('two',2)],4,'next')});try{
+  await app.key('j');await act(async()=>{for(let i=0;i<2;i++)window.document.body.dispatchEvent(new window.KeyboardEvent('keydown',{key:'j',bubbles:true,cancelable:true}))});assert.equal(app.requests.filter(item=>item.path.includes('cursor=')).length,1);await act(async()=>{next.resolve(thinPage([row('three',3),row('four',4)],4))});assert.equal(focusedId(app.host),'Subject four');
+ }finally{await app.close()}
+});
+
+test('late account list and detail responses cannot expose the previous account after switching',async()=>{
+ const oldPage=deferred<unknown>(),oldDetail=deferred<unknown>();let holdPage=false;const app=await mount('',{compose:false,readPage:async url=>url.searchParams.get('accountId')==='other'?thinPage([row('other-only',1,'other')]):holdPage?oldPage.promise:thinPage([row('old-only',1)]),readThread:async()=>oldDetail.promise});try{
+  holdPage=true;await app.click('Refresh conversations');await app.key('Enter');await app.click('Manage accounts');await app.click('OOther Userother@example.test');assert.match(app.host.textContent||'',/Subject other-only/);
+  await act(async()=>{oldPage.resolve(thinPage([row('late-old',1)]));oldDetail.resolve(full(row('old-only',1)))});assert.doesNotMatch(app.host.textContent||'',/Subject late-old|Full body old-only/);assert.match(app.host.textContent||'',/Subject other-only/);
+ }finally{await app.close()}
+});
+
+test('late old-query list responses cannot replace committed search results',async()=>{
+ const old=deferred<unknown>();let hold=false;const app=await mount('',{compose:false,readPage:async url=>url.searchParams.get('q')?thinPage([row('query-result',1)]):hold?old.promise:thinPage([row('inbox-old',1)])});try{
+  hold=true;await app.click('Refresh conversations');await app.click('Search');const input=app.host.querySelector<HTMLInputElement>('[aria-label="Search email"]')!;await fillInput(input,'subject:new');await act(async()=>{input.closest('form')!.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}))});assert.match(app.host.textContent||'',/Subject query-result/);
+  await act(async()=>{old.resolve(thinPage([row('late-inbox',1)]))});assert.doesNotMatch(app.host.textContent||'',/Subject late-inbox/);const last=app.requests.filter(item=>item.path.startsWith('/api/thread-summaries?')).at(-1)!;assert.equal(new URL(last.path,'http://local').searchParams.get('q'),'subject:new');
+ }finally{await app.close()}
+});
+
+test('Auto Advance loads the next full detail instead of treating a summary as a message thread',async()=>{
+ let rows=[row('one',1),row('two',2)];const app=await mount('',{compose:false,preferences:{'Auto Advance':true},readPage:paged(()=>rows),readThread:async id=>full(row(id,id==='one'?1:2)),action:async(id,body)=>{assert.equal(body.action,'archive');rows=rows.filter(item=>item.id!==id);return{undoId:'synthetic-undo'}}});try{
+  await app.key('Enter');assert.match(app.host.querySelector('.message-text')?.textContent||'',/Full body one/);await app.click('Mark Done');assert.match(app.host.querySelector('.message-text')?.textContent||'',/Full body two/);assert.equal(app.requests.filter(item=>item.path==='/api/threads/two').length,1);
+ }finally{await app.close()}
+});
+
+test('bounded read-only bootstrap retry recovers a transient startup failure without a reload',async()=>{
+ const app=await mount('',{compose:false,bootstrapFailures:1,readPage:async()=>thinPage([])});try{await act(async()=>{await new Promise(resolve=>setTimeout(resolve,350))});assert.ok(app.host.querySelector('.splits'));assert.doesNotMatch(app.host.textContent||'',/Could not open your inbox/);assert.equal(app.requests.filter(item=>item.path.startsWith('/api/bootstrap')).length,2)}finally{await app.close()}
+});
+
+test('Enter waits for queued keyboard pagination instead of opening the old edge row',async()=>{
+ const next=deferred<unknown>();const app=await mount('',{compose:false,readPage:async url=>url.searchParams.has('cursor')?next.promise:thinPage([row('one',1),row('two',2)],4,'next'),readThread:async id=>full(row(id,3))});try{
+  await app.key('j');await act(async()=>{for(const key of ['j','Enter'])window.document.body.dispatchEvent(new window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}))});assert.equal(app.requests.some(item=>/^\/api\/threads\/[^/]+$/.test(item.path)),false);
+  await act(async()=>{next.resolve(thinPage([row('three',3),row('four',4)],4))});assert.match(app.host.querySelector('.message-text')?.textContent||'',/Full body three/);assert.equal(app.requests.some(item=>item.path==='/api/threads/two'),false);
+ }finally{await app.close()}
+});
+
+test('archive waits for a pending keyboard page and acts only on the intended newly selected thread',async()=>{
+ const next=deferred<unknown>();let rows=[row('one',1),row('two',2),row('three',3),row('four',4)],released=false;const actions:string[]=[];
+ const app=await mount('',{compose:false,readPage:async url=>url.searchParams.has('cursor')&&!released?next.promise:paged(()=>rows)(url),action:async id=>{actions.push(id);rows=rows.filter(item=>item.id!==id);return{undoId:'synthetic-undo'}}});try{
+  await app.key('j');await act(async()=>{for(const key of ['j','e'])window.document.body.dispatchEvent(new window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}))});assert.deepEqual(actions,[]);
+  await act(async()=>{released=true;next.resolve(thinPage([row('three',3),row('four',4)],4))});assert.deepEqual(actions,['three']);assert.equal(app.requests.some(item=>item.path==='/api/threads/two/actions'),false);
+ }finally{await app.close()}
+});
+
+test('near-bottom scrolling loads the next summary page while the accessible fallback remains available',async()=>{
+ const rows=[row('one',1),row('two',2),row('three',3)];const app=await mount('',{compose:false,readPage:paged(()=>rows)});try{
+  assert.ok(app.button('Load more conversations'));const list=app.host.querySelector<HTMLElement>('section.thread-list[aria-label="Inbox"]')!;Object.defineProperties(list,{clientHeight:{configurable:true,value:100},scrollHeight:{configurable:true,value:250},scrollTop:{configurable:true,value:140}});
+  await act(async()=>{list.dispatchEvent(new window.Event('scroll'))});assert.equal(app.host.querySelectorAll('[role="button"].mail-row').length,3);assert.equal(app.requests.filter(item=>item.path.includes('cursor=')).length,1);
+ }finally{await app.close()}
+});
+
+
+test('App Calendar lazy workspace isolates Mail keyboard actions and preserves global account dialog Escape',async()=>{
+ const app=await mount('',{compose:false,readPage:async()=>thinPage([row('one',1)])});try{await app.click('Calendar');assert.ok(app.host.querySelector('[aria-label="Calendar workspace"]'));await app.key('e');assert.equal(app.requests.some(item=>item.path.endsWith('/actions')),false);await app.click('Manage calendar accounts');assert.ok(app.host.querySelector('[role="dialog"][aria-label="accounts"]'));await app.key('Escape');assert.equal(app.host.querySelector('[role="dialog"][aria-label="accounts"]'),null);await app.key('1');assert.equal(app.host.querySelector('[aria-label="Calendar workspace"]'),null);assert.ok(app.host.querySelector('.splits'))}finally{await app.close()}
+});
+
+async function submitPanelAi(app:Awaited<ReturnType<typeof mount>>,prompt:string){
+ const input=app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')!;assert.ok(input);await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(input,prompt);input.dispatchEvent(new window.Event('input',{bubbles:true}))});await act(async()=>{input.closest('form')!.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}))});
+}
+const insertButton=(host:HTMLElement)=>Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(button=>button.textContent?.trim()==='Insert into draft');
+const panelSubmit=(host:HTMLElement)=>host.querySelector<HTMLButtonElement>('textarea[aria-label="Ask AI"]')!.closest('form')!.querySelector<HTMLButtonElement>('button')!;
+
+test('persistent Ask AI isolates late account acknowledgements and keeps unsaved draft content untouched',async()=>{
+ const pending=deferred<Response>();const app=await mount('Keep this draft',{chat:request=>request.method==='POST'&&request.path.endsWith('/turns')?pending.promise:undefined});try{
+  await app.click('Ask AI');await submitPanelAi(app,'A private synthetic question');const request=app.requests.find(item=>item.method==='POST'&&item.path.endsWith('/turns'))!;assert.equal(request.body.accountId,'demo');assert.ok(request.signal);assert.equal(app.host.querySelector('.ai-chat-submit button')?.textContent,'Stop');
+  await app.click('Manage accounts');await app.click('OOther Userother@example.test');assert.equal(request.signal!.aborted,true);assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')?.value,'');
+  await act(async()=>pending.resolve(response(aiCompleted(request.body,'PRIVATE old account answer'),202)));assert.doesNotMatch(app.host.querySelector('.ai-chat-pane')?.textContent||'',/PRIVATE old account answer|A private synthetic question/);assert.equal(insertButton(app.host),undefined);assert.equal(app.requests.some(item=>item.path==='/api/ai'),false);
+ }finally{await app.close()}
+});
+
+test('persistent Ask AI captures selected context per turn while navigating Mail only changes future questions',async()=>{
+ const pending=deferred<Response>();let count=0;const one=row('one',1),two=row('two',2);const app=await mount('',{compose:false,readPage:async()=>thinPage([one,two]),readThread:async id=>full(id==='one'?one:two),chat:request=>request.method==='POST'&&request.path.endsWith('/turns')?(++count===1?pending.promise:response(aiCompleted(request.body,'Current second question'),202)):undefined});try{
+  await app.key('Enter');await app.click('Ask AI');await submitPanelAi(app,'Question about first');const first=app.requests.find(item=>item.method==='POST'&&item.path.endsWith('/turns'))!;assert.equal(first.body.context.selectedThreadId,'one');
+  await app.click('Next thread');assert.match(app.host.querySelector('.thread-view')?.textContent||'',/Full body two/);assert.equal(first.signal!.aborted,false);await submitPanelAi(app,'Next draft question');assert.equal(JSON.parse(window.localStorage.getItem('reconstruction.ask-ai.v1:prompt:demo:chat-demo')||'null'),'Next draft question');assert.equal(app.requests.filter(item=>item.method==='POST'&&item.path.endsWith('/turns')).length,1);
+  await act(async()=>pending.resolve(response(aiCompleted(first.body,'Answer to captured first context'),202)));assert.match(app.host.querySelector('.ai-chat-pane')?.textContent||'',/Answer to captured first context/);assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')?.value,'Next draft question');await submitPanelAi(app,'Question about second');assert.equal(app.requests.filter(item=>item.method==='POST'&&item.path.endsWith('/turns')).at(-1)?.body.context.selectedThreadId,'two');assert.equal(insertButton(app.host),undefined);
+ }finally{await app.close()}
+});
+
+test('persistent Ask AI preflight errors stay alerts without becoming draft text or triggering legacy writing',async()=>{
+ const app=await mount('Keep this draft',{chat:request=>request.method==='POST'&&request.path.endsWith('/turns')?response({error:{code:'ai_chat_not_configured',message:'Configure ANTHROPIC_API_KEY and ANTHROPIC_MODEL to enable Claude'}},503):undefined});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Read-only question');assert.match(app.host.querySelector('[role="alert"]')?.textContent||'',/Configure ANTHROPIC_API_KEY/);assert.equal(insertButton(app.host),undefined);assert.match(app.host.querySelector('[aria-label="Message body"]')?.textContent||'',/Keep this draft/);assert.equal(app.requests.filter(item=>item.method==='POST'&&item.path.endsWith('/turns')).length,1);assert.equal(app.requests.some(item=>item.path==='/api/ai'),false);
+ }finally{await app.close()}
+});
+
+test('unmount aborts local Ask AI transport without cancelling or repeating the durable generation',async()=>{
+ const pending=deferred<Response>();const app=await mount('Original draft',{chat:request=>request.method==='POST'&&request.path.endsWith('/turns')?pending.promise:undefined});let closed=false;try{
+  await app.click('Ask AI');await submitPanelAi(app,'One pending question');const request=app.requests.find(item=>item.method==='POST'&&item.path.endsWith('/turns'))!;await app.close();closed=true;assert.equal(request.signal!.aborted,true);await act(async()=>pending.resolve(response(aiCompleted(request.body,'Late after unmount'),202)));assert.equal(app.requests.filter(item=>item.method==='POST'&&item.path.endsWith('/turns')).length,1);assert.equal(app.requests.some(item=>item.path.endsWith('/cancel')),false);
+ }finally{if(!closed)await app.close()}
+});
+
+async function recipientKey(app:Awaited<ReturnType<typeof mount>>,key:string,options:KeyboardEventInit={}){await act(async()=>{const target=window.document.activeElement||app.host;target.dispatchEvent(new window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...options}))})}
+async function clickContactName(app:Awaited<ReturnType<typeof mount>>){const button=app.host.querySelector<HTMLButtonElement>('.contact-pane-name button');assert.ok(button,'Missing contact name search button');await act(async()=>button.click())}
+
+test('actual App reveals stored Cc/Bcc and composer focus shortcuts target all recipient fields',async()=>{
+ const app=await mount('',{draftHeaders:{cc:'cc@example.test',bcc:'bcc@example.test'}});try{
+  assert.ok(app.host.querySelector('input[aria-label="Cc"]'));assert.ok(app.host.querySelector('input[aria-label="Bcc"]'));
+  for(const [key,label]of[['C','Cc'],['B','Bcc'],['O','To']]){await act(async()=>window.document.body.dispatchEvent(new window.KeyboardEvent('keydown',{key,metaKey:true,shiftKey:true,bubbles:true,cancelable:true})));assert.equal(window.document.activeElement,app.host.querySelector(`input[aria-label="${label}"]`))}
+ }finally{await app.close()}
+});
+
+test('actual account switch snapshots unfinished recipient edits and rich body before the save queue resolves',async()=>{
+ const app=await mount();try{
+  const input=app.host.querySelector<HTMLInputElement>('input[aria-label="To"]')!;await fillInput(input,'new@example.test');const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;
+  await act(async()=>{body.innerHTML='<div>Current <b>rich body</b></div>';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});const save=app.holdSave();await app.click('Manage accounts');await app.click('OOther Userother@example.test');
+  const write=app.requests.find(item=>item.path==='/api/drafts/synthetic-draft'&&item.method==='PATCH')!;assert.equal(write.body.to,'approved@example.test, new@example.test');assert.match(write.body.html,/<b>rich body<\/b>/);assert.equal(app.requests.some(item=>item.path==='/api/preferences'),false);
+  await act(async()=>save.resolve(response({draft:{...app.getDraft(),...write.body}})));assert.equal(app.host.querySelector('.recipient-fields'),null);
+ }finally{await app.close()}
+});
+
+test('actual send locks pending recipients and aborts suggestions before queued save and dispatch',async()=>{
+ const contacts=deferred<unknown>();const app=await mount('',{readContacts:async()=>contacts.promise});try{
+  const input=app.host.querySelector<HTMLInputElement>('input[aria-label="To"]')!;await fillInput(input,'new@example.test');await act(async()=>{input.focus();await new Promise(resolve=>setTimeout(resolve,150))});const lookup=app.requests.find(item=>item.path.startsWith('/api/contacts/suggestions?'));assert.ok(lookup);const save=app.holdSave(),dispatch=app.holdDispatch();await app.click('Send');
+  assert.equal(lookup.signal?.aborted,true);assert.equal(app.host.querySelector<HTMLInputElement>('input[aria-label="To"]')!.readOnly,true);assert.equal(app.requests.filter(item=>item.path.endsWith('/send')).length,0);const write=app.requests.filter(item=>item.method==='PATCH'&&item.path==='/api/drafts/synthetic-draft').at(-1)!;assert.equal(write.body.to,'approved@example.test, new@example.test');
+  await act(async()=>contacts.resolve({contacts:[{name:'Late person',email:'late@example.test',formatted:'Late person <late@example.test>'}],source:'local-message-participants',limited:true}));assert.equal(app.host.querySelector('[role="listbox"]'),null);
+  await act(async()=>save.resolve(response({draft:{...app.getDraft(),...write.body}})));await act(async()=>dispatch.resolve(response({sent:true})));assert.equal(app.requests.filter(item=>item.path.endsWith('/send')).length,1);
+ }finally{await app.close()}
+});
+
+test('actual recipient Escape commits first while keeping the draft open, then outer Escape saves and closes',async()=>{
+ const app=await mount('',{draftHeaders:{to:''}});try{
+  const input=app.host.querySelector<HTMLInputElement>('input[aria-label="To"]')!;await fillInput(input,'invalid-name,');await recipientKey(app,'Escape');assert.ok(app.host.querySelector('.recipient-chip.is-invalid'));assert.ok(app.host.querySelector('[aria-label="Message body"]'));assert.equal(window.document.activeElement,app.host.querySelector('.compose-card'));
+  await recipientKey(app,'Escape');assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);assert.equal(app.requests.find(item=>item.method==='PATCH'&&item.path==='/api/drafts/synthetic-draft')?.body.to,JSON.stringify('invalid-name,'));
+ }finally{await app.close()}
+});
+
+test('actual scheduling snapshots an unfinished existing-chip replacement plus Cc/Bcc before its save queue',async()=>{
+ const app=await mount('',{draftHeaders:{cc:'cc@example.test',bcc:'bcc@example.test'}});try{
+  await app.click('Recipient approved@example.test');await recipientKey(app,'Enter');const input=app.host.querySelector<HTMLInputElement>('input[aria-label="To"]')!;await fillInput(input,'Replacement <replacement@example.test>');const save=app.holdSave(),dispatch=app.holdDispatch();await app.click('Send later');const when=app.host.querySelector<HTMLInputElement>('input[aria-label="Send later"]')!;await fillInput(when,'tomorrow');await act(async()=>when.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true})));
+  const write=app.requests.filter(item=>item.method==='PATCH'&&item.path==='/api/drafts/synthetic-draft').at(-1)!;assert.equal(write.body.to,'Replacement <replacement@example.test>');assert.equal(write.body.cc,'cc@example.test');assert.equal(write.body.bcc,'bcc@example.test');assert.equal(app.requests.some(item=>item.path.endsWith('/schedule')),false);assert.equal(app.host.querySelector<HTMLInputElement>('input[aria-label="Cc"]')!.readOnly,true);
+  await act(async()=>save.resolve(response({draft:{...app.getDraft(),...write.body}})));const schedule=app.requests.find(item=>item.path.endsWith('/schedule'))!;assert.ok(Date.parse(schedule.body.scheduledAt)>Date.now());assert.equal(app.requests.some(item=>item.path.endsWith('/send')),false);await act(async()=>dispatch.resolve(response({draft:{...app.getDraft(),status:'scheduled'}})));assert.equal(app.host.querySelector('.recipient-fields'),null);
+ }finally{await app.close()}
+});
+
+test('actual send and schedule reject every invalid fragment before delivery while preserving editable draft text',async()=>{
+ const app=await mount('',{draftHeaders:{to:'not-an-address, "O\\"Neil" <approved@example.test>'}});try{
+  assert.equal(app.host.querySelectorAll('.recipient-chip').length,2);await app.click('Send');assert.match(app.host.textContent||'',/Enter valid recipient email addresses/);assert.equal(app.requests.some(item=>item.path.endsWith('/send')),false);assert.equal(app.host.querySelectorAll('.recipient-chip').length,2);assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'false');assert.equal(app.button('Send').disabled,false);
+  await app.click('Send later');const when=app.host.querySelector<HTMLInputElement>('input[aria-label="Send later"]')!;await fillInput(when,'tomorrow');await act(async()=>when.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true})));assert.equal(app.requests.some(item=>item.path.endsWith('/schedule')),false);assert.equal(app.host.querySelector('[role="dialog"]'),null);assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'false');
+ }finally{await app.close()}
+});
+
+test('actual App exposes unsupported outgoing grammar before dispatch while retaining the original recipient text',async()=>{
+ const app=await mount('',{draftHeaders:{to:'a..b@example.test'}});try{assert.equal(app.host.querySelectorAll('.recipient-chip.is-invalid').length,0);await app.click('Send');assert.match(app.host.textContent||'',/recipient format or size is unsupported/);assert.equal(app.requests.some(item=>item.path.endsWith('/send')),false);await app.click('Back');assert.equal(app.requests.find(item=>item.method==='PATCH'&&item.path==='/api/drafts/synthetic-draft')?.body.to,'a..b@example.test')}finally{await app.close()}
+});
+
+test('actual App contact fallback remains independent of left AI and isolates late reads across accounts',async()=>{
+ const late=deferred<unknown>();const app=await mount('',{strict:true,readContext:async(url)=>url.searchParams.get('email')==='one@example.test'?late.promise:{contact:{name:'',email:url.searchParams.get('email')},threads:[],matched:false,source:'local-message-participants',limited:true}});try{
+  const fill=async(text:string)=>{const node=app.host.querySelector<HTMLInputElement>('input[aria-label="To"]')!;assert.ok(node);await act(async()=>{node.focus();Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(node,text);node.dispatchEvent(new window.Event('input',{bubbles:true}))})};
+  const key=async(value:string)=>{await act(async()=>app.host.querySelector<HTMLInputElement>('input[aria-label="To"]')!.dispatchEvent(new window.KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true})))};
+  assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'demo@example.test');await fill('one@example.test');assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'demo@example.test');await key('Enter');assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'one@example.test');
+  await app.click('Remove recipient one@example.test');assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'one@example.test');const request=app.requests.find(item=>item.path.startsWith('/api/contacts/context?')&&item.path.includes('one%40'))!;
+  await app.click('Ask AI');assert.equal(request.signal?.aborted,false);await act(async()=>late.resolve({contact:{name:'Late Private Name',email:'one@example.test'},threads:[{id:'private-old',accountId:'demo',subject:'Late private subject',lastMessageAt:'2026-10-27T12:00:00Z'}],matched:true,source:'local-message-participants',limited:true}));assert.ok(app.host.querySelector('.left-ai-panel .ai-chat-pane'));assert.equal(app.host.querySelector('.right-panel .contact-pane-email')?.textContent,'one@example.test');assert.match(app.host.querySelector('.right-panel')?.textContent||'',/Late private subject/);
+  await app.click('Manage accounts');await app.click('OOther Userother@example.test');assert.equal(app.host.querySelector('.contact-pane'),null);assert.doesNotMatch(app.host.textContent||'',/Late Private Name|one@example.test|Late private subject/);
+ }finally{await app.close()}
+});
+
+test('contact recent-row navigation loads full detail lazily and preserves the chosen contact; name search preserves it',async()=>{
+ const recent={id:'contact-recent',accountId:'demo',subject:'Synthetic recent subject',lastMessageAt:'2026-10-27T12:00:00Z'};
+ const app=await mount('',{readContext:async(url)=>({contact:{name:'',email:url.searchParams.get('email')},threads:url.searchParams.get('excludeThreadId')===recent.id?[]:[recent],matched:true,source:'local-message-participants',limited:true}),readThread:async(id)=>({id,accountId:'demo',subject:recent.subject,sender:{name:'Different sender',email:'different@example.test'},participants:[],lastMessageAt:recent.lastMessageAt,unread:false,starred:false,important:true,folder:'inbox',labels:[],messages:[{id:'contact-message',sender:{name:'Different sender',email:'different@example.test'},to:[{name:'Demo',email:'demo@example.test'}],date:recent.lastMessageAt,text:'Synthetic message',attachments:[]}]})});try{
+  await app.click('Recipient approved@example.test');const row=app.host.querySelector<HTMLButtonElement>('.contact-pane-thread')!;assert.ok(row);await act(async()=>row.click());assert.ok(app.requests.some(item=>item.path==='/api/threads/contact-recent'));assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'approved@example.test');assert.match(app.host.querySelector('.thread-view')?.textContent||'',/Synthetic message/);
+  assert.ok(app.requests.some(item=>item.path.includes('excludeThreadId=contact-recent')));await clickContactName(app);const input=app.host.querySelector<HTMLInputElement>('[aria-label="Search email"]');assert.ok(input);assert.equal(input.value,'approved@example.test ');assert.equal(app.host.querySelector('.contact-pane'),null);assert.ok(app.host.querySelector('.search-tips'));assert.equal(app.host.querySelector('.thread-view'),null);await recipientKey(app,'Escape');assert.match(app.host.querySelector('.thread-view')?.textContent||'',/Synthetic message/);assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'approved@example.test');
+ }finally{await app.close()}
+});
+
+test('contact search awaiting a save cannot override newer selection while independent AI stays open',async()=>{
+ for(const switchMode of[false,true]){
+  const app=await mount('',{draftHeaders:{to:'one@example.test, two@example.test'}});try{
+   await app.click('Recipient one@example.test');const save=app.holdSave();await clickContactName(app);
+   if(switchMode)await app.click('Ask AI');else await app.click('Recipient two@example.test');
+   await act(async()=>save.resolve(response({draft:app.getDraft()})));assert.ok(app.host.querySelector('[aria-label="Message body"]'),'new context retains composer');assert.equal(app.host.querySelector('[aria-label="Search email"]'),null);
+   if(switchMode)assert.ok(app.host.querySelector('[aria-label="Ask AI"]'));else assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'two@example.test');
+  }finally{await app.close()}
+ }
+});
+
+test('opened-message context follows sender or recipient alongside independent left AI',async()=>{
+ const item=row('contact-focus',0),incoming={name:'Incoming Person',email:'incoming@example.test'},recipient={name:'Sent Recipient',email:'sent-recipient@example.test'},thread={...full(item),messages:[{id:'incoming',sender:incoming,to:[{name:'Demo User',email:'demo@example.test'}],date:item.lastMessageAt,text:'Incoming synthetic message',attachments:[]},{id:'outgoing',sender:{name:'Demo User',email:'demo@example.test'},to:[recipient],date:item.lastMessageAt,text:'Outgoing synthetic message',attachments:[]}]};
+ const app=await mount('',{compose:false,readPage:async()=>thinPage([item],1,null),readThread:async()=>thread});try{
+  const selected=app.host.querySelector<HTMLElement>('.mail-row')!;await act(async()=>selected.click());assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,recipient.email);
+  await act(async()=>app.host.querySelector<HTMLElement>('[aria-label="Message from Incoming Person"]')!.focus());assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,incoming.email);
+  await app.click('Ask AI');await act(async()=>app.host.querySelector<HTMLElement>('[aria-label="Message from Demo User"]')!.focus());assert.equal(app.host.querySelector('.right-panel .contact-pane-email')?.textContent,recipient.email);assert.ok(app.host.querySelector('.left-ai-panel [aria-label="Ask AI"]'));await app.click('Close AI');assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,recipient.email);
+ }finally{await app.close()}
+});
+
+test('draft contact search keeps the exact editors mounted, preserves both undo histories and Escape returns without closing',async()=>{
+ const app=await mount('',{draftHeaders:{to:'one@example.test, two@example.test'}});try{
+  const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!,recipients=app.host.querySelector('.recipient-fields');
+  await act(async()=>{body.focus();body.textContent='Synthetic retained history';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}));const range=window.document.createRange();range.selectNodeContents(body);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);window.document.dispatchEvent(new window.Event('selectionchange'))});
+  await recipientKey(app,'b',{metaKey:true});assert.ok(body.querySelector('b,strong'));
+  await app.click('Recipient two@example.test');await recipientKey(app,'Delete');assert.equal(app.host.querySelectorAll('.recipient-chip').length,1);assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'one@example.test');
+  await clickContactName(app);assert.equal(app.host.querySelector('[aria-label="Search email"]'),null);assert.equal(app.host.querySelector('.topbar h1')?.textContent,'New Message');assert.ok(app.requests.some(item=>item.path.startsWith('/api/thread-summaries?')&&new URL(item.path,'http://127.0.0.1').searchParams.get('q')==='one@example.test'));assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);assert.equal(app.host.querySelector('.recipient-fields'),recipients);assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'one@example.test');assert.equal(app.host.querySelector('.contact-pane-mail'),null);
+  await recipientKey(app,'Escape');assert.equal(app.host.querySelector('[aria-label="Search email"]'),null);assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);assert.equal(app.host.querySelector('.recipient-fields'),recipients);
+  await act(async()=>{body.focus();body.dispatchEvent(new window.KeyboardEvent('keydown',{key:'z',metaKey:true,bubbles:true,cancelable:true}));body.dispatchEvent(new window.KeyboardEvent('keyup',{key:'z',metaKey:true,bubbles:true}))});assert.equal(body.querySelector('b,strong'),null);assert.match(body.textContent||'',/Synthetic retained history/);
+  await app.click('Recipient one@example.test');await recipientKey(app,'z',{metaKey:true});assert.equal(app.host.querySelectorAll('.recipient-chip').length,2);assert.ok(app.host.querySelector('[aria-label="Message body"]'));
+ }finally{await app.close()}
+});
+
+test('a draft contact-search return rejects account switch and survives independent AI open/close',async()=>{
+ for(const mode of['account','ai']){
+  const app=await mount('Retained',{draftHeaders:{to:'one@example.test'}});try{
+   await app.click('Recipient one@example.test');await clickContactName(app);assert.equal(app.host.querySelector('.topbar h1')?.textContent,'New Message');assert.ok(app.requests.some(item=>item.path.startsWith('/api/thread-summaries?')&&new URL(item.path,'http://127.0.0.1').searchParams.get('q')==='one@example.test'));
+   if(mode==='account'){await app.click('Manage accounts');await app.click('OOther Userother@example.test')}else{await app.click('Ask AI');await app.click('Close AI')}
+   assert.equal(app.host.querySelector('[aria-label="Search email"]'),null);await recipientKey(app,'Escape');if(mode==='account'){assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);assert.doesNotMatch(app.host.querySelector('.right-panel')?.textContent||'',/one@example.test/)}else{assert.ok(app.host.querySelector('[aria-label="Message body"]'));assert.equal(app.host.querySelector('.main')?.getAttribute('data-contact-search'),null);assert.equal(app.host.querySelector('.right-panel .contact-pane-email')?.textContent,'one@example.test')}
+  }finally{await app.close()}
+ }
+});
+
+test('thread contact-search Escape restores the same cached conversation before any late search page can publish',async()=>{
+ const item=row('return-thread',0),pending=deferred<unknown>();const app=await mount('',{compose:false,readPage:async(url)=>url.searchParams.get('q')?pending.promise:thinPage([item]),readThread:async()=>full(item)});try{
+  await act(async()=>app.host.querySelector<HTMLElement>('.mail-row')!.click());await clickContactName(app);assert.equal(app.host.querySelector('.thread-view'),null);assert.ok(app.host.querySelector('.search-tips'));assert.equal(app.host.querySelector('.contact-pane'),null);
+  await recipientKey(app,'Escape');assert.match(app.host.querySelector('.thread-view')?.textContent||'',/Full body return-thread/);assert.equal(app.requests.filter(item=>item.path==='/api/threads/return-thread').length,1);assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'return-thread@example.test');
+  await act(async()=>pending.resolve(thinPage([row('obsolete-search',0)])));assert.match(app.host.querySelector('.thread-view')?.textContent||'',/Full body return-thread/);assert.doesNotMatch(app.host.querySelector('.thread-view')?.textContent||'',/obsolete-search/);
+ }finally{await app.close()}
+});
+
+test('opening a contact search result invalidates the prior thread return without canceling its lazy detail request',async()=>{
+ const previous=row('prior-thread',0),result=row('search-result',1),detail=deferred<unknown>();const app=await mount('',{compose:false,readPage:async(url)=>thinPage([url.searchParams.get('q')?result:previous]),readThread:async(id)=>id===previous.id?full(previous):detail.promise});try{
+  await act(async()=>app.host.querySelector<HTMLElement>('.mail-row')!.click());await clickContactName(app);const resultRow=app.host.querySelector<HTMLElement>('.mail-row')!;assert.match(resultRow.textContent||'',/search-result/);await act(async()=>resultRow.click());assert.equal(app.host.querySelector('.thread-view'),null);await act(async()=>detail.resolve(full(result)));assert.match(app.host.querySelector('.thread-view')?.textContent||'',/Full body search-result/);
+  await recipientKey(app,'Escape');assert.equal(app.host.querySelector('.thread-view'),null);assert.doesNotMatch(app.host.querySelector('.main')?.textContent||'',/Full body prior-thread/);
+ }finally{await app.close()}
+});
+
+test('folder navigation waiting on save cannot discard a newer Compose intent',async()=>{
+ const app=await mount('',{compose:false});try{
+  await app.click('Switch folders');await app.click('Compose');const save=app.holdSave();const folder=Array.from(app.host.querySelectorAll<HTMLButtonElement>('.navigation .folder')).find(button=>button.textContent?.startsWith('Drafts'))!;assert.ok(folder);await act(async()=>folder.click());await app.click('Compose');
+  assert.equal(app.requests.filter(item=>item.path==='/api/drafts'&&item.method==='POST').length,1);await act(async()=>save.resolve(response({draft:app.getDraft()})));assert.equal(app.requests.filter(item=>item.path==='/api/drafts'&&item.method==='POST').length,2);assert.ok(app.host.querySelector('[aria-label="Message body"]'));assert.equal(app.host.querySelector('.topbar h1')?.textContent,'New Message');
+ }finally{await app.close()}
+});
+
+test('new acknowledged draft remains current in Drafts after contact recent navigation without another bootstrap',async()=>{
+ const recent=row('cache-recent',0);const app=await mount('',{emptyInitialDrafts:true,readContext:async(url)=>({contact:{name:'',email:url.searchParams.get('email')},matched:true,source:'local-message-participants',limited:true,threads:[recent]}),readThread:async()=>full(recent)});try{
+  await fillInput(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!,'Latest cached subject');const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;await act(async()=>{body.innerHTML='<div>Latest <b>rich</b> body</div>';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});await app.click('Recipient approved@example.test');await act(async()=>app.host.querySelector<HTMLButtonElement>('.contact-pane-thread')!.click());assert.ok(app.host.querySelector('.thread-view'));await app.key('Escape');await app.click('Switch folders');const folder=Array.from(app.host.querySelectorAll<HTMLButtonElement>('.navigation .folder')).find(button=>button.textContent?.startsWith('Drafts'))!;await act(async()=>folder.click());const row=Array.from(app.host.querySelectorAll<HTMLButtonElement>('[aria-label="Drafts"] .mail-row')).find(button=>button.textContent?.includes('Latest cached subject'));assert.ok(row);assert.match(row.textContent||'',/Latest rich body/);assert.equal(app.requests.filter(item=>item.path.startsWith('/api/bootstrap')).length,1);await act(async()=>row.click());assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'Latest cached subject');assert.match(app.host.querySelector('[aria-label="Message body"]')?.textContent||'',/Latest rich body/);assert.ok(app.host.querySelector('[aria-label="Message body"] b'));
+ }finally{await app.close()}
+});
+
+
+test('contact search commits its return before a held save so immediate Escape retains the draft after save settles',async()=>{
+ for(const mailHeading of[false,true]){
+  const recent=row('pending-contact-search',0);const app=await mount('',{draftHeaders:{to:'one@example.test'},readContext:async(url)=>({contact:{name:'',email:url.searchParams.get('email')},matched:true,source:'local-message-participants',limited:true,threads:[recent]})});try{
+   await app.click('Recipient one@example.test');const body=app.host.querySelector('[aria-label="Message body"]'),save=app.holdSave();if(mailHeading)await app.click('Search mail with this contact');else await clickContactName(app);assert.equal(app.host.querySelector('.main')?.getAttribute('data-contact-search'),'draft');await app.key('Escape');assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);assert.equal(app.host.querySelector('.main')?.getAttribute('data-contact-search'),null);await act(async()=>save.resolve(response({draft:app.getDraft()})));assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);assert.equal(app.host.querySelector('.topbar h1')?.textContent,'New Message');assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'one@example.test');
+  }finally{await app.close()}
+ }
+});
+
+test('AI source navigation waits for live draft save and rejects a newer AI conversation or closed pane',async()=>{
+ for(const change of ['session','close']){
+ const item=row('ai-source-thread',0);let receipt:any;const app=await mount('Latest synthetic draft',{readThread:async()=>full(item),chat:request=>{
+  if(request.method==='POST'&&request.path.endsWith('/turns')){const completed=aiCompleted(request.body,'Grounded fact [cite:1]');receipt={id:'ai-owned-source',accountId:'demo',sessionId:completed.turn.sessionId,turnId:completed.turn.id,number:1,target:{kind:'mail',accountId:'demo',threadId:item.id,messageIds:['message-'+item.id]},basis:'mail-text',label:'Owned source conversation',secondaryLabel:'Synthetic sender',excerpt:'Controlled source text',snapshotHash:'synthetic-hash',fetchedAt:'2026-10-28T00:00:00Z',sourceUpdatedAt:item.lastMessageAt,truncated:false,partial:false};return response({...completed,turn:{...completed.turn,sources:[receipt],answer:{...completed.turn.answer,citations:[{number:1,sourceId:receipt.id}],sourceIds:[receipt.id]}}},202)}
+  if(request.path.startsWith('/api/ai/chat/sources/'))return response({source:receipt,resolution:{availability:'available',target:receipt.target}});
+  return undefined;
+ }});try{
+  await app.click('Recipient approved@example.test');await app.click('Ask AI');await submitPanelAi(app,'Synthetic source question');await app.click('Source 1');const source=app.host.querySelector<HTMLButtonElement>('.ai-chat-source>button');assert.ok(source);const editor=app.host.querySelector('[aria-label="Message body"]'),save=app.holdSave();await act(async()=>source.click());assert.equal(app.requests.some(request=>request.path==='/api/threads/'+item.id),false);
+  if(change==='close')await app.click('Close AI');else{await app.click('AI conversation history');const row=app.host.querySelector<HTMLButtonElement>('.ai-chat-history-row[data-session-id="chat-history-demo"]');assert.ok(row);await act(async()=>row.click())}await act(async()=>save.resolve(response({draft:app.getDraft()})));
+  assert.equal(app.requests.some(request=>request.path==='/api/threads/'+item.id),false);assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.match(editor?.textContent||'',/Latest synthetic draft/);assert.equal(app.host.querySelector('.thread-view'),null);if(change==='close')assert.equal(app.host.querySelector('.contact-pane-email')?.textContent,'approved@example.test');
+ }finally{await app.close()}
+ }
+});
+
+test('AI source navigation opens only the resolved exact mail target after preserving unsaved rich draft text',async()=>{
+ const item=row('ai-source-positive',0);let receipt:any;const app=await mount('Initial',{readThread:async()=>full(item),chat:request=>{
+  if(request.method==='POST'&&request.path.endsWith('/turns')){const completed=aiCompleted(request.body,'Grounded fact [cite:1]');receipt={id:'ai-positive-source',accountId:'demo',sessionId:completed.turn.sessionId,turnId:completed.turn.id,number:1,target:{kind:'mail',accountId:'demo',threadId:item.id,messageIds:['message-'+item.id]},basis:'mail-text',label:'Positive source conversation',secondaryLabel:'Synthetic sender',excerpt:'Controlled source text',snapshotHash:'synthetic-hash',fetchedAt:'2026-10-28T00:00:00Z',sourceUpdatedAt:item.lastMessageAt,truncated:false,partial:false};return response({...completed,turn:{...completed.turn,sources:[receipt],answer:{...completed.turn.answer,citations:[{number:1,sourceId:receipt.id}],sourceIds:[receipt.id]}}},202)}
+  if(request.path.startsWith('/api/ai/chat/sources/'))return response({source:receipt,resolution:{availability:'available',target:receipt.target}});return undefined;
+ }});try{
+  const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;await act(async()=>{body.innerHTML='<div>Latest <b>unsaved source navigation</b></div>';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});
+  await app.click('Ask AI');await submitPanelAi(app,'Show source');await app.click('Source 1');await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-source>button')!.click());assert.match(app.host.querySelector('.thread-view')?.textContent||'',/Full body ai-source-positive/);assert.equal(app.getDraft().body,'Latest unsaved source navigation');assert.match(app.getDraft().html,/<b>unsaved source navigation<\/b>/);assert.equal(app.requests.filter(request=>request.path==='/api/threads/'+item.id).length,1);assert.equal(app.requests.some(request=>request.method==='POST'&&(request.path.endsWith('/send')||request.path.endsWith('/schedule'))),false);
+ }finally{await app.close()}
+});
+
+test('Ask AI Copy writes plain text plus inert rendered HTML and replaces only real citation buttons',async()=>{
+ const copied:any[]=[];const clipboard=Object.getOwnPropertyDescriptor(window.navigator,'clipboard'),item=Object.getOwnPropertyDescriptor(globalThis,'ClipboardItem');
+ Object.defineProperty(window.navigator,'clipboard',{configurable:true,value:{write:async(items:unknown[])=>{copied.push(...items)}}});Object.defineProperty(globalThis,'ClipboardItem',{configurable:true,value:class{data:Record<string,Blob>;constructor(data:Record<string,Blob>){this.data=data}}});
+ const app=await mount('',{chat:request=>{if(request.method!=='POST'||!request.path.endsWith('/turns'))return undefined;const completed=aiCompleted(request.body,'## Safe\n\n**Fact** [cite:1] and `literal [cite:1]`.\n\n<img src="https://tracking.example.test/pixel" onerror="alert(1)">'),source={id:'copy-source',accountId:'demo',sessionId:completed.turn.sessionId,turnId:completed.turn.id,number:1,target:{kind:'mail',accountId:'demo',threadId:'copy-thread',messageIds:[]},basis:'mail-summary',label:'Copy source',secondaryLabel:'Synthetic',excerpt:'Synthetic',snapshotHash:'synthetic',fetchedAt:'2026-10-28T00:00:00Z',sourceUpdatedAt:null,truncated:false,partial:true};return response({...completed,turn:{...completed.turn,sources:[source],answer:{...completed.turn.answer,plainText:'Safe\nFact [1] and literal [cite:1].\n<img src="https://tracking.example.test/pixel" onerror="alert(1)">',citations:[{number:1,sourceId:source.id}],sourceIds:[source.id]}}},202)}});
+ try{
+  await app.click('Ask AI');await submitPanelAi(app,'Copy synthetic facts');await app.click('Copy answer');assert.equal(copied.length,1);const plain=await copied[0].data['text/plain'].text(),html=await copied[0].data['text/html'].text(),fragment=JSDOM.fragment(html);assert.match(plain,/Fact \[1\] and literal \[cite:1\]/);assert.equal(fragment.querySelector('img,script,button,[data-ai-source]'),null);assert.equal(fragment.querySelector('strong')?.textContent,'Fact');assert.match(fragment.textContent||'',/Fact \[1\]/);assert.match(fragment.querySelector('code')?.textContent||'',/literal \[cite:1\]/);assert.match(app.host.textContent||'',/Copied answer/);
+ }finally{await app.close();if(clipboard)Object.defineProperty(window.navigator,'clipboard',clipboard);else Reflect.deleteProperty(window.navigator,'clipboard');if(item)Object.defineProperty(globalThis,'ClipboardItem',item);else Reflect.deleteProperty(globalThis,'ClipboardItem')}
+});
+
+test('Ask AI is an independent left workspace and closing it retains exact composer DOM, recipient undo and rich undo',async()=>{
+ const app=await mount('',{draftHeaders:{to:'one@example.test, two@example.test'}});try{
+  const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!,recipients=app.host.querySelector('.recipient-fields');
+  await act(async()=>{body.focus();body.textContent='Retained formatted draft';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}));const range=window.document.createRange();range.selectNodeContents(body);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);window.document.dispatchEvent(new window.Event('selectionchange'))});
+  await recipientKey(app,'b',{metaKey:true});assert.ok(body.querySelector('b,strong'));await app.click('Recipient two@example.test');await recipientKey(app,'Delete');assert.equal(app.host.querySelectorAll('.recipient-chip').length,1);
+  await app.click('Ask AI');const left=app.host.querySelector<HTMLElement>('.left-ai-panel')!;assert.equal(left.hidden,false);assert.equal(left.previousElementSibling?.className,'rail');assert.ok(left.querySelector('.ai-chat-pane'));assert.equal(app.host.querySelector('.right-panel .ai-chat-pane'),null);assert.equal(app.host.querySelector('.right-panel .contact-pane-email')?.textContent,'one@example.test');assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);assert.equal(app.host.querySelector('.recipient-fields'),recipients);
+  const input=left.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')!;await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(input,'Unsent private question');input.dispatchEvent(new window.Event('input',{bubbles:true}))});await recipientKey(app,'Escape');assert.equal(left.hidden,true);assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);await app.click('Ask AI');assert.equal(left.querySelector<HTMLTextAreaElement>('textarea')?.value,'Unsent private question');await app.click('Close AI');
+  await act(async()=>{body.focus();body.dispatchEvent(new window.KeyboardEvent('keydown',{key:'z',metaKey:true,bubbles:true,cancelable:true}));body.dispatchEvent(new window.KeyboardEvent('keyup',{key:'z',metaKey:true,bubbles:true}))});assert.equal(body.querySelector('b,strong'),null);assert.equal(body.textContent,'Retained formatted draft');await app.click('Recipient one@example.test');await recipientKey(app,'z',{metaKey:true});assert.equal(app.host.querySelectorAll('.recipient-chip').length,2);assert.equal(app.requests.some(item=>item.path.endsWith('/turns')||item.path.endsWith('/send')),false);
+ }finally{await app.close()}
+});
+
+test('Ask AI header history and New shortcut preserve scoped unsent prompts without touching Mail or the right settings',async()=>{
+ const app=await mount('Keep current composer',{chat:()=>undefined});try{
+  const body=app.host.querySelector('[aria-label="Message body"]');await app.click('Ask AI');assert.equal(app.host.querySelector('select[aria-label="AI conversation"]'),null);const input=app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')!;
+  await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(input,'Scoped first question');input.dispatchEvent(new window.Event('input',{bubbles:true}))});await app.click('AI conversation history');assert.ok(app.host.querySelector('.ai-chat-history'));assert.equal(app.host.querySelector('textarea[aria-label="Ask AI"]'),null);const history=app.host.querySelector<HTMLButtonElement>('.ai-chat-history-row[data-session-id="chat-history-demo"]')!;await act(async()=>history.click());assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')?.value,'');await app.click('AI conversation history');await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-history-row[data-session-id="chat-demo"]')!.click());assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')?.value,'Scoped first question');
+  await recipientKey(app,'J',{metaKey:true,shiftKey:true});assert.equal(app.requests.filter(item=>item.path==='/api/ai/chat/sessions'&&item.method==='POST').length,1);assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')?.value,'');assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);
+  await app.click('Settings');assert.ok(app.host.querySelector('.left-ai-panel .ai-chat-pane'));assert.ok(app.host.querySelector('.right-panel .settings-list'));await app.click('Close AI');assert.ok(app.host.querySelector('.right-panel .settings-list'));assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);assert.equal(app.requests.some(item=>item.path.endsWith('/turns')),false);
+ }finally{await app.close()}
+});
+
+test('AI mail sources leave Calendar only after guarded detail success and preserve an authored Calendar form until Cancel',async()=>{
+ for(const editing of[false,true]){
+  const item=row('calendar-mail-source',0);let receipt:any;const app=await mount('',{compose:false,readThread:async()=>full(item),calendar:request=>{const url=new URL(request.path,'http://fixture.test');if(url.pathname==='/api/calendar/calendars')return response({calendars:[{accountId:'demo',id:'owned-ai-source',summary:'Synthetic owner',timeZone:'America/Los_Angeles',accessRole:'owner',primary:true,selected:true}],sync:{phase:'incremental',partial:false},providerStatus:{enabled:true,configured:true,grant:{},capabilities:{list:true,read:true,readOwned:true,writeOwned:true,freebusy:true},writesEnabled:true,liveVerified:false}});if(url.pathname==='/api/calendar/events')return response({calendarId:url.searchParams.get('calendarId'),range:{timeMin:url.searchParams.get('timeMin'),timeMax:url.searchParams.get('timeMax'),timeZone:url.searchParams.get('timeZone')},events:[],cache:{key:'synthetic',partial:false,updatedAt:'2026-10-28T00:00:00Z',expiresAt:'2026-10-29T00:00:00Z'}});return undefined},chat:request=>{
+   if(request.method==='POST'&&request.path.endsWith('/turns')){const completed=aiCompleted(request.body,'Exact local mail [cite:1]');receipt={id:'calendar-to-mail-source',accountId:'demo',sessionId:completed.turn.sessionId,turnId:completed.turn.id,number:1,target:{kind:'mail',accountId:'demo',threadId:item.id,messageIds:['message-'+item.id]},basis:'mail-text',label:'Synthetic mail source',secondaryLabel:'Synthetic sender',excerpt:'Local controlled context',snapshotHash:'synthetic',fetchedAt:'2026-10-28T00:00:00Z',sourceUpdatedAt:item.lastMessageAt,truncated:false,partial:false};return response({...completed,turn:{...completed.turn,sources:[receipt],answer:{...completed.turn.answer,citations:[{number:1,sourceId:receipt.id}],sourceIds:[receipt.id]}}},202)}if(request.path.startsWith('/api/ai/chat/sources/'))return response({source:receipt,resolution:{availability:'available',target:receipt.target}});return undefined;
+  }});try{
+   await app.click('Ask AI');await submitPanelAi(app,'Show synthetic mail');await app.click('Source 1');const pane=app.host.querySelector('.ai-chat-pane');await app.click('Calendar');assert.ok(app.host.querySelector('[aria-label="Calendar workspace"]'));assert.equal(app.host.querySelector('.ai-chat-pane'),pane);
+   if(editing){await app.key('b');const title=app.host.querySelector<HTMLInputElement>('[aria-label="Event title"]');assert.ok(title);await fillInput(title,'Do not discard this authored event');await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-source>button')!.click());assert.ok(app.host.querySelector('[aria-label="Calendar workspace"]'));assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Event title"]')?.value,'Do not discard this authored event');assert.equal(app.requests.some(request=>request.path==='/api/threads/'+item.id),false);assert.match(app.host.textContent||'',/Finish or close the current calendar event/);await app.click('Cancel')}
+   await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-source>button')!.click());assert.equal(app.host.querySelector('[aria-label="Calendar workspace"]'),null);assert.match(app.host.querySelector('.thread-view')?.textContent||'',/Full body calendar-mail-source/);assert.ok(app.host.querySelector('.right-panel .contact-pane'));assert.equal(app.host.querySelector('.ai-chat-pane'),pane);assert.match(pane?.textContent||'',/Exact local mail/);assert.equal(app.requests.some(request=>request.path==='/api/calendar/operations'),false);
+  }finally{await app.close()}
+ }
+});
+
+test('a delayed AI mail-source detail cannot replace a newer Calendar or Settings workspace intent',async()=>{
+ for(const next of['Calendar','Settings']){
+  const detail=deferred<ReturnType<typeof full>>(),item=row('late-ai-source',0);let receipt:any;const app=await mount('',{compose:false,readThread:async()=>detail.promise,chat:request=>{
+   if(request.method==='POST'&&request.path.endsWith('/turns')){const completed=aiCompleted(request.body,'Saved source [cite:1]');receipt={id:'late-source-receipt',accountId:'demo',sessionId:completed.turn.sessionId,turnId:completed.turn.id,number:1,target:{kind:'mail',accountId:'demo',threadId:item.id,messageIds:['message-'+item.id]},basis:'mail-text',label:'Synthetic delayed source',secondaryLabel:'Synthetic sender',excerpt:'Bounded local context',snapshotHash:'synthetic',fetchedAt:'2026-10-28T00:00:00Z',sourceUpdatedAt:item.lastMessageAt,truncated:false,partial:false};return response({...completed,turn:{...completed.turn,sources:[receipt],answer:{...completed.turn.answer,citations:[{number:1,sourceId:receipt.id}],sourceIds:[receipt.id]}}},202)}if(request.path.startsWith('/api/ai/chat/sources/'))return response({source:receipt,resolution:{availability:'available',target:receipt.target}});return undefined;
+  }});try{
+   await app.click('Ask AI');await submitPanelAi(app,'Read synthetic source');await app.click('Source 1');await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-source>button')!.click());assert.ok(app.requests.some(request=>request.path==='/api/threads/'+item.id));await app.click(next);await act(async()=>detail.resolve(full(item)));assert.equal(app.host.querySelector('.thread-view'),null);assert.ok(app.host.querySelector('.left-ai-panel .ai-chat-pane'));if(next==='Calendar')assert.ok(app.host.querySelector('[aria-label="Calendar workspace"]'));else assert.ok(app.host.querySelector('.right-panel .settings-list'));
+  }finally{await app.close()}
+ }
+});
+
+function syntheticSourceAnswer(body:any,target:Record<string,unknown>){const completed=aiCompleted(body,'Scoped source [cite:1]'),receipt={id:'scoped-source',accountId:'demo',sessionId:completed.turn.sessionId,turnId:completed.turn.id,number:1,target,basis:target.kind==='mail'?'mail-text':'calendar-cache',label:'Synthetic source',secondaryLabel:'Local fixture',excerpt:'Controlled local evidence',snapshotHash:'synthetic',fetchedAt:'2026-10-28T00:00:00Z',sourceUpdatedAt:null,truncated:false,partial:false};return{receipt,payload:{...completed,turn:{...completed.turn,sources:[receipt],answer:{...completed.turn.answer,citations:[{number:1,sourceId:receipt.id}],sourceIds:[receipt.id]}}}}}
+
+test('a pending AI source resolver loses navigation authority on a newer workspace, Compose or mode round trip',async()=>{
+ for(const next of['Calendar','Settings','Compose','Settings round trip']){
+  const resolver=deferred<Response>(),item=row('resolver-stale',0);let receipt:any;const app=await mount('',{compose:false,readThread:async()=>full(item),chat:request=>{if(request.method==='POST'&&request.path.endsWith('/turns')){const result=syntheticSourceAnswer(request.body,{kind:'mail',accountId:'demo',threadId:item.id,messageIds:['message-'+item.id]});receipt=result.receipt;return response(result.payload,202)}if(request.path.startsWith('/api/ai/chat/sources/'))return resolver.promise;return undefined}});try{
+   await app.click('Ask AI');await submitPanelAi(app,'Synthetic resolver guard');await app.click('Source 1');await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-source>button')!.click());assert.ok(app.requests.some(request=>request.path.startsWith('/api/ai/chat/sources/')));await app.click(next==='Settings round trip'?'Settings':next);if(next==='Settings round trip')await app.click('Settings');await act(async()=>resolver.resolve(response({source:receipt,resolution:{availability:'available',target:receipt.target}})));assert.equal(app.requests.some(request=>request.path==='/api/threads/'+item.id),false);assert.equal(app.host.querySelector('.thread-view'),null);assert.ok(app.host.querySelector('.left-ai-panel .ai-chat-pane'));if(next==='Calendar')assert.ok(app.host.querySelector('[aria-label="Calendar workspace"]'));else if(next==='Settings')assert.ok(app.host.querySelector('.right-panel .settings-list'));else if(next==='Compose')assert.ok(app.host.querySelector('[aria-label="Message body"]'));
+  }finally{await app.close()}
+ }
+});
+
+test('a Calendar citation awaiting a mail-draft save cannot override newer Settings or discard the live composer',async()=>{
+ let receipt:any;const app=await mount('Keep authored mail',{chat:request=>{if(request.method==='POST'&&request.path.endsWith('/turns')){const result=syntheticSourceAnswer(request.body,{kind:'calendar',accountId:'demo',calendarId:'owned',eventId:'synthetic-calendar-source'});receipt=result.receipt;return response(result.payload,202)}if(request.path.startsWith('/api/ai/chat/sources/'))return response({source:receipt,resolution:{availability:'available',target:receipt.target}});return undefined}});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Synthetic Calendar source');await app.click('Source 1');const body=app.host.querySelector('[aria-label="Message body"]'),save=app.holdSave();await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-source>button')!.click());assert.ok(app.requests.some(request=>request.method==='PATCH'&&request.path==='/api/drafts/synthetic-draft'));await app.click('Settings');await act(async()=>save.resolve(response({draft:app.getDraft()})));assert.ok(app.host.querySelector('.right-panel .settings-list'));assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);assert.equal(app.host.querySelector('[aria-label="Calendar workspace"]'),null);assert.equal(app.requests.some(request=>request.path.startsWith('/api/calendar/events')),false);assert.ok(app.host.querySelector('.left-ai-panel .ai-chat-pane'));
+ }finally{await app.close()}
+});
+
+test('a source resolver completing in the same draft flushes the latest subject and live body instead of its click-time render',async()=>{
+ const resolver=deferred<Response>(),item=row('latest-source-draft',0);let receipt:any;const app=await mount('Old body',{readThread:async()=>full(item),chat:request=>{if(request.method==='POST'&&request.path.endsWith('/turns')){const result=syntheticSourceAnswer(request.body,{kind:'mail',accountId:'demo',threadId:item.id,messageIds:['message-'+item.id]});receipt=result.receipt;return response(result.payload,202)}if(request.path.startsWith('/api/ai/chat/sources/'))return resolver.promise;return undefined}});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Resolve then navigate');await app.click('Source 1');await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-source>button')!.click());await fillInput(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!,'Latest subject after source click');const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;await act(async()=>{body.textContent='Latest body after source click';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});await act(async()=>resolver.resolve(response({source:receipt,resolution:{availability:'available',target:receipt.target}})));assert.match(app.host.querySelector('.thread-view')?.textContent||'',/Full body latest-source-draft/);assert.equal(app.getDraft().subject,'Latest subject after source click');assert.equal(app.getDraft().body,'Latest body after source click');
+ }finally{await app.close()}
+});
+
+test('New AI conversation makes the old prompt unavailable until the new session is ready, preserving both sessions unsent text',async()=>{
+ const create=deferred<Response>();const app=await mount('Keep current composer',{chat:request=>request.path==='/api/ai/chat/sessions'&&request.method==='POST'?create.promise:undefined});try{
+  await app.click('Ask AI');const input=app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')!;await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(input,'Prior session unsent question');input.dispatchEvent(new window.Event('input',{bubbles:true}))});await app.click('New AI conversation');assert.equal(app.button('New AI conversation').disabled,true);assert.equal(input.disabled,true,'The old session input cannot be edited while New is pending');assert.equal(input.closest('form')?.getAttribute('aria-busy'),'true');assert.ok(app.host.querySelector('[aria-label="Message body"]'));await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(input,'Queued stale-session input');input.dispatchEvent(new window.Event('input',{bubbles:true}))});
+  await act(async()=>create.resolve(response({session:aiSession('demo','chat-delayed-new')},201)));const ready=app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')!;assert.equal(ready.disabled,false);assert.equal(ready.value,'');await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(ready,'New session unsent question');ready.dispatchEvent(new window.Event('input',{bubbles:true}))});await app.click('AI conversation history');await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-history-row[data-session-id="chat-demo"]')!.click());assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')?.value,'Prior session unsent question');await app.click('AI conversation history');await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-history-row[data-session-id="chat-delayed-new"]')!.click());assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')?.value,'New session unsent question');assert.equal(app.requests.some(request=>request.path.endsWith('/turns')),false);
+ }finally{create.resolve(response({session:aiSession('demo','chat-delayed-new')},201));await app.close()}
+});
+
+test('AI owns keyboard focus during a held history read, so Escape closes AI and its controls cannot dispatch Mail shortcuts',async()=>{
+ const history=deferred<Response>();let hold=false;const app=await mount('Preserve composer while AI loads',{chat:request=>hold&&request.path.includes('/api/ai/chat/sessions/chat-history-demo?')?history.promise:undefined});try{
+  await app.click('Ask AI');const body=app.host.querySelector('[aria-label="Message body"]');await act(async()=>app.button('New AI conversation').focus());await recipientKey(app,'Enter',{metaKey:true});await recipientKey(app,'e');assert.equal(app.requests.some(request=>request.path.endsWith('/send')||request.path.endsWith('/actions')),false);
+  await app.click('AI conversation history');hold=true;await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-history-row[data-session-id="chat-history-demo"]')!.click());const input=app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')!;assert.equal(input.disabled,true);assert.equal(window.document.activeElement,app.host.querySelector('.ai-chat-pane'));await recipientKey(app,'Escape');assert.equal(app.host.querySelector<HTMLElement>('.left-ai-panel')?.hidden,true);assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);await act(async()=>history.resolve(response({session:aiSession('demo','chat-history-demo'),turns:[],nextBeforeSeq:null,hasMore:false})));assert.equal(app.host.querySelector<HTMLElement>('.left-ai-panel')?.hidden,true);assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);assert.equal(app.requests.some(request=>request.path.endsWith('/send')||request.path.endsWith('/actions')),false);
+ }finally{history.resolve(response({session:aiSession('demo','chat-history-demo'),turns:[],nextBeforeSeq:null,hasMore:false}));await app.close()}
+});
+
+test('focused AI header controls do not archive the selected Mail conversation',async()=>{
+ const item=row('ai-focus-isolation',0),app=await mount('',{compose:false,readPage:async()=>thinPage([item]),action:async()=>({undoId:'unexpected'})});try{await app.click('Ask AI');await act(async()=>app.button('AI conversation history').focus());await recipientKey(app,'e');assert.equal(app.requests.some(request=>request.path.endsWith('/actions')),false);assert.ok(app.host.querySelector('[role="button"].mail-row'));assert.ok(app.host.querySelector('.left-ai-panel .ai-chat-pane'))}finally{await app.close()}
+});
+
+test('a completed AI history read yields focus to a user who explicitly returned to the composer',async()=>{
+ const history=deferred<Response>();let hold=false;const app=await mount('Keep writing here',{chat:request=>hold&&request.path.includes('/api/ai/chat/sessions/chat-history-demo?')?history.promise:undefined});try{await app.click('Ask AI');await app.click('AI conversation history');hold=true;await act(async()=>app.host.querySelector<HTMLButtonElement>('.ai-chat-history-row[data-session-id="chat-history-demo"]')!.click());assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea.ai-input')?.disabled,true);const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;await act(async()=>body.focus());assert.equal(window.document.activeElement,body);await act(async()=>history.resolve(response({session:aiSession('demo','chat-history-demo'),turns:[],nextBeforeSeq:null,hasMore:false})));assert.equal(window.document.activeElement===body,true,'Late history readiness must not steal focus from active Mail editing');assert.equal(app.host.querySelector('[aria-label="Message body"]'),body)}finally{history.resolve(response({session:aiSession('demo','chat-history-demo'),turns:[],nextBeforeSeq:null,hasMore:false}));await app.close()}
+});
+
+function draftCardBackend(sendEnabled=false){
+ let preview:any,creation:any=null,receipt:any=null,generated:any=null,createHold:ReturnType<typeof deferred<Response>>|null=null,failAck=false;
+ let sendOperation:any=null,sendCreation:any=null,sendHold:ReturnType<typeof deferred<Response>>|null=null,loseSendAck=false,cancelHold:ReturnType<typeof deferred<Response>>|null=null,loseCancelAck=false;
+ const sends=new Map<string,any>(),sendCreations=new Map<string,any>(),cancellations=new Map<string,any>(),knownDrafts=new Set<string>(),at='2026-10-28T00:00:00Z';
+ const latestCreation=()=>!creation?sendCreation:!sendCreation?creation:creation.generation>sendCreation.generation?creation:sendCreation;
+ const result=(includeReceipt=false)=>{const current=latestCreation(),draft=generated?.id===current?.draftId?generated:null,claimed=sendOperation&&current?.generation===sendOperation.generation&&sendOperation.state!=='cancelled';return{preview,creation:current,request:includeReceipt?receipt:null,resolution:{availability:claimed?'locked':draft?'available':'unavailable',draftId:draft?.id??null},createGeneration:claimed||draft?null:current?current.generation+1:0,...(draft?{draft:structuredClone(draft)}:{})}};
+ const sendResult=(historical?:any)=>{const current=latestCreation(),op=historical||(sendOperation?.generation===current?.generation?sendOperation:null),mapped=op?sendCreations.get(op.id):current,draft=generated?.id===op?.draftId?generated:null,higher=!!op&&current.generation>op.generation,blocked=!!op&&op.state!=='cancelled',generation=blocked||draft||higher||generated?null:current?current.generation+1:0;return{preview,latestGeneration:current?.generation??null,serverNow:at,canCancel:op?.state==='queued',creation:mapped,operation:op,eligibility:{eligible:sendEnabled&&generation!==null,createGeneration:generation,reason:higher?'historical_operation':blocked?'send_claimed':generated?'already_created':sendEnabled?'eligible':'demo_delivery_disabled'},...(op?.state==='cancelled'?{restoredResolution:{availability:draft?'available':'unavailable',draftId:draft?.id??null},...(draft?{restoredDraft:structuredClone(draft)}:{})}:{})}};
+ const makeDraft=(id:string)=>({id,accountId:preview.accountId,to:'"Team, One" <team@example.test>',cc:'copy@example.test',bcc:'blind@example.test',subject:preview.payload.subject,body:preview.payload.body,html:preview.payload.html,status:'draft',attachments:[],updatedAt:at});
+ return{
+  chat:async(request:Request)=>{
+   const url=new URL(request.path,'http://fixture.test');
+   if(request.method==='POST'&&url.pathname.endsWith('/turns')){const completed=aiCompleted(request.body,'Here is a proposed email.');preview={id:'preview-generated',accountId:'demo',sessionId:completed.turn.sessionId,turnId:completed.turn.id,kind:'draft-preview',payloadHash:'a'.repeat(64),sourceIds:[],createdAt:at,payload:{to:[{name:'Team, One',email:'team@example.test'}],cc:[{email:'copy@example.test'}],bcc:[{email:'blind@example.test'}],subject:'Synthetic generated proposal',body:'Plain canonical proposal facts.',html:'<div><b>Plain canonical proposal facts.</b></div>'}};return response({...completed,turn:{...completed.turn,previews:[preview]}},202)}
+   if(url.pathname==='/api/ai/chat/artifacts/preview-generated')return response(result());
+   if(url.pathname==='/api/ai/chat/artifacts/preview-generated/send'){
+    if(request.method==='POST'){
+     assert.equal(sendEnabled,true);assert.ok(!sendOperation||sendOperation.state==='cancelled');assert.equal(generated,null);const generation=request.body.expectedGeneration,suffix=generation?'-'+generation:'';
+     sendCreation={id:'creation-send'+suffix,accountId:preview.accountId,sessionId:preview.sessionId,turnId:preview.turnId,previewId:preview.id,payloadHash:preview.payloadHash,draftId:'dedicated-send-draft'+suffix,generation,createdAt:at};knownDrafts.add(sendCreation.draftId);
+     sendOperation={id:'send-operation'+suffix,accountId:preview.accountId,sessionId:preview.sessionId,turnId:preview.turnId,previewId:preview.id,payloadHash:preview.payloadHash,draftId:sendCreation.draftId,creationId:sendCreation.id,generation,clientRequestId:request.body.clientRequestId,state:'queued',revision:0,createdAt:at,startedAt:null,confirmedAt:null,deliveryAttemptId:null,providerMessageId:null,error:null,cancellableUntil:'2026-10-28T00:00:10Z',cancelledAt:null};sends.set(sendOperation.clientRequestId,sendOperation);sendCreations.set(sendOperation.id,sendCreation);
+     if(sendHold)return sendHold.promise;if(loseSendAck)throw new TypeError('Synthetic accepted Send acknowledgement lost');
+    }
+    return response(sendResult());
+   }
+   if(url.pathname.startsWith('/api/ai/chat/send-actions/by-request/')){const op=sends.get(decodeURIComponent(url.pathname.split('/').at(-1)!));return op?response(sendResult(op)):response({error:{code:'ai_draft_send_not_found',message:'Send resource not found'}},404)}
+   if(url.pathname.endsWith('/cancel')&&url.pathname.includes('/send-actions/')){
+    assert.equal(request.method,'POST');assert.equal(sendOperation.state,'queued');assert.equal(request.body.expectedRevision,sendOperation.revision);sendOperation={...sendOperation,state:'cancelled',revision:sendOperation.revision+1,cancelledAt:at,cancelledFromRevision:sendOperation.revision};sends.set(sendOperation.clientRequestId,sendOperation);generated=makeDraft(sendOperation.draftId);
+    const cancellation={id:'cancel-'+request.body.clientRequestId,operationId:sendOperation.id,accountId:preview.accountId,sessionId:preview.sessionId,turnId:preview.turnId,clientRequestId:request.body.clientRequestId,createdAt:at};cancellations.set(cancellation.clientRequestId,cancellation);
+    if(cancelHold)return cancelHold.promise;if(loseCancelAck)throw new TypeError('Synthetic accepted Undo acknowledgement lost');return response({...sendResult(),cancellation});
+   }
+   if(url.pathname.includes('/send-cancellations/by-request/')){const cancellation=cancellations.get(decodeURIComponent(url.pathname.split('/').at(-1)!)),op=[...sends.values()].find(op=>op.id===cancellation?.operationId);return op?response({...sendResult(op),cancellation}):response({error:{code:'ai_draft_send_not_found',message:'Undo resource not found'}},404)}
+   if(url.pathname==='/api/ai/chat/artifacts/preview-generated/create-draft'){
+    if(!generated){const current=latestCreation(),generation=current?current.generation+1:0;creation={id:'creation-generated-'+generation,accountId:'demo',sessionId:preview.sessionId,turnId:preview.turnId,previewId:preview.id,payloadHash:preview.payloadHash,draftId:generation?'generated-draft-'+generation:'generated-draft',generation,createdAt:at};generated=makeDraft(creation.draftId);knownDrafts.add(creation.draftId)}
+    receipt={id:'receipt-generated',clientRequestId:request.body.clientRequestId,accountId:'demo',sessionId:preview.sessionId,turnId:preview.turnId,previewId:preview.id,creationId:creation.id,generation:creation.generation,createdAt:at};
+    if(createHold)return createHold.promise;if(failAck)throw new TypeError('Synthetic committed acknowledgement lost');return response(result(true),201);
+   }
+   if(url.pathname.startsWith('/api/ai/chat/draft-actions/by-request/'))return receipt?response(result(true)):response({error:{code:'ai_draft_not_found',message:'Draft resource not found'}},404);
+   return undefined;
+  },
+  draftRequest:async(request:Request)=>{const id=request.path.split('/').at(-1)!;if(!knownDrafts.has(id))return undefined;if(!generated||generated.id!==id)return response({error:{code:'not_found',message:'Draft not found'}},404);if(request.method==='DELETE'){generated=null;return response({deleted:true})}if(request.method==='PATCH')generated={...generated,...request.body,updatedAt:'2026-10-28T00:00:01Z'};return response({draft:structuredClone(generated),deliveryPending:false})},
+  holdCreate:()=>createHold=deferred<Response>(),resolveCreate:()=>createHold?.resolve(response(result(true),201)),loseAck:()=>failAck=true,getCreated:()=>generated,setCreated:(patch:Record<string,unknown>)=>generated={...generated,...patch},response:()=>response(result(true),201),
+  holdSend:()=>sendHold=deferred<Response>(),resolveSend:()=>sendHold?.resolve(response(sendResult(),202)),loseSendAck:()=>loseSendAck=true,getSend:()=>sendOperation,getPreview:()=>preview,completeSend:()=>{sendOperation={...sendOperation,state:'sent',revision:2,startedAt:'2026-10-28T00:00:01Z',confirmedAt:'2026-10-28T00:00:02Z',deliveryAttemptId:'attempt-send',providerMessageId:'provider-send'};sends.set(sendOperation.clientRequestId,sendOperation)},
+  holdCancel:()=>cancelHold=deferred<Response>(),resolveCancel:()=>cancelHold?.resolve(response({...sendResult(),cancellation:[...cancellations.values()].at(-1)})),loseCancelAck:()=>loseCancelAck=true,
+ };
+}
+
+test('explicit AI card Send uses only its immutable preview and leaves the current composer mounted and unchanged',async()=>{
+ const backend=draftCardBackend(true),app=await mount('Keep this authored message',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose one synthetic email');const editor=app.host.querySelector('[aria-label="Message body"]'),subject=app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!.value,original=structuredClone(app.getDraft());
+  const card=app.host.querySelector<HTMLElement>('.ai-draft-card')!,send=()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!;backend.holdSend();
+  await act(async()=>{send().click();send().click()});assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send')).length,1);assert.equal([...card.querySelectorAll('button')].some(button=>button.textContent==='Create Draft'&&!button.disabled),false);assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!.value,subject);
+  const accepted=app.requests.find(request=>request.method==='POST'&&request.path.endsWith('/send'))!;assert.equal(accepted.path,'/api/ai/chat/artifacts/preview-generated/send');assert.deepEqual(Object.keys(accepted.body).sort(),['accountId','clientRequestId','expectedGeneration','expectedPreviewHash','sessionId','turnId']);assert.equal(accepted.body.expectedPreviewHash,'a'.repeat(64));assert.equal(accepted.body.expectedGeneration,0);assert.equal(app.requests.some(request=>request.path==='/api/drafts/synthetic-draft/send'),false);
+  await act(async()=>backend.resolveSend());assert.equal(card.dataset.sendState,'queued');assert.equal(card.querySelectorAll('button').length,2);assert.equal([...card.querySelectorAll('button')].some(button=>button.textContent==='Create Draft'),false);backend.completeSend();await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Check send status')!.click());assert.equal(card.dataset.sendState,'sent');assert.equal([...card.querySelectorAll('button')].find(button=>button.textContent==='Sent')?.disabled,true);assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.equal(editor?.textContent,'Keep this authored message');assert.equal(app.getDraft().body,original.body);assert.equal(app.getDraft().subject,original.subject);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send')).length,1);
+ }finally{await app.close()}
+});
+
+test('ambiguous AI card Send recovers its accepted key without opening, replacing or sending the current composer',async()=>{
+ const backend=draftCardBackend(true),app=await mount('Authored text is independent',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose one synthetic email');const editor=app.host.querySelector('[aria-label="Message body"]'),card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;backend.loseSendAck();await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!.click());assert.equal(card.dataset.sendState,'unconfirmed');assert.match(card.textContent||'',/not been confirmed/);assert.equal([...card.querySelectorAll('button')].some(button=>button.textContent==='Create Draft'),false);
+  backend.completeSend();await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Check send status')!.click());assert.equal(card.dataset.sendState,'sent');assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send')).length,1);assert.ok(app.requests.filter(request=>request.path.includes('/send-actions/by-request/')).length>=1);assert.ok(app.requests.filter(request=>request.path.includes('/send-actions/by-request/')).every(request=>request.method==='GET'&&request.path.includes('/'+backend.getSend().clientRequestId+'?')));assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.equal(editor?.textContent,'Authored text is independent');assert.equal(app.requests.some(request=>request.method==='POST'&&request.path.endsWith('/create-draft')),false);
+ }finally{await app.close()}
+});
+
+test('an accepted AI Send late acknowledgement cannot navigate or expose its preview after an account switch',async()=>{
+ const backend=draftCardBackend(true),app=await mount('Keep original',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose one synthetic email');backend.holdSend();const card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!.click());const request=app.requests.find(request=>request.method==='POST'&&request.path.endsWith('/send'))!;await app.click('Manage accounts');await app.click('OOther Userother@example.test');assert.equal(request.signal?.aborted,true);await act(async()=>backend.resolveSend());assert.equal(app.host.querySelector('.ai-draft-card'),null);assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);assert.doesNotMatch(app.host.querySelector('.left-ai-panel')?.textContent||'',/Synthetic generated proposal/);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send')).length,1);
+ }finally{window.localStorage.clear();await app.close()}
+});
+
+test('an artifact queued draft opened from Drafts stays read-only before provider dispatch',async()=>{
+ const app=await mount('Immutable queued text',{draftPatch:{status:'send_queued',artifactSendId:'artifact-operation'}});try{
+  assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.readOnly,true);assert.equal(app.host.querySelector('[aria-label="Message body"]')?.getAttribute('aria-readonly'),'true');assert.equal(app.button('Send').disabled,true);assert.equal(app.button('Send later').disabled,true);assert.equal(app.button('Discard draft').disabled,true);assert.equal(app.button('Attach file').disabled,true);assert.equal(app.requests.some(request=>request.method==='PATCH'&&request.path.includes('/drafts/')),false);
+ }finally{await app.close()}
+});
+
+test('global artifact Undo survives closing AI and restores the same owned draft with Current Draft after reopening',async()=>{
+ const backend=draftCardBackend(true),app=await mount('Prior authored draft remains saved',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose a synthetic email');const card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!.click());const id=backend.getSend().draftId;assert.equal(app.host.querySelector('.ai-send-toast')?.textContent?.startsWith('Message sent.'),true);assert.equal(card.dataset.sendState,'queued');await app.click('Close AI');assert.equal(app.host.querySelector<HTMLElement>('.left-ai-panel')?.hidden,true);assert.ok(app.host.querySelector('.ai-send-toast'));
+  await app.click('Undo');assert.equal(backend.getSend().state,'cancelled');assert.equal(backend.getCreated().id,id);assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'Synthetic generated proposal');assert.equal(app.host.querySelector('[aria-label="Message body"]')?.textContent,'Plain canonical proposal facts.');assert.equal(app.getDraft().body,'Prior authored draft remains saved');assert.match(app.host.querySelector('.ai-send-toast')?.textContent||'',/Sending undone/);await app.click('Ask AI');assert.equal(app.button('Current Draft').disabled,true);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send')).length,1);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/cancel')).length,1);assert.equal(app.requests.some(request=>request.path==='/api/drafts/synthetic-draft/send'),false);
+ }finally{await app.close()}
+});
+
+test('artifact Undo owns plain Z in Mail without consuming rich-editor undo or dispatching another email',async()=>{
+ const backend=draftCardBackend(true),app=await mount('',{compose:false,chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose a synthetic email');const card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!.click());await app.click('Close AI');await app.key('z');assert.equal(backend.getSend().state,'cancelled');assert.equal(app.host.querySelector('[aria-label="Message body"]')?.textContent,'Plain canonical proposal facts.');assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/cancel')).length,1);const editor=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;await act(async()=>{editor.dispatchEvent(new window.KeyboardEvent('keydown',{key:'z',metaKey:true,bubbles:true,cancelable:true}))});assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/cancel')).length,1);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send')).length,1);
+ }finally{await app.close()}
+});
+
+test('new typing during the previous draft flush after confirmed Undo prevents stale restored-draft navigation',async()=>{
+ const backend=draftCardBackend(true),app=await mount('Original current text',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose a synthetic email');const card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!.click());const save=app.holdSave(),editor=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;await app.click('Undo');assert.equal(backend.getSend().state,'cancelled');assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);await act(async()=>{editor.textContent='New typing during the held save';editor.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});await act(async()=>save.resolve(response({draft:app.getDraft()})));assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.equal(editor.textContent,'New typing during the held save');assert.equal(app.requests.some(request=>request.path==='/api/drafts/'+backend.getSend().draftId),false);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/cancel')).length,1);
+ }finally{await app.close()}
+});
+
+test('a late Undo acknowledgement caches its restored draft without replacing newer typing; explicit Go uses current content',async()=>{
+ const backend=draftCardBackend(true),app=await mount('Existing draft',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose a synthetic email');const card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!.click());backend.holdCancel();await app.click('Undo');const editor=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;await act(async()=>{editor.textContent='Newer user typing wins';editor.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});await act(async()=>backend.resolveCancel());assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.equal(editor.textContent,'Newer user typing wins');assert.match(app.host.querySelector('.ai-send-toast')?.textContent||'',/Draft restored/);
+  backend.setCreated({subject:'Edited restored subject',body:'Edited restored body',html:'<div>Edited restored body</div>'});const refresh=[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Check send status');if(refresh)await act(async()=>refresh.click());await app.click('Go To Draft');assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'Edited restored subject');assert.equal(app.host.querySelector('[aria-label="Message body"]')?.textContent,'Edited restored body');assert.equal(app.getDraft().body,'Newer user typing wins');assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/cancel')).length,1);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send')).length,1);
+ }finally{await app.close()}
+});
+
+test('unknown artifact Undo recovers only its original cancellation key without automatically opening or resending',async()=>{
+ const backend=draftCardBackend(true),app=await mount('Keep current text',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose a synthetic email');const card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!.click());backend.loseCancelAck();const editor=app.host.querySelector('[aria-label="Message body"]');await app.click('Undo');assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.match(app.host.querySelector('.ai-send-toast')?.textContent||'',/Undo is unconfirmed/);await app.click('Check Undo status');assert.match(app.host.querySelector('.ai-send-toast')?.textContent||'',/Sending undone/);assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/cancel')).length,1);assert.equal(app.requests.filter(request=>request.path.includes('/send-cancellations/by-request/')).length,1);await app.click('Open draft');assert.equal(app.host.querySelector('[aria-label="Message body"]')?.textContent,'Plain canonical proposal facts.');assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send')).length,1);
+ }finally{await app.close()}
+});
+
+test('a deliberately emptied Undo-restored draft offers a fresh explicit Send generation without replaying the old intent',async()=>{
+ const backend=draftCardBackend(true),app=await mount('Retain the previous draft',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose a synthetic email');let card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;await act(async()=>[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!.click());const original=backend.getSend();await app.click('Undo');for(const field of['To','Cc','Bcc']){const region=app.host.querySelector<HTMLElement>('[aria-label="'+field+' recipients"]')!;await act(async()=>{region.focus();region.dispatchEvent(new window.KeyboardEvent('keydown',{key:'a',metaKey:true,bubbles:true,cancelable:true}));region.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Backspace',bubbles:true,cancelable:true}))})}
+  await fillInput(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!,'');const editor=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;await act(async()=>{editor.textContent='';editor.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'deleteContentBackward'}))});await app.click('Back');assert.equal(backend.getCreated(),null);card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;const send=[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Send')!;assert.ok(send);assert.equal(send.disabled,false);assert.equal(app.button('Create Draft').disabled,false);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send')).length,1,'Canonical absence does not repeat Send');await act(async()=>send.click());assert.equal(backend.getSend().generation,1);assert.notEqual(backend.getSend().id,original.id);assert.notEqual(backend.getSend().draftId,original.draftId);const actions=app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/send'));assert.deepEqual(actions.map(request=>request.body.expectedGeneration),[0,1]);assert.notEqual(actions[0].body.clientRequestId,actions[1].body.clientRequestId);assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);
+ }finally{await app.close()}
+});
+
+test('a cross-window accepted Send rejects Create definitively and reloads Sent without retaining an impossible Create journal',async()=>{
+ const backend=draftCardBackend(true);let external=false;
+ const externalSend=()=>{const p=backend.getPreview(),at='2026-10-28T00:00:00Z',creation={id:'external-creation',accountId:p.accountId,sessionId:p.sessionId,turnId:p.turnId,previewId:p.id,payloadHash:p.payloadHash,draftId:'external-draft',generation:0,createdAt:at};return{preview:p,latestGeneration:0,serverNow:at,canCancel:false,creation,operation:{id:'external-send',accountId:p.accountId,sessionId:p.sessionId,turnId:p.turnId,previewId:p.id,payloadHash:p.payloadHash,draftId:creation.draftId,creationId:creation.id,generation:0,clientRequestId:'external-key',state:'sent',revision:3,createdAt:at,startedAt:at,confirmedAt:at,deliveryAttemptId:'external-attempt',providerMessageId:'external-provider',error:null,cancellableUntil:'2026-10-28T00:00:10Z',cancelledAt:null},eligibility:{eligible:false,createGeneration:null,reason:'send_claimed'}}};
+ const app=await mount('Keep this current editor',{chat:async request=>{
+  if(request.method==='POST'&&request.path.endsWith('/create-draft')){external=true;return response({error:{code:'ai_draft_action_conflict',message:'This preview was already sent in another window.'}},409)}
+  if(external&&request.path.includes('/api/ai/chat/artifacts/preview-generated/send?'))return response(externalSend());
+  return backend.chat(request);
+ }});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose only');const editor=app.host.querySelector('[aria-label="Message body"]');await app.click('Create Draft');const card=app.host.querySelector<HTMLElement>('.ai-draft-card')!;assert.equal(card.dataset.sendState,'sent');assert.equal([...card.querySelectorAll('button')].find(button=>button.textContent==='Sent')?.disabled,true);assert.equal([...Array(window.localStorage.length)].some((_,index)=>window.localStorage.key(index)?.startsWith('reconstruction.ai-draft.v1:')),false);assert.equal(app.requests.filter(request=>request.method==='POST'&&request.path.endsWith('/create-draft')).length,1);assert.equal(app.requests.some(request=>request.path.includes('/draft-actions/by-request/')),false);assert.equal(app.requests.some(request=>request.method==='POST'&&request.path.endsWith('/send')),false);assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.equal(editor?.textContent,'Keep this current editor');
+ }finally{await app.close()}
+});
+
+test('AI draft preview creates nothing until explicit activation, preserves the current draft, and Current/Go opens current edited content',async()=>{
+ const backend=draftCardBackend(),app=await mount('Existing user draft',{chat:backend.chat,draftRequest:backend.draftRequest,preferences:{signature:'Do not append this signature'}});try{
+  const previous=structuredClone(app.getDraft());await app.click('Ask AI');await submitPanelAi(app,'Propose a controlled email');const card=app.host.querySelector('.ai-draft-card');assert.ok(card);assert.match(card.textContent||'',/ToTeam, One <team@example.test>Cccopy@example.testBccblind/);assert.equal(card.querySelector('iframe,img,script'),null);assert.equal(backend.getCreated(),null);assert.equal(app.requests.some(request=>request.path.endsWith('/create-draft')),false);assert.equal(Array.from(card.querySelectorAll('button')).find(button=>button.textContent==='Send')?.disabled,true);
+  await app.click('Create Draft');assert.equal(app.getDraft().body,previous.body);assert.equal(app.getDraft().subject,previous.subject);assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'Synthetic generated proposal');assert.equal(app.host.querySelector('[aria-label="Message body"]')?.textContent,'Plain canonical proposal facts.');assert.equal(app.button('Current Draft').disabled,true);assert.equal(app.host.querySelectorAll('.recipient-chip').length,3);assert.doesNotMatch(backend.getCreated().body,/Do not append/);
+  await fillInput(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!,'User edited generated subject');await app.click('Back');assert.equal(app.button('Go To Draft').disabled,false);await app.click('Go To Draft');assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'User edited generated subject');assert.equal(app.button('Current Draft').disabled,true);assert.equal(app.requests.filter(request=>request.path.endsWith('/create-draft')).length,1);assert.equal(app.requests.some(request=>request.method==='POST'&&(request.path.endsWith('/send')||request.path.endsWith('/schedule'))),false);
+ }finally{await app.close()}
+});
+
+test('AI draft creation acknowledgement after newer Compose caches its mapping without discarding the newer editor',async()=>{
+ const backend=draftCardBackend(),app=await mount('Keep this editor',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Create a proposal only');backend.holdCreate();await app.click('Create Draft');assert.ok(backend.getCreated());await app.click('Back');await app.click('Compose');const newer=app.host.querySelector('[aria-label="Message body"]');await act(async()=>backend.resolveCreate());assert.equal(app.host.querySelector('[aria-label="Message body"]'),newer);assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'Synthetic');assert.equal(app.button('Go To Draft').disabled,false);assert.equal(app.requests.some(request=>request.path==='/api/drafts/generated-draft'),false);assert.equal(app.requests.filter(request=>request.path.endsWith('/create-draft')).length,1);
+ }finally{backend.resolveCreate();await app.close()}
+});
+
+test('unknown AI draft creation recovers only by its saved key and never reapplies preview fields over a created draft edit',async()=>{
+ const backend=draftCardBackend(),app=await mount('Old editor stays until Go',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose without delivery');backend.loseAck();await app.click('Create Draft');assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'Synthetic');assert.ok(app.button('Check draft status'));backend.setCreated({subject:'Authoritative edited subject',body:'Authoritative edited body',html:'<div>Authoritative edited body</div>'});await app.click('Check draft status');assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'Synthetic');await app.click('Go To Draft');assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'Authoritative edited subject');assert.equal(app.host.querySelector('[aria-label="Message body"]')?.textContent,'Authoritative edited body');assert.equal(app.requests.filter(request=>request.path.endsWith('/create-draft')).length,1);assert.equal(app.requests.some(request=>request.path.includes('/draft-actions/by-request/')),true);assert.equal(app.requests.some(request=>request.method==='POST'&&(request.path.endsWith('/send')||request.path.endsWith('/schedule'))),false);
+ }finally{await app.close()}
+});
+
+test('AI draft opening stops if the user edits the existing composer while its save is held',async()=>{
+ const backend=draftCardBackend(),app=await mount('Original existing body',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose only');const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!,save=app.holdSave();await app.click('Create Draft');assert.ok(backend.getCreated());await act(async()=>{body.textContent='Newer user typing during save';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});await act(async()=>save.resolve(response({draft:app.getDraft()})));assert.equal(app.host.querySelector('[aria-label="Message body"]'),body);assert.equal(body.textContent,'Newer user typing during save');assert.equal(app.requests.some(request=>request.path==='/api/drafts/generated-draft'),false);assert.equal(app.button('Go To Draft').disabled,false);assert.equal(app.requests.filter(request=>request.path.endsWith('/create-draft')).length,1);
+ }finally{await app.close()}
+});
+
+test('an old-account draft Create acknowledgement cannot display its preview or open a draft after account switch',async()=>{
+ const backend=draftCardBackend(),app=await mount('Original account body',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose under first account');backend.holdCreate();await app.click('Create Draft');const request=app.requests.find(request=>request.path.endsWith('/create-draft'))!;assert.ok(request.signal);await app.click('Manage accounts');await app.click('OOther Userother@example.test');assert.equal(request.signal!.aborted,true);await act(async()=>backend.resolveCreate());assert.equal(app.host.querySelector('.ai-draft-card'),null);assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);assert.doesNotMatch(app.host.querySelector('.left-ai-panel')?.textContent||'',/Synthetic generated proposal|Plain canonical proposal facts/);assert.equal(app.requests.some(request=>request.path==='/api/drafts/generated-draft'),false);assert.equal(app.requests.filter(request=>request.path.endsWith('/create-draft')).length,1);
+ }finally{backend.resolveCreate();await app.close()}
+});
+
+test('closing a literally empty local draft deletes only that draft and its old autosave cannot restore it in Drafts',async()=>{
+ const app=await mount('',{draftHeaders:{to:'',cc:'',bcc:''},draftPatch:{subject:'Old autosave subject',attachments:[],html:'<div><br></div>'}});try{const save=app.holdSave();await act(async()=>{await new Promise(resolve=>setTimeout(resolve,650))});assert.ok(app.requests.some(request=>request.method==='PATCH'&&request.path==='/api/drafts/synthetic-draft'));await fillInput(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!,'');await app.click('Back');assert.equal(app.requests.some(request=>request.method==='DELETE'&&request.path==='/api/drafts/synthetic-draft'),false);assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.readOnly,true);await act(async()=>save.resolve(response({draft:app.getDraft()})));assert.equal(app.requests.filter(request=>request.method==='DELETE'&&request.path==='/api/drafts/synthetic-draft').length,1);assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);await app.click('Switch folders');await app.click('DraftsG D');assert.equal(app.host.querySelector('button.mail-row'),null);assert.match(app.host.textContent||'',/No drafts/);assert.equal(app.requests.some(request=>request.method==='POST'&&(request.path.endsWith('/send')||request.path.endsWith('/schedule'))),false)}finally{await app.close()}
+});
+
+test('empty-close conservatively retains invalid recipient text, literal body spaces, attachments and unsupported meaningful HTML',async()=>{
+ for(const patch of[{to:'unfinished-name'},{to:' '},{body:' '},{attachments:[{id:'keep',name:'keep.txt',mimeType:'text/plain',size:0}]},{html:'<img src="https://example.test/retained-image.png">'},{html:'<table><tbody><tr><td></td></tr></tbody></table>'},{providerDraftId:'keep-provider-draft'}]){
+  const app=await mount('',{draftHeaders:{to:'',cc:'',bcc:''},draftPatch:{subject:'',attachments:[],html:'<div><br></div>',...patch}});try{await app.click('Back');assert.equal(app.requests.some(request=>request.method==='DELETE'&&request.path==='/api/drafts/synthetic-draft'),false,JSON.stringify(patch));assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);if('html'in patch)assert.equal(app.getDraft().html,patch.html)}finally{await app.close()}
+ }
+});
+
+test('a properly cleared AI draft closes by local discard and only a fresh explicit generation creates a different draft',async()=>{
+ const backend=draftCardBackend(),app=await mount('Existing draft retained',{chat:backend.chat,draftRequest:backend.draftRequest});try{
+  await app.click('Ask AI');await submitPanelAi(app,'Propose a local draft');await app.click('Create Draft');const firstId=backend.getCreated().id;assert.equal(app.button('Current Draft').disabled,true);
+  for(const field of['To','Cc','Bcc']){const region=app.host.querySelector<HTMLElement>('[aria-label="'+field+' recipients"]')!;await act(async()=>{region.focus();region.dispatchEvent(new window.KeyboardEvent('keydown',{key:'a',metaKey:true,bubbles:true,cancelable:true}));region.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Backspace',bubbles:true,cancelable:true}))})}
+  await fillInput(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!,'');const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!;await act(async()=>{body.textContent='';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'deleteContentBackward'}))});assert.equal(app.host.querySelectorAll('.recipient-chip').length,0);await app.click('Back');assert.equal(backend.getCreated(),null);assert.equal(app.requests.filter(request=>request.method==='DELETE'&&request.path==='/api/drafts/'+firstId).length,1);assert.equal(app.button('Create Draft').disabled,false);assert.equal(app.requests.filter(request=>request.path.endsWith('/create-draft')).length,1,'Refresh of canonical absence performs no create');
+  await app.click('Create Draft');const secondId=backend.getCreated().id;assert.notEqual(secondId,firstId);assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')?.value,'Synthetic generated proposal');assert.equal(app.host.querySelector('[aria-label="Message body"]')?.textContent,'Plain canonical proposal facts.');assert.equal(app.button('Current Draft').disabled,true);const actions=app.requests.filter(request=>request.path.endsWith('/create-draft'));assert.deepEqual(actions.map(request=>request.body.expectedGeneration),[0,1]);assert.notEqual(actions[0].body.clientRequestId,actions[1].body.clientRequestId);assert.equal(app.requests.some(request=>request.method==='POST'&&(request.path.endsWith('/send')||request.path.endsWith('/schedule'))),false);
+ }finally{await app.close()}
+});
+
+test('an attachment still being read prevents automatic empty-close discard and its eventual acknowledgement does not reopen the editor',async()=>{
+ const bytes=deferred<ArrayBuffer>();let app:Awaited<ReturnType<typeof mount>>;app=await mount('',{draftHeaders:{to:'',cc:'',bcc:''},draftPatch:{subject:'',attachments:[],html:'<div><br></div>'},draftRequest:request=>request.path==='/api/drafts/synthetic-draft/attachments'&&request.method==='POST'?response({draft:{...app.getDraft(),attachments:[{id:'pending-upload',name:'pending.txt',mimeType:'text/plain',size:4}]}}):undefined});try{
+  const input=app.host.querySelector<HTMLInputElement>('[aria-label="Upload attachments"]')!;Object.defineProperty(input,'files',{configurable:true,value:[{name:'pending.txt',type:'text/plain',size:4,arrayBuffer:()=>bytes.promise}]});await act(async()=>input.dispatchEvent(new window.Event('change',{bubbles:true})));await app.click('Back');assert.equal(app.requests.some(request=>request.method==='DELETE'&&request.path==='/api/drafts/synthetic-draft'),false);assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);await act(async()=>bytes.resolve(new ArrayBuffer(4)));assert.equal(app.requests.filter(request=>request.path==='/api/drafts/synthetic-draft/attachments').length,1);assert.equal(app.host.querySelector('[aria-label="Message body"]'),null);assert.equal(app.requests.some(request=>request.method==='DELETE'&&request.path==='/api/drafts/synthetic-draft'),false);
+ }finally{bytes.resolve(new ArrayBuffer(4));await app.close()}
+});

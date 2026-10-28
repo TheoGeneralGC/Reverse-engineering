@@ -1,0 +1,456 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1036,
+      "height": 690,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "compose",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "c",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "owned-test-subject",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "value": {
+        "source": "literal",
+        "value": "__SIDE_AI_SUBJECT__"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-existing-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "clear-existing-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "synthetic-body",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "value": {
+        "source": "literal",
+        "value": "Synthetic draft stays safe when Claude is unavailable."
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "open-side-ai",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".rail button[aria-label=\"Ask AI\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "left-sidebar-visible",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".left-ai-panel .ai-chat-pane"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "contact-still-right",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".right-panel .contact-pane-email:text-is(\"alex@demo.local\")"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "claude-not-configured",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".left-ai-panel [role=\"alert\"]:has-text(\"Configure ANTHROPIC_API_KEY and ANTHROPIC_MODEL\")"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "request-question",
+      "action": "fill",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input"
+      },
+      "timeout_ms": 10000,
+      "value": {
+        "source": "literal",
+        "value": "Make this sentence shorter."
+      }
+    },
+    {
+      "step_id": "submit-unavailable-question",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input"
+      },
+      "timeout_ms": 10000,
+      "key": "Enter"
+    },
+    {
+      "step_id": "no-generated-answer",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".left-ai-panel .ai-chat-turn"
+      },
+      "timeout_ms": 10000,
+      "state": "hidden"
+    },
+    {
+      "step_id": "no-insert-action",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".left-ai-panel button:has-text(\"Insert into draft\")"
+      },
+      "timeout_ms": 10000,
+      "state": "hidden"
+    },
+    {
+      "step_id": "draft-stays-mounted",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[aria-label=\"Message body\"]:has-text(\"Synthetic draft stays safe when Claude is unavailable.\")"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "new-local-conversation",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button[aria-label=\"New AI conversation\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "empty-new-conversation",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".left-ai-panel textarea.ai-input:enabled"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "scoped-unsent-prompt",
+      "action": "fill",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input"
+      },
+      "timeout_ms": 10000,
+      "value": {
+        "source": "literal",
+        "value": "__AI_UNSENT_PROMPT__"
+      }
+    },
+    {
+      "step_id": "open-history",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button[aria-label=\"AI conversation history\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "persistent-history-selected",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".ai-chat-history-row[aria-current=\"true\"]"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "return-selected-conversation",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".ai-chat-history-row[aria-current=\"true\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "unsent-question-retained",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input:enabled:text-is(\"__AI_UNSENT_PROMPT__\")"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "escape-closes-ai",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input"
+      },
+      "timeout_ms": 10000,
+      "key": "Escape"
+    },
+    {
+      "step_id": "ai-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".left-ai-panel"
+      },
+      "timeout_ms": 10000,
+      "state": "hidden"
+    },
+    {
+      "step_id": "same-composer-after-escape",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[aria-label=\"Message body\"]:has-text(\"Synthetic draft stays safe when Claude is unavailable.\")"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "reopen-ai",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".rail button[aria-label=\"Ask AI\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "unsent-question-reopened",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input:enabled:text-is(\"__AI_UNSENT_PROMPT__\")"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "close-ai-again",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input"
+      },
+      "timeout_ms": 10000,
+      "key": "Escape"
+    },
+    {
+      "step_id": "save-test-draft",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".topbar button[aria-label=\"Back\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "composer-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Subject\"]"
+      },
+      "timeout_ms": 10000,
+      "state": "hidden"
+    },
+    {
+      "step_id": "reload-local-app",
+      "action": "goto",
+      "timeout_ms": 10000,
+      "destination": {
+        "url": "http://127.0.0.1:5173"
+      },
+      "wait_until": "load"
+    },
+    {
+      "step_id": "inbox-after-reload",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "reopen-history-after-reload",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".rail button[aria-label=\"Ask AI\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "durable-unsent-question",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input:enabled:text-is(\"__AI_UNSENT_PROMPT__\")"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "no-answer-after-reload",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".left-ai-panel .ai-chat-turn"
+      },
+      "timeout_ms": 10000,
+      "state": "hidden"
+    },
+    {
+      "step_id": "open-durable-session-history",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button[aria-label=\"AI conversation history\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "selected-session-after-reload",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".ai-chat-history-row[aria-current=\"true\"]"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "escape-history-restores-question",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": ".ai-chat-history-row[aria-current=\"true\"]"
+      },
+      "timeout_ms": 10000,
+      "key": "Escape"
+    },
+    {
+      "step_id": "input-returned",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input:enabled:text-is(\"__AI_UNSENT_PROMPT__\")"
+      },
+      "timeout_ms": 10000,
+      "state": "visible"
+    },
+    {
+      "step_id": "close-sidebar-finally",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "textarea.ai-input"
+      },
+      "timeout_ms": 10000,
+      "key": "Escape"
+    },
+    {
+      "step_id": "sidebar-finally-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".left-ai-panel"
+      },
+      "timeout_ms": 10000,
+      "state": "hidden"
+    }
+  ],
+  "capture": {
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ]
+  }
+}

@@ -1,0 +1,304 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "compose-shortcut",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "c",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "composer-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"To\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "recipient",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "qa-recipient@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "subject",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "value": {
+        "source": "literal",
+        "value": "REA E2E draft persistence"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-existing-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "clear-existing-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "body",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "value": {
+        "source": "literal",
+        "value": "Synthetic REA browser test. No delivery requested."
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "save-close",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[contenteditable=\"true\"][aria-label=\"Message body\"]"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "composer-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".compose-view"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-prefix",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "g",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-drafts",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "d",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-list",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[aria-label=\"Drafts\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reopen-draft",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button.mail-row:has-text(\"REA E2E draft persistence\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "saved-subject",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Subject\"][value=\"REA E2E draft persistence\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edit-subject",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "value": {
+        "source": "literal",
+        "value": "REA E2E draft persistence edited"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "save-edit",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Subject\"]"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edited-composer-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".compose-view"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reload",
+      "action": "goto",
+      "destination": {
+        "url": "http://127.0.0.1:5173"
+      },
+      "wait_until": "load",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reload-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reload-go-prefix",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "g",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reload-go-drafts",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "d",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reloaded-draft-list",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[aria-label=\"Drafts\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reopen-edited",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button.mail-row:has-text(\"REA E2E draft persistence edited\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edited-persisted",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Subject\"][value=\"REA E2E draft persistence edited\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ],
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "url"
+    ]
+  }
+}

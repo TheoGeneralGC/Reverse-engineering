@@ -1,0 +1,108 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-prefix",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "g",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-drafts",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "d",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "drafts-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[aria-label=\"Drafts\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "open-owned-attachment-draft",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button.mail-row:has-text(\"__ATTACHMENT_DRAFT_SUBJECT__\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "attachment-pill",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".draft-attachments a[download=\"rea-test-notes.txt\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "attachment-remove-control",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "button[aria-label=\"Remove rea-test-notes.txt\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ],
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "url"
+    ]
+  }
+}

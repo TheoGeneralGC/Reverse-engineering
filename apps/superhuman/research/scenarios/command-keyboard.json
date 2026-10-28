@@ -1,0 +1,197 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "command-shortcut",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "Meta+k",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "command-focus",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Superhuman Command\"]:focus"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "filter-command",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Superhuman Command"
+      },
+      "value": {
+        "source": "literal",
+        "value": "go to"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "next-command",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Superhuman Command\"]"
+      },
+      "key": "ArrowDown",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "second-command-selected",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".command-results button.active:has-text(\"Go to Starred\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "trap-backward",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Superhuman Command\"]"
+      },
+      "key": "Shift+Tab",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "last-command-focused",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".command-results button:last-child:focus"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "trap-forward",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": ".command-results button:last-child"
+      },
+      "key": "Tab",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "input-focus-restored",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Superhuman Command\"]:focus"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "choose-drafts",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Superhuman Command"
+      },
+      "value": {
+        "source": "literal",
+        "value": "Go to Drafts"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "drafts-command",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".command-results button.active:has-text(\"Go to Drafts\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "run-drafts-command",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Superhuman Command\"]"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-folder",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "h1.folder-title:has-text(\"Drafts\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "command-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[role=\"dialog\"]"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ],
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "url"
+    ]
+  }
+}

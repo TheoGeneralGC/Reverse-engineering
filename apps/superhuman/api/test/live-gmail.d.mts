@@ -1,0 +1,11 @@
+export type HarnessFlags = { send: boolean; verify: boolean; rich: boolean; planOnly: boolean; runId: string; syncPasses: number; polls: number; intervalMs: number };
+export type RichFixture = { kind: 'rich-mime-v1'; subject: string; body: string; html: string; attachment: { name: string; mimeType: string; bytes: Buffer }; hashes: { plain: string; html: string; attachment: string }; fixtureHash: string };
+export function parseHarnessFlags(args: string[]): HarnessFlags;
+export function validateHarnessRequest(mode: Pick<HarnessFlags, 'send' | 'verify'>, path: string, method: string): void;
+export function richFixture(id: string): RichFixture;
+export function validateRichFixturePlan(saved: unknown, id: string): void;
+export function validateSendBoundary(status: unknown, participants: string[], sender?: string): void;
+export function validateDraft(draft: unknown, entry: unknown, id: string): void;
+export function validateRichDraft(draft: unknown, entry: unknown, id: string): void;
+export function validateRichDraftBase(draft: unknown, entry: unknown, id: string): void;
+export function richMessageChecks(message: unknown, entry: unknown, id: string, attachmentBytes?: Buffer): { passed: boolean; checks: Record<string, boolean>; expectedHashes: RichFixture['hashes']; actualHashes: { plain: string | null; html: string | null; attachment: string | null }; attachmentBytes: number | null };

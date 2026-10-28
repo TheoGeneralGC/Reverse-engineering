@@ -1,0 +1,277 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173/test/calendar-fixture.html"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1920,
+      "height": 963,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "calendar-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"Planning session\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "all-day-event",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-all-day-event:has-text(\"Halloween\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "open-planning",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"Planning session\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "details-visible",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"Event details\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "event-options",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Event options"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edit-option-visible",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"menuitem\"]:has-text(\"Edit\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "close-options",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"]"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "close-details",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"]"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "details-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"Event details\"]"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "hide-holidays",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "label.calendar-visibility:has-text(\"Public holidays\") input"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "holiday-hidden",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-all-day-event:has-text(\"Halloween\")"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "restore-holidays",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "label.calendar-visibility:has-text(\"Public holidays\") input"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "holiday-restored",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-all-day-event:has-text(\"Halloween\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "previous-week",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "View previous week"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "old-week-event-hidden",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"Planning session\")"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "next-week",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "View next week"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "current-week-event-restored",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"Planning session\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "unknown-availability-person",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Meet Who"
+      },
+      "value": {
+        "source": "literal",
+        "value": "unknown@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "check-unknown-availability",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Meet Who"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "unknown-is-not-free",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-availability:has-text(\"Availability is unknown\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "known-availability-person",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Meet Who"
+      },
+      "value": {
+        "source": "literal",
+        "value": "available@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "check-known-availability",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Meet Who"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "known-busy-block",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-availability:has-text(\"Wed\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "screenshot",
+      "url"
+    ],
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ]
+  }
+}

@@ -1,0 +1,224 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1036,
+      "height": 690,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "compose",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "c",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "owned-test-subject",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "value": {
+        "source": "literal",
+        "value": "__INLINE_AI_SUBJECT__"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-existing-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "clear-existing-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "synthetic-body",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "value": {
+        "source": "literal",
+        "value": "Synthetic selection stays safe when AI is unavailable."
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-body",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "open-inline-ai",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+j",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "inline-ai-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Describe how to edit the text"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "try-shortening",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Shorten"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "configuration-error",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".composer-ai-error:has-text(\"Configure ANTHROPIC_API_KEY and ANTHROPIC_MODEL\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "body-retained",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[aria-label=\"Message body\"]:has-text(\"Synthetic selection stays safe when AI is unavailable.\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "close-ai-keeps-composer",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": ".composer-inline-ai input"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "ai-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".composer-inline-ai"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "body-still-editable",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[aria-label=\"Message body\"][contenteditable=\"true\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "save-owned-draft",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "composer-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ]
+  }
+}

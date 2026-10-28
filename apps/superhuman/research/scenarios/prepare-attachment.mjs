@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+
+const origin = new URL(process.argv[3] ?? 'http://127.0.0.1:3001');
+assert.equal(origin.protocol, 'http:');
+assert.equal(origin.hostname, '127.0.0.1');
+assert.ok(origin.port && !origin.username && !origin.password && origin.pathname === '/' && !origin.search && !origin.hash);
+const base = origin.origin + '/api';
+const get = async path => { const response = await fetch(base + path); assert.equal(response.status, 200); return response.json(); };
+const post = async (path, input) => { const response = await fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); assert.equal(response.status, 201); return response.json(); };
+const state = await get('/bootstrap');
+assert.equal(state.activeAccountId, 'demo');
+assert.ok(state.accounts.every(account => account.provider === 'demo'));
+const subject = `REA E2E attachment ${process.argv[2]}`;
+const { draft } = await post('/drafts', { accountId: 'demo', to: 'qa-recipient@example.test', subject, body: 'Synthetic attachment test. No delivery requested.' });
+assert.equal(draft.accountId, 'demo');
+const bytes = Buffer.from('Synthetic REA attachment bytes.\nUnicode: café ✓\n', 'utf8');
+const { attachment } = await post(`/drafts/${encodeURIComponent(draft.id)}/attachments`, { name: 'rea-test-notes.txt', mimeType: 'text/plain', data: bytes.toString('base64') });
+const path = `/drafts/${encodeURIComponent(draft.id)}/attachments/${encodeURIComponent(attachment.id)}`;
+const downloaded = await fetch(base + path);
+assert.equal(downloaded.status, 200);
+assert.equal(downloaded.headers.get('content-type'), 'text/plain');
+assert.equal(downloaded.headers.get('x-content-type-options'), 'nosniff');
+assert.equal(downloaded.headers.get('cache-control'), 'no-store');
+assert.match(downloaded.headers.get('content-disposition'), /attachment; filename\*=UTF-8''rea-test-notes\.txt/);
+assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), bytes);
+console.log(JSON.stringify({ draftId: draft.id, draftSubject: subject, attachment, downloadPath: '/api' + path, downloadedSha256: createHash('sha256').update(bytes).digest('hex'), assertions: ['demo_account_only', 'upload_201', 'download_200', 'exact_bytes', 'content_type_text_plain', 'download_filename', 'cache_no_store', 'content_nosniff'], sent: false }));

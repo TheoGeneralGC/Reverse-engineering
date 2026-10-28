@@ -1,0 +1,503 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1036,
+      "height": 690,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "open-composer",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "c",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "composer-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".compose-card"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-initial-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "clear-initial-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "sample-body",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "value": {
+        "source": "literal",
+        "value": "REA formatting sample"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-text",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "selection-toolbar",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-format-toolbar"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "bold-selection",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+b",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "bold-result",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(:is(b,strong):has-text(\"REA formatting sample\"))"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "open-link",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+k",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "link-input",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".composer-link-dialog input"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "example-link",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Link URL"
+      },
+      "value": {
+        "source": "literal",
+        "value": "https://example.com/rea-formatting"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "apply-link",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Link URL"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "link-result",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(a[href=\"https://example.com/rea-formatting\"]:has-text(\"REA formatting sample\"))"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "undo-link",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+z",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "link-undone",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(a[href=\"https://example.com/rea-formatting\"]:has-text(\"REA formatting sample\"))"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "redo-link",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+Shift+Z",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "link-redone",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(a[href=\"https://example.com/rea-formatting\"]:has-text(\"REA formatting sample\"))"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-colored-text",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "format-color-control",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-format-toolbar"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "open-colors",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button[aria-label=\"Text color\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "palette",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".composer-color-picker"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "choose-observed-red",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button[aria-label=\"Lava Red\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "red-result",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has([style*=\"222\"])"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-list-text",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "ordered-list",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+Shift+7",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "ordered-result",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(ol li)"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "quote-list",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+Shift+9",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "quoted-result",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(blockquote)"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "synthetic-recipient",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "qa-recipient@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-subject",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "value": {
+        "source": "literal",
+        "value": "__RICH_COMPOSE_SUBJECT__"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "save-close",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "composer-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".compose-view"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reload",
+      "action": "goto",
+      "destination": {
+        "url": "http://127.0.0.1:5173"
+      },
+      "wait_until": "load",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reload-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-prefix",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "g",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-drafts",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "d",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "drafts-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[aria-label=\"Drafts\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reopen-rich-draft",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button.mail-row:has-text(\"__RICH_COMPOSE_SUBJECT__\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "persisted-link",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(a[href=\"https://example.com/rea-formatting\"]:has-text(\"REA formatting sample\"))"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "persisted-bold",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(:is(b,strong):has-text(\"REA formatting sample\"))"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "persisted-quote-list",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(blockquote ol li)"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "persisted-color",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has([style*=\"222\"])"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ]
+  }
+}

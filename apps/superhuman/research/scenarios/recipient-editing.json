@@ -1,0 +1,743 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1036,
+      "height": 690,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "compose",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "c",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "owned-subject",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "value": {
+        "source": "literal",
+        "value": "__RECIPIENT_SUBJECT__"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "first-address",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "rea-one@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-enter",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "first-chip",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip:has-text(\"rea-one@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "second-address",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "rea-two@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-comma",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": ",",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "second-chip",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip:has-text(\"rea-two@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "third-address",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "rea-three@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-semicolon",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": ";",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "third-chip",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip:has-text(\"rea-three@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "remove-previous-chip",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "third-removed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip:has-text(\"rea-three@example.test\")"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-first",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Recipient rea-one@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edit-selected",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"group\"][aria-label=\"To recipients\"]"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "replacement-address",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "rea-edited@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-existing-edit",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edited-chip-selected",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip.is-selected:has-text(\"rea-edited@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "selected-chip-has-no-input",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "append-to",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-row > label:text-is(\"To\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "invalid-name",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "zzzz-REA-invalid-20261028"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "literal-name-comma",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": ",",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "escape-commit-literal",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "invalid-retained",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip.is-invalid:has-text(\"zzzz-REA-invalid-20261028,\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "remove-owned-invalid",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip.is-invalid .recipient-remove"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "append-after-chip-removal",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-row > label:text-is(\"To\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "lookup-existing-local-contact",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "jordan@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "local-suggestion-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-suggestions [role=\"option\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "accept-suggested-tab",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Tab",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "contact-chip",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip:has(button[aria-pressed][aria-label*=\"jordan@example.test\"])"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "remove-local-contact",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Remove recipient jordan@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "focus-cc",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "Meta+Shift+c",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "cc-visible",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "Cc"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "cc-address",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "Cc"
+      },
+      "value": {
+        "source": "literal",
+        "value": "rea-cc@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-cc",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "Cc"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "focus-bcc",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "Meta+Shift+b",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "bcc-address",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "Bcc"
+      },
+      "value": {
+        "source": "literal",
+        "value": "rea-bcc@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-bcc",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "Bcc"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-owned-move",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Recipient rea-edited@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "move-to-cc",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"group\"][aria-label=\"To recipients\"]"
+      },
+      "key": "Alt+ArrowDown",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "source-chip-absent",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-row[aria-label=\"To recipients\"] .recipient-chip:has-text(\"rea-edited@example.test\")"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "destination-chip-present",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-row[aria-label=\"Cc recipients\"] .recipient-chip:has-text(\"rea-edited@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-cc",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"group\"][aria-label=\"Cc recipients\"]"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "remove-selected-cc",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"group\"][aria-label=\"Cc recipients\"]"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "cc-empty",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-row[aria-label=\"Cc recipients\"] .recipient-chip"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "undo-recipient-delete",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"group\"][aria-label=\"Cc recipients\"]"
+      },
+      "key": "Meta+z",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "cc-undo-restored",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip:has-text(\"rea-cc@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "redo-recipient-delete",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"group\"][aria-label=\"Cc recipients\"]"
+      },
+      "key": "Meta+Shift+z",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "cc-redo-empty",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-row[aria-label=\"Cc recipients\"] .recipient-chip"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "restore-for-persistence",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"group\"][aria-label=\"Cc recipients\"]"
+      },
+      "key": "Meta+z",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-existing-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "clear-existing-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "synthetic-body",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "value": {
+        "source": "literal",
+        "value": "Synthetic recipient editing comparison. No delivery requested."
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "save-owned-draft",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "composer-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-prefix",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "g",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-drafts",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "d",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-list",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[aria-label=\"Drafts\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reopen-owned-draft",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button.mail-row:has-text(\"__RECIPIENT_SUBJECT__\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "cc-auto-revealed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "Cc"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "bcc-auto-revealed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "Bcc"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reopened-cc-chip",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip:has-text(\"rea-cc@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reopened-moved-chip",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip:has-text(\"rea-edited@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reopened-bcc-chip",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip:has-text(\"rea-bcc@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ]
+  }
+}

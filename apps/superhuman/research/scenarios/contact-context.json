@@ -1,0 +1,867 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1036,
+      "height": 690,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "inbox-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-list[aria-label=\"Inbox\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "compose",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "c",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "owned-subject",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "value": {
+        "source": "literal",
+        "value": "__CONTACT_SUBJECT__"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "pending-a",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "rea-ctx-a@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "pending-keeps-author",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"alex@demo.local\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-a",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "a-shown",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"rea-ctx-a@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "settled-empty-contact-has-no-mail-section",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-mail"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "pending-b",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "rea-ctx-b@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "typing-keeps-a",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"rea-ctx-a@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-b",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "b-shown",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"rea-ctx-b@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "backspace-b",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "backspace-shows-a",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"rea-ctx-a@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "backspace-final-a",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "backspace-shows-author",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"alex@demo.local\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "add-a-again",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "rea-ctx-a@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-a-again",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "name-only-invalid",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "zzzz-CTX-invalid"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "commit-invalid-name",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Enter",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "name-commit-retains-a",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"rea-ctx-a@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-invalid-name",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip.is-invalid button[aria-pressed]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "invalid-selection-shows-author",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"alex@demo.local\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "remove-invalid-selected",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"group\"][aria-label=\"To recipients\"]"
+      },
+      "key": "Delete",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "neighbor-selection-shows-a",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"rea-ctx-a@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-final-a",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Recipient rea-ctx-a@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "remove-final-selected",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"group\"][aria-label=\"To recipients\"]"
+      },
+      "key": "Delete",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "empty-selected-retains-a",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"rea-ctx-a@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "append-after-selection",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-row > label:text-is(\"To\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "local-contact-query",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "value": {
+        "source": "literal",
+        "value": "jordan@example.test"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "local-suggestion-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-suggestions [role=\"option\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "automatic-highlight-retains-a",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"rea-ctx-a@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "explicit-highlight",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "ArrowDown",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "explicit-highlight-shows-jordan",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"jordan@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "accept-contact-tab",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "combobox",
+        "name": "To"
+      },
+      "key": "Tab",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "accepted-jordan",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"jordan@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "recent-known-conversation",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-thread:has-text(\"A few thoughts on the launch\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-seeded-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "clear-seeded-signature",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Backspace",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "owned-body",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "value": {
+        "source": "literal",
+        "value": "Contact context retained editor history."
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-body",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+a",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "bold-body",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+b",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "bold-before-search",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(:is(b,strong):has-text(\"Contact context retained editor history.\"))"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-name-search",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-name button"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-name-search-entered",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".main[data-contact-search=\"draft\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-stays-visible-during-search",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-search-keeps-new-message-header",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".topbar h1:text-is(\"New Message\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-search-keeps-jordan",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"jordan@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "escape-draft-search",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-restored",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "undo-format-after-search",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Message body"
+      },
+      "key": "Meta+z",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "format-undo-still-works",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has(:is(b,strong):has-text(\"Contact context retained editor history.\"))"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "body-preserved",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has-text(\"Contact context retained editor history.\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-mail-search",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Search mail with this contact"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-mail-search-entered",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".main[data-contact-search=\"draft\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "escape-mail-search",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "draft-still-present",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Subject"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "recent-thread-navigation",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-thread:has-text(\"A few thoughts on the launch\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "recent-thread-opened",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "article[aria-label=\"Message from Jordan Lee\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "recent-navigation-keeps-jordan",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"jordan@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "current-thread-excluded",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-thread:has-text(\"A few thoughts on the launch\")"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "read-thread-contact-search",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-name button"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "read-search-field",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "input[aria-label=\"Search email\"][value=\"jordan@example.test \"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "read-search-tips",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".search-tips"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "read-search-hides-contact",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[aria-label=\"Contact context\"]"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "escape-read-search",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Search email"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "same-read-thread-restored",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "article[aria-label=\"Message from Jordan Lee\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "read-return-restores-contact",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"jordan@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "return-to-inbox",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "Escape",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "thread-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".thread-view"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "inbox-hides-contact",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[aria-label=\"Contact context\"]"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-prefix",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "g",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "go-drafts",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "d",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "drafts-visible",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "section[aria-label=\"Drafts\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "reopen-owned-draft",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "button.mail-row:has-text(\"__CONTACT_SUBJECT__\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "owned-body-persisted",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".rich-editor:has-text(\"Contact context retained editor history.\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "select-saved-recipient",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".recipient-chip button[aria-pressed][aria-label*=\"jordan@example.test\"]"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "saved-recipient-context",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-email:text-is(\"jordan@example.test\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "saved-contact-recent-mail-loaded",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".contact-pane-thread:has-text(\"A few thoughts on the launch\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ]
+  }
+}

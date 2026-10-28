@@ -1,0 +1,9 @@
+.ai-draft-card{margin:12px 0;border:1px solid var(--border);border-radius:4px;background:var(--surface);overflow:hidden;font-size:12px;line-height:20px;color:var(--text)}
+.ai-draft-headers{padding:10px 12px;margin:0;border-bottom:1px solid var(--border)}.ai-draft-headers>div{display:flex;align-items:baseline;gap:8px}.ai-draft-headers dt{color:var(--muted);min-width:24px;flex:none}.ai-draft-headers dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.ai-draft-subject{font-size:inherit;line-height:20px;font-weight:700;margin:0;padding:10px 12px 0}.ai-draft-body{padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}.ai-draft-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;padding:8px 12px;border-top:1px solid var(--border)}.ai-draft-actions button{font-size:12px;line-height:20px;padding:3px 8px;color:var(--purple);border-radius:3px}.ai-draft-actions button:hover:enabled{background:var(--focus)}.ai-draft-actions button:disabled{color:var(--muted);cursor:default}.ai-draft-error,.ai-draft-note{font-size:11px;line-height:16px;margin:0;padding:0 12px 10px;color:var(--muted)}.ai-draft-error[role=alert]{color:#a33238}
+@media(max-resolution:1dppx){.ai-draft-card,.ai-draft-actions button{font-size:13px}}
+/* Retained card typography/grid declarations; wrapper geometry remains pending
+   original browser comparison for this local action subset. */
+.ai-draft-headers>div{display:grid;grid-template-columns:32px 1fr;column-gap:16px;line-height:16px;font-weight:600}.ai-draft-headers>div+div{margin-top:6px}.ai-draft-subject{font-weight:600;line-height:16px}.ai-draft-body{line-height:20px}
+
+.ai-send-toast{z-index:1000;flex-wrap:wrap;gap:12px;max-width:min(620px,calc(100vw - 32px))}.ai-send-toast small{flex-basis:100%;line-height:16px;font-size:12px}.toast:has(+.ai-send-toast){bottom:76px}

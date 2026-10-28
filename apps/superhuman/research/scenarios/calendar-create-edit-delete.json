@@ -1,0 +1,377 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:5173/test/calendar-fixture.html"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1920,
+      "height": 963,
+      "device_scale_factor": 1
+    },
+    "locale": "en-US",
+    "timezone": "America/Los_Angeles",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "service_workers": "block"
+  },
+  "actions": [
+    {
+      "step_id": "calendar-ready",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"Planning session\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "create-shortcut",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "body"
+      },
+      "key": "b",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "new-event-form",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"New event\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "synthetic-title",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Event title"
+      },
+      "value": {
+        "source": "literal",
+        "value": "REA synthetic calendar event"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "new-york-time",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "When"
+      },
+      "value": {
+        "source": "literal",
+        "value": "tomorrow 2 pm 30 min new york"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "parse-when",
+      "action": "press",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "When"
+      },
+      "key": "Tab",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "local-equivalent-time",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-when-row small:has-text(\"11:00\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "repeat-menu",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Repeat"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "custom-recurrence",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"menuitem\"]:has-text(\"Custom\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "custom-repeat-dialog",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"Repeat\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "cancel-custom-repeat",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-repeat-dialog button:has-text(\"Cancel\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "custom-dialog-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"Repeat\"]"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "repeat-menu-again",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Repeat"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "weekly-repeat",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"menuitem\"]:has-text(\"Weekly on Wednesday\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "save-synthetic-event",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Save"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "form-closed-after-save",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"New event\"]"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "created-event-in-week",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"REA synthetic calendar event\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "open-created-event",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"REA synthetic calendar event\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "created-details",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"Event details\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "created-event-options",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Event options"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edit-created-event",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"menuitem\"]:has-text(\"Edit\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edit-form",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"Edit event\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edit-synthetic-title",
+      "action": "fill",
+      "locator": {
+        "kind": "role",
+        "role": "textbox",
+        "name": "Event title"
+      },
+      "value": {
+        "source": "literal",
+        "value": "REA edited calendar event"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "save-edit",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Save"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edited-event-visible",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"REA edited calendar event\")"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "open-edited-event",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"REA edited calendar event\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edited-details",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"Event details\"]"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "edited-event-options",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Event options"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "delete-option",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"menuitem\"]:has-text(\"Delete\")"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "delete-confirmation",
+      "action": "wait_for",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Delete event"
+      },
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "confirm-synthetic-delete",
+      "action": "click",
+      "locator": {
+        "kind": "role",
+        "role": "button",
+        "name": "Delete event"
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "deleted-event-hidden",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": ".calendar-timed-event:has-text(\"REA edited calendar event\")"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "delete-dialog-closed",
+      "action": "wait_for",
+      "locator": {
+        "kind": "css",
+        "selector": "[role=\"dialog\"][aria-label=\"Event details\"]"
+      },
+      "state": "hidden",
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": {
+    "after_each_step": [
+      "dom",
+      "accessibility",
+      "screenshot",
+      "url"
+    ],
+    "at_end": [
+      "screenshot",
+      "dom",
+      "accessibility",
+      "url"
+    ],
+    "events": [
+      "page-errors"
+    ]
+  }
+}
