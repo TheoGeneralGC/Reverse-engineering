@@ -1,6 +1,16 @@
 # Implementation checkpoint — 2026-10-27/28
 
-The current applied version passed **456 API/398 frontend tests**, build and
+The current applied version passed **480 API/429 frontend tests**, build and
+strict types, plus **16 cases/407 browser steps** with all eight persistence
+assertions and 138 stable source entries. Manual Auto Archive/Auto Labels
+configuration and explicit synthetic preview/apply are applied. The rollout
+preserved 19 drafts, three Calendar operations and six delivery records;
+automation tables stayed empty on the real-mail database. Two Calendar access
+tokens refreshed with the same refresh credentials and authorization scope sets.
+See [the automation checkpoint](automation-runtime.md) for the separate
+synthetic proof, metadata audit and remaining real-provider gaps.
+
+The preceding recovery version passed **456 API/398 frontend tests**, build and
 strict types. The earlier combined **444 API/385 frontend** version retains its
 **16-case/407-step** full regression and 126 stable entries. The recovery rollout
 preserved 18 Draft JSON records, three Calendar operations, four sealed
@@ -76,6 +86,23 @@ guarded source navigation. These are subsequent changes, separate from the older
 full browser checkpoint below. Bounded live API/browser checks are recorded
 separately. No model tool directly dispatches mail or Calendar mutations;
 explicit preview actions have their separately recorded scope.
+
+## Separately isolated Automation candidate proof
+
+The isolated manual Auto Archive/Auto Labels version passed **480 API/429 web
+tests**, build and strict types. Its B-only continuation completed **65 states /
+64 actions** with 248 frozen entries unchanged, preserving the one draft created
+by the failed setup. One explicit synthetic preview/apply changed only the four
+proposed demo threads; Marketing alone was archived. The account/preferences/
+manual label and exact owned draft content were preserved; model, Calendar and
+delivery counters stayed zero. Event coverage remains incomplete. The three
+failed setups remain failed, and this isolated proof alone is not a main rollout
+or real-provider classification result. See [automation-runtime.md](automation-runtime.md).
+
+Original Auto Drafts and typing Autocomplete settings were separately inspected
+without declared toggle/Save/activation actions. Their form states, static AI/
+plan gates, conditional unmount-write caveat and remaining controlled-comparison
+needs are in [auto-drafts-autocomplete.md](auto-drafts-autocomplete.md).
 
 ## Earlier frozen Send/Undo-source regression checks
 

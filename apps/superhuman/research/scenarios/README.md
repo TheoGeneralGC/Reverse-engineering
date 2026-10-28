@@ -884,3 +884,65 @@ that undispatched stage resumed with loopback access. No Send or cancellation
 was retried. The helper's nine offline controls do not replace runtime evidence.
 Exact report hashes and comparison limits are in
 [Undo observations](../undo-send.md#replica-normal-composer-undo-schedule-cancellation-and-instant-send).
+
+## Isolated Automation B-only continuation — API480/web429
+
+The private manual Auto Archive/Auto Labels candidate passed 480 API/429 web
+tests, build and strict types. A continuation reopened the already-owned draft
+from its separately failed setup; it created no replacement draft.
+`ev_6f8980bbd71d5261a1a2b91964758141c1eddf91a5a715cf5b68d73af97642e8`
+completed 65 states/64 declared actions, with 248 unchanged frozen entries, no
+captured page errors and owned-browser cleanup. It saved two configuration
+revisions, persisted nested Subject/Exclude groups, preserved the same draft,
+then explicitly previewed and applied four selected synthetic threads.
+
+Read-only snapshots confirmed one completed preview, one application and two
+request keys; all four after-hashes matched exact proposed effects. Marketing
+alone was archived, with three threads still in Inbox. Account/preferences/manual
+label and canonical owned draft state were preserved; model/Calendar/delivery
+counters stayed zero. Captured two settings PATCHes, two same-draft PATCHes and
+one preview/apply POST each are observed records, not a complete network audit.
+Events remain missing and equality false. This is a fixture classifier/local
+effect check, not original-model or provider parity.
+
+Preserved failures are `ev_c6f8a6e7e44ecc43998b5fd2afd3cd78cab4d125dd61139548b9681cf5ff394b`
+(01: initial split), `ev_2d1a257dcb195df84130f1a7782d9f40b812099f7f61e65bab999e0e70b9900b`
+(02: thread-row tag), both before writes, and
+`ev_1b723246ac32409d5124e9e77326091889cf91f6ec7c72520abdaf19d3373a0a`
+(03: four-checkbox readiness match after one new local draft, before any
+configuration/preview/apply). B is a separate success and does not relabel them.
+Exact source/report hashes and continuing comparison gaps are in
+[automation-runtime.md](../automation-runtime.md).
+
+## Applied Automation source regression — 20261028T225810Z
+
+Root API480/web429 passed all 16 cases/407 steps and all eight persisted
+assertions, with zero captured page errors and owned cleanup. The before/after
+manifest retained 138 entries without drift. App SHA-256 is
+`3a3d5c6a73b6422271459d134092d27f4bba7ebe0ccf774bed72c093b12aac45`.
+These are synthetic demo/fixture Calendar checks, separate from live mail.
+Reply-all remains missing events/equality ineligible; its exact POST/201
+assertion passed. Complete capture eligibility elsewhere is not original equality.
+
+| Case | Evidence | Steps |
+| --- | --- | --- |
+| draft-save-reopen | `ev_29ccfe2f452d6e0d678052d18abf206427082155c1048f411fe13518b7e248bc` | 26 |
+| search-jordan | `ev_1d36e685026f55410a3515af3a9cabc7e50b7bed08f8207c9646159234268f2e` | 8 |
+| command-keyboard | `ev_37bd4affd38577a9399b4042f2c05838d4dcbc180eca1749823c17b2e76ccdcb` | 16 |
+| archive-undo-native-button | `ev_3b475b35ded20b4bf02045527e81834c759005aae40c40995d463024257153b4` | 12 |
+| narrow-viewport | `ev_5d3c26615cb991e08cd84d156d8097ed800f761d41222c898392bcd0dda8e93d` | 3 |
+| attachment-draft | `ev_66fe2118a62639c7abf3c9dd25808ae3fedefd89a7df02d314a12c11d890a95d` | 8 |
+| reply-all | `ev_dd38d97d80aee9a35aa2595d55b6b14af9b2e25f96a0ae5e8282c59d5bec301c` | 8 |
+| reminder-undo | `ev_12d980d641b498b3dc8eed3b1ff21ca2558d4f4cf93d02c108cbe1863fb568e8` | 11 |
+| label-picker | `ev_0ba2cbd567762b7ef2ab111d316b8ecdcb3d6b15f85fda49e8db3786d7b8571f` | 6 |
+| rich-compose | `ev_f75ee2b59c687e7bd23ebc170b8b47965e291672d9b26ca2ef322de2c8a4f783` | 45 |
+| inline-ai-unconfigured | `ev_9d44b40cee0f4955704f0a1127bbb5a0d1bbf7f452a9635619e317b21512398d` | 18 |
+| side-ai-unconfigured | `ev_abb0a7744587c68da4d7a3b9386511cba6f74a55d756c3506282b084be50e490` | 42 |
+| calendar-week | `ev_9e0b1659a3279d1320e6cb3abd3024f8e36ae3bc938e93f10e43808685a856bc` | 24 |
+| calendar-create-edit-delete | `ev_c611c6c3b26c7403353d260c642e464b8272a8fac71494a42ae62a7731db9838` | 34 |
+| recipient-editing | `ev_1400f4a46c91d3122bb5ac837a0721268cb26353c31ce54db902d50fab65d905` | 66 |
+| contact-context | `ev_e524125416063201aa400abe8f7befba07fdad6720f5b729497ac85c751ff0d3` | 80 |
+
+The separately retained 65-state Automation continuation, three failed setup
+captures, independent state review and main rollout audit are in
+[automation-runtime.md](../automation-runtime.md).

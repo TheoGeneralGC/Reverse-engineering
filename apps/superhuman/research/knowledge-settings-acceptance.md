@@ -169,6 +169,11 @@ proof of original prompt construction or an instruction guarantee.
 
 ## Auto Drafts
 
+The later [Auto Drafts/Autocomplete original inspection](auto-drafts-autocomplete.md)
+records the current unchanged form, account-specific switch values, direct
+Autocomplete menu control, separate static gates and a conditional unmount-write
+caveat. It changes no classification/generation or original Save claim below.
+
 The observed UI describes follow-ups when a reminder returns and requires a
 follow-up, and responses when a message needs a reply; its copy says responses
 can be updated as facts change. Those are displayed trigger descriptions, not
@@ -206,6 +211,35 @@ is a reconstruction choice pending original default observations.
   recipients, rich body and attachments. No automatic send/schedule is exposed.
 - **AD-04:** Tests demonstrate local job rules only. Actual original trigger
   equivalence, elapsed-time behavior and quality require controlled comparison.
+- **AD-05:** Render known AI/plan/admin unavailable states without purchasing,
+  activating or inventing a new-account default. Direct preference updates and
+  ambiguous acknowledgements stay account scoped. Current form access was
+  observed; disabled-tier and consent paths remain static candidates.
+- **AD-06:** Keep teammate selection/prompt/preview staged separately from direct
+  Follow-ups/Responses changes. Explicit Save/discard preserves input on error;
+  opening/closing the local form must not silently copy vendor cleanup effects.
+  Hidden original teammate editor/preview/Save behavior still needs comparison.
+- **AD-07:** A newer settings revision, message/reminder version, account switch
+  or authored draft edit invalidates pending generation. Recovery never duplicates
+  a draft or automatically sends; actual original cadence remains unmeasured.
+
+## Typing-assistance Autocomplete
+
+- **AC-01:** Show an account-scoped direct Settings switch distinct from contact
+  autocomplete. Original current-account on-state was observed without toggling;
+  no default or universal entitlement is inferred.
+- **AC-02:** An explicit change persists one preference with authoritative
+  acknowledgement/error handling. Lost acknowledgement recovers by read before
+  another update. Opening Settings or switching accounts does not start typing
+  completion. Original persistence/gating still needs controlled comparison.
+- **AC-03:** In an explicitly controlled fictional composer, compare trigger,
+  ghost-text display, acceptance/dismissal keys and selection/history behavior.
+  No such original completion was requested in the form inspection; these remain
+  acceptance targets rather than established behavior.
+- **AC-04:** A completion generated for older text, account, draft, cursor or
+  read-only state cannot become current draft content. Failure/cancellation
+  retains authored text, formatting and undo. No completion directly dispatches
+  mail or changes unrelated settings.
 
 ## Auto Archive and Auto Labels
 
@@ -238,6 +272,14 @@ schedule/timezone, undo windows and model thresholds remain unknown.
 - **AA-04:** For an authorized controlled provider fixture, apply only the
   intended labels once, preserve unrelated labels, and expose failed/unknown
   outcomes. Account-wide enablement and broad backfill are separate work.
+- **AA-05:** Recover the same accepted preview/application key without
+  reclassification or replay over later manual edits. Reject changed settings,
+  thread/label hashes, foreign scope and malformed persisted effects atomically.
+  The private 480 API/429 web candidate passed isolated tests and a 65-state
+  B-only manual demo continuation; see [automation-runtime.md](automation-runtime.md).
+  Its three failed setups remain failed. This supports AA-01–AA-03 only within
+  the recorded local scope; AA-04 provider effects and original classification
+  comparison remain unverified.
 
 ## Proposed implementation slices and remaining observation
 

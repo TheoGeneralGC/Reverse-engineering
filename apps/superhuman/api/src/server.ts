@@ -12,6 +12,9 @@ import { DeliveryAccelerationService } from './delivery-accelerate.ts';
 import { KnowledgeService } from './knowledge.ts';
 import { KNOWLEDGE_MAX_FILE_BYTES, knowledgeFilename, knowledgeKey, knowledgeObject, knowledgeRevision } from './knowledge-input.ts';
 import { PersonalizationService } from './personalization.ts';
+import { AutomationService } from './automation.ts';
+import type { AutomationFixtureClassifier } from './automation-engine.ts';
+import type { AutomationConfiguration } from './automation-types.ts';
 import { deliveryDeadline } from './delivery-delay.ts';
 import { identifier as aiId, integer as aiInteger, invalid as aiInvalid, strictObject as aiObject } from './ai-chat-store.ts';
 import { OperationQueue } from './operation-queue.ts';
@@ -42,8 +45,8 @@ export function resolveApplicationDatabasePath(optionPath: unknown, environmentP
   return configured;
 }
 
-export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number } = {}) {
-  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs'].includes(key));
+export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration> } = {}) {
+  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture'].includes(key));
   if (unknownOptions.length) throw new TypeError('Unknown application configuration option');
   const env = options.env ?? process.env;
   const configuredDatabase = resolveApplicationDatabasePath(options.databasePath, env.DATABASE_PATH, !!process.env.NODE_TEST_CONTEXT);
@@ -54,6 +57,8 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const store = new Store(configuredDatabase ?? resolve(rootPath, '.local/superhuman/mail.sqlite'), options.seed ?? true);
   const google = new GoogleProvider(store, env);
   try { google.migrateLegacyMailGrants(); } catch (error) { store.close(); throw error; }
+  let automation: AutomationService;
+  try { automation = new AutomationService(store, { now: scheduler.now, fixture: options.automationFixture }); } catch (error) { store.close(); throw error; }
   const ai = new AiProvider(store, env, options.aiFetch);
   const personalization = new PersonalizationService(store, scheduler.now);
   const calendar = new GoogleCalendarProvider(store, google, env, google.fetcher, { now: scheduler.now });
@@ -248,6 +253,21 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname; const method = request.method;
+      if(path.startsWith('/api/automation/')){
+        const query=()=>{if([...url.searchParams.keys()].some(key=>key!=='accountId')||url.searchParams.getAll('accountId').length!==1)throw new HttpError(400,'Select one automation account','automation_invalid_request');return url.searchParams.get('accountId')!};
+        const decode=(value:string)=>{try{const id=decodeURIComponent(value);if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw Error();return id}catch{throw new HttpError(400,'Invalid automation artifact identity','automation_invalid_request')}};
+        if(path==='/api/automation/settings'&&method==='GET')return json(response,200,automation.response(query()));
+        if(path==='/api/automation/settings'&&method==='PATCH')return json(response,200,automation.save(query(),await body(request,262144)));
+        if(path==='/api/automation/previews'&&method==='POST'){if(url.search)throw new HttpError(400,'Unexpected automation query','automation_invalid_request');const result=automation.preview(await body(request,16000));return json(response,result.accepted?202:200,{preview:result.preview});}
+        const previewRequest=path.match(/^\/api\/automation\/previews\/by-request\/([^/]+)$/);
+        if(previewRequest&&method==='GET')return json(response,200,{preview:automation.engine.byRequest(query(),decode(previewRequest[1]))});
+        const applicationRequest=path.match(/^\/api\/automation\/applications\/by-request\/([^/]+)$/);
+        if(applicationRequest&&method==='GET')return json(response,200,automation.engine.applicationByRequest(query(),decode(applicationRequest[1])));
+        const preview=path.match(/^\/api\/automation\/previews\/([^/]+)(?:\/(apply))?$/);
+        if(preview&&!preview[2]&&method==='GET')return json(response,200,{preview:automation.engine.get(query(),decode(preview[1]))});
+        if(preview?.[2]&&method==='POST'){if(url.search)throw new HttpError(400,'Unexpected automation query','automation_invalid_request');return json(response,200,automation.apply(decode(preview[1]),await body(request,5000)));}
+        throw new HttpError(404,'Automation route not found','automation_not_found');
+      }
       if(path.startsWith('/api/knowledge/')){
         const query=(allowed:string[])=>{if([...url.searchParams.keys()].some(key=>!allowed.includes(key)||url.searchParams.getAll(key).length!==1))throw new HttpError(400,'Invalid knowledge query','knowledge_invalid_request');return Object.fromEntries(url.searchParams)};
         const decode=(value:string)=>{try{const id=decodeURIComponent(value);if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw Error();return id}catch{throw new HttpError(400,'Invalid knowledge source ID','knowledge_invalid_request')}};
@@ -430,10 +450,10 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const close = () => {
     if (closePromise) return closePromise;
     closing = true;
-    closePromise = (async () => { syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs]); await calendar.close(); store.close(); })();
+    closePromise = (async () => { syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close())]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs]); await calendar.close(); store.close(); })();
     return closePromise;
   };
-  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
+  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

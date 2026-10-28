@@ -30,6 +30,9 @@ New connections require offline refresh access, while reconnecting retains an
 existing refresh token when Google omits a replacement. Token/account/active-
 account publication is atomic, and rotated refresh tokens are preserved.
 
+See [manual automation candidate](AUTOMATION.md) for revisioned configuration and
+explicit synthetic preview/apply. Real mailbox processing remains unavailable.
+
 ## API
 
 All JSON errors have `{error:{code,message}}`. IDs in path segments must be URL

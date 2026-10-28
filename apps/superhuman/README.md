@@ -27,7 +27,13 @@ after the initial data-flow and interaction inventory.
 
 ## Run the current implementation
 
-The running version passed **456 API/398 frontend tests**, build and strict types.
+The running version passed **480 API/429 frontend tests**, build and strict types,
+plus **16 cases/407 browser steps** and all eight persistence assertions.
+Manual Auto Archive/Auto Labels settings and explicit synthetic preview/apply are
+applied; real automatic classification remains open. See the
+[automation checkpoint](research/automation-runtime.md).
+
+The preceding recovery version passed **456 API/398 frontend tests**.
 The earlier **444 API/385 frontend** version retains its **16-case/407-step** full
 browser regression. The subsequent recovery version passed a focused 9-step
 Knowledge journal-remount check and a separate 7-step source-editor check; the

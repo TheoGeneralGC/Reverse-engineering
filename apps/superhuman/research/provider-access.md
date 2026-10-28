@@ -53,7 +53,11 @@ require verification; development access and launch readiness are separate
 milestones. [Google OAuth audience](https://support.google.com/cloud/answer/15549945),
 [restricted-scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
 
-## Outlook: required, not implemented by the initial Gmail adapter
+## Outlook: excluded by the user
+
+The user excluded Outlook on 2026-10-28. The following integration notes are
+retained as reference for a future scope change; Outlook setup and verification
+are not current requirements.
 
 Register a web application in Microsoft Entra, choose supported account types,
 configure its actual backend redirect URI, and supply tenant/client information

@@ -325,3 +325,41 @@ another upload or retry. The source editor also uses equal metadata columns and
 focuses Name initially only while its loading container still owns focus.
 These are local reconstruction policies and synthetic checks; full original
 recovery behavior and pixel equality have not been established.
+# Private Automation candidate
+
+This private copy starts from the exact frozen Knowledge recovery398 frontend.
+It adds Settings → Auto Archive / Auto Labels as account-scoped modal overlays;
+the current Mail composer, recipient controller and editing histories remain
+mounted. The original runtime evidence and limits are recorded in
+`apps/superhuman/research/automation-settings.md` at the repository root.
+
+Archive choices and custom rules are staged until an explicit Save/Create.
+The custom editor preserves a separate optional prompt and ordered native-shaped
+`operator` / `queryOperator` groups. Built-in metadata is staged only when a user
+explicitly selects its Archive checkbox. The observed template library is
+informational because its criteria have not been reconstructed. New rules open
+through Build Your Own; no template click silently enables a rule.
+
+The private API contract is `../api/src/automation-types.ts`. Settings saves use
+an expected revision and do not triage mail. Conflicts rebase independent rules
+and archive fields while retaining local changes for an explicit decision.
+Unconfirmed saves become read-only until a GET compares saved configuration.
+
+The optional Demo preview control uses an advertised controlled-fixture
+classifier, never a claimed live model. Preview and Apply are separate explicit
+actions with durable keys recorded before POST. Lost acknowledgments use GET
+recovery; unknown404 does not authorize a new action. A prepared preview polls
+read-only at most 30 times while the dialog is active, with a manual status
+fallback. Application is limited to synthetic demo mail; provider effects and
+automatic processing remain unavailable. No startup processing or backfill is
+introduced.
+
+Fixture controls are shown only when preview capability is advertised, or when
+an existing action needs recovery status. A normal real account sees neither a
+Demo preview entry nor nonfunctional fixture actions. Accepted processing
+previews pin their artifact ID in the durable journal; a same-key response cannot
+substitute another artifact after close/reopen.
+
+These are independently implemented controls and local safety policies. Filled
+original-rule validation, live classification, matching/exclusion precedence,
+new-mail triggers, complete templates and visual parity remain unverified.
