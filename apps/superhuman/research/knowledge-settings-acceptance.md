@@ -300,3 +300,12 @@ account rules remain subject to the existing AGENTS/session authorization.
 Earlier private handoff fields named `requiresApproval` were recommendations for
 future probe planning, not additional project policy. Existing user drafts and
 sources must not be repurposed as fixtures.
+
+### Typing follow-up AC-05
+
+The [typing follow-up](typing-autocomplete.md) records a generic prediction
+visibility check and a failed nonblank greeting guard. No successful Tab/Right
+Arrow acceptance is established. The one owned fixture was discarded and stopped
+matching the scoped Gmail Drafts search. A future verified AC-05 must bind actual
+suggestion text, accepted authored content, undo behavior and provider persistence
+for the same controlled editor; CSS visibility alone is insufficient.

@@ -94,6 +94,16 @@ Both grants are saved. The event and sole attendee outcome passed; see
 write allowlist is now empty. Read access remains available; broader provider
 behavior and original write parity remain open.
 
+## Typing predictions and autocorrect
+
+The shipped typing code identifies a Typewise SDK dependency, and
+[Typewise's own SDK page](https://www.typewise.app/typewise-ai-sdk) names
+Superhuman as a customer. Reproducing that engine needs legitimate SDK/package,
+model and license access; this has been requested. The existing Claude
+configuration remains available for writing and retrieval. No alternate model is
+silently treated as the same typing engine. See
+[the typing evidence and limits](typing-autocomplete.md).
+
 ## Access that depends on observed features
 
 | Feature | Concrete access needed | Verification boundary |
