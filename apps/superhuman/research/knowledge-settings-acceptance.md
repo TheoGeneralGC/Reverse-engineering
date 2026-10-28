@@ -117,6 +117,14 @@ Acceptance candidates:
   resolves the current scoped source, including deleted/unavailable state.
   Retrieved text cannot authorize sends, uploads, shares or settings changes.
   Resource-selection/default inclusion policy is a local choice until observed.
+- **KB-06:** After an accepted file/link/retry acknowledgement is lost, recover
+  only by the exact account/key receipt GET. A deleted target settles its
+  historical acceptance without resurrection; a fresh explicit key may create a
+  distinct source. Replaced journals, unavailable metadata and account changes
+  retain uncertainty safely. The replica's terminal-loss/seeded-remount case and
+  editor focus check passed on 456 API/398 web; see the
+  [bounded recovery record](knowledge-recovery-check-20261028.md). Original
+  recovery behavior and actual browser upload-loss handling remain unverified.
 
 ## Personalization and voice
 

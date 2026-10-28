@@ -1,7 +1,8 @@
 # Combined delivery, Knowledge and personalization checkpoint
 
-Full one-to-one parity remains incomplete. This record describes the version
-running on the normal local ports after the 2026-10-28 combined rollout.
+Full one-to-one parity remains incomplete. This record preserves the initial
+444 API/385 web combined rollout and the subsequent 456 API/398 web recovery
+rollout, with their separate checks below.
 Original behavior, implementation choices and verification limits remain
 separate. Outlook is excluded at the user's request.
 
@@ -14,8 +15,9 @@ shortens the existing operation's deadline rather than creating another attempt.
 Unknown provider outcomes remain locked for read-only reconciliation; they are
 never automatically resent. The provisional ten-second Undo delay and recovery
 policy are local choices. The earlier live artifact Send/Undo and fresh-generation
-receipt check is recorded in [undo-send.md](undo-send.md); live normal-composer,
-scheduling and acceleration comparison still require their own evidence.
+receipt check is recorded in [undo-send.md](undo-send.md). The later 456/398
+normal-composer lifecycle checked Z Undo, future schedule cancellation and one
+Instant Send with a matching imported receipt pair; its scope is recorded below.
 
 Private Knowledge provides account-scoped file/page sources, durable ingestion,
 real text/document extraction, versioned metadata edits, original-byte downloads
@@ -41,7 +43,7 @@ See [the migration](../api/MAIL-GRANT-MIGRATION.md).
 
 ## Applied source and offline checks
 
-The applied version passed **444 API tests, 385 frontend tests, production build
+The initial combined version passed **444 API tests, 385 frontend tests, production build
 and strict types** using Node 24.22.1. Tests use synthetic databases and mocked
 providers. The public hoisted-dependency test needed a fixture-only correction:
 its original assumption that API/node_modules exists failed in the actual npm
@@ -102,9 +104,9 @@ portability correction is separately identified above.
 The existing 22 feature families remain open. Team sharing/collaboration,
 tracking, CRM, automated triage/drafts, learned voice/dictation, full split/search
 semantics, offline editing, hosted multiuser operation and complete visual,
-accessibility and performance comparison remain incomplete. A deleted Knowledge
-source after a lost action acknowledgment can leave the current client's journal
-uncertain; a separately reviewed receipt-based candidate is in progress.
+accessibility and performance comparison remain incomplete. The later 456/398
+receipt recovery check below addresses one deleted-source/lost-acknowledgement
+case; broader browser offline and original recovery behavior remain unverified.
 Public-link crawling/live refresh and inline Knowledge context remain gaps.
 No broad feature family is marked verified from these checks.
 
@@ -153,3 +155,52 @@ for that action. The UI/file selection, raw API workflow and original native
 upload retain distinct provenance. Control transport duration is not a measured
 application latency. Boundary files, multi-selection, drag/drop, file cancellation
 and full original uploader behavior remain open.
+
+## Subsequent receipt recovery rollout — API456/web398
+
+The next applied version passed **456 API/398 frontend tests, build and strict
+types**, including 96 actual-App tests. It changed no dependencies. Its
+read-only restart audit required 18 Draft JSON records, three Calendar
+operations, four sealed credentials and four grants to remain byte-identical;
+delivery attempts were unchanged and the new receipt tables were empty. This
+does not relabel the earlier 16-case/407-step regression as a 456/398 run.
+
+In an isolated copy of the synthetic workflow, a terminal-controlled accepted
+upload lost its acknowledgement and an explicit test-only deletion removed
+only that disposable source. A seeded browser-remount journal then recovered
+the accepted action through its exact receipt GET. Nine steps passed in
+`ev_c1bd5e267a284bd16544e8c3801e144d227455b4375761b2984eab53070ca040`.
+A fresh upload key produced a different source while the old key remained bound
+to the deleted target. The original source, logical FTS rows, personalization
+and typed draft were unchanged; no providers were configured and no model calls
+occurred.
+This is not an in-browser upload-loss or chooser claim. The capture has missing
+events and `equality_eligible:false`.
+
+A separate read-only seven-step source-editor capture,
+`ev_4523116ab474afbe7776f758eb1158a7751052c3f55ff384f7e29931fdb0cb11`,
+checked initial Name focus and retained equal Updated/Owner columns, with
+unchanged table hashes. It is complete/equality eligible, which does not prove
+pixel equality. Both workflows used 107 unchanged runtime entries. The earlier
+pre-upload FTS row-prototype comparison failure remains failed, with zero POSTs
+or source changes. Exact source/report identities and limits are in the
+[recovery checkpoint](knowledge-recovery-check-20261028.md).
+
+## Subsequent controlled normal-composer delivery — API456/web398
+
+One newly owned rich draft with an 86-byte synthetic attachment completed
+**93 browser steps**: 21 guard, 26 Send/Z Undo, 28 future Schedule/Cancel and
+18 fresh Send/Instant Send. Cancelled generations 0 and 1 had zero attempts;
+generation 2 had one acceleration and one provider-confirmed sent attempt.
+The same local draft ID, canonical headers/plain/HTML and attachment bytes were
+preserved. All 18 baseline drafts, Calendar records and model counters were
+unchanged, and 107 runtime entries stayed stable.
+
+Two read-only observer polls found exactly one sender SENT and one recipient
+copy with the same nonempty InternetMessageID hash, sole To, empty Cc, expected
+body facts, rich-HTML indicators and attachment metadata. Received attachment
+bytes, MIME-byte equality, due-time scheduled dispatch and exact cancellation
+or acceleration timing were not measured. All four captures have missing events
+and `equality_eligible:false`. The first read-only SQL-schema failure and later
+undispatched localhost-GET failure remain retained; no delivery action was
+retried. See [the exact four evidence IDs and receipt limits](undo-send.md#replica-normal-composer-undo-schedule-cancellation-and-instant-send).

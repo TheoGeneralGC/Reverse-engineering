@@ -1,12 +1,25 @@
 # Implementation checkpoint — 2026-10-27/28
 
-The current applied combined version passed **444 API/385 frontend tests**, build,
-strict types and **16 cases/407 browser steps** with 126 stable manifest entries.
-It includes durable composer delivery, private Knowledge and manual account
-personalization. The rollout preserved all 18 drafts, three Calendar operations
-and four encrypted credential records byte for byte. See the
-[combined checkpoint](combined-checkpoint-20261028.md) for exact source identities,
-failed fixture checks, earlier live artifact delivery and ongoing coverage limits.
+The current applied version passed **456 API/398 frontend tests**, build and
+strict types. The earlier combined **444 API/385 frontend** version retains its
+**16-case/407-step** full regression and 126 stable entries. The recovery rollout
+preserved 18 Draft JSON records, three Calendar operations, four sealed
+credentials and four grant records byte for byte, with unchanged delivery
+attempts. Its focused synthetic checks passed nine journal-remount steps and a
+separate seven-step editor focus/layout check; acknowledgement loss was injected
+through the raw API, not a browser file chooser. See the
+[recovery record](knowledge-recovery-check-20261028.md).
+
+The same applied version then passed a controlled **93-step normal-composer
+lifecycle**: same-draft Z Undo and future schedule cancellation had zero provider
+attempts; one fresh Instant Send produced exactly one sent attempt and a matching
+sender/recipient imported receipt pair. Local canonical rich content and attachment
+bytes stayed exact; received attachment metadata, rather than received bytes,
+was checked. All 18 baseline drafts, Calendar records and model counters remained
+unchanged. Capture event coverage remains incomplete. See
+[Undo and delivery observations](undo-send.md#replica-normal-composer-undo-schedule-cancellation-and-instant-send)
+and the [combined checkpoint](combined-checkpoint-20261028.md) for source
+identities, preserved failed preflights and comparison limits.
 
 Full one-to-one parity has not been achieved. The browser app runs locally at
 http://127.0.0.1:5173 with private persistent mail, two Gmail accounts, Calendar
@@ -60,7 +73,7 @@ full browser checkpoint below. Bounded live API/browser checks are recorded
 separately. No model tool directly dispatches mail or Calendar mutations;
 explicit preview actions have their separately recorded scope.
 
-## Latest frozen Send/Undo-source regression checks
+## Earlier frozen Send/Undo-source regression checks
 
 - Run `20261028T193639Z` passed **16 cases/407 steps**, all eight persisted
   assertions, zero page errors and owned-browser cleanup. All case/run manifests
@@ -82,7 +95,8 @@ explicit preview actions have their separately recorded scope.
 - Original Send/Undo UI, bounded imported-local absence/receipt checks and
   notification-retention timing are in [undo-send.md](undo-send.md). Their provider
   and clickability limits remain separate from these replica regression results.
-  Normal-composer delivery work in a private candidate is outside this checkpoint.
+  The later normal-composer delivery check above is outside this checkpoint's
+  API325/web290 source identity.
 
 ## Subsequent live artifact delivery check
 
@@ -96,7 +110,7 @@ fresh generation. One sender SENT copy and one recipient copy had matching
 InternetMessageID hashes. All 17 baseline drafts and model/session/turn counts
 were unchanged. The failed capture remains failed; incomplete event coverage
 and full-parity gaps remain. Combined delivery/Knowledge/personalization
-candidates are outside this runtime identity until separately rolled out.
+checks above are outside this earlier API325/web290 runtime identity.
 
 ## Earlier frozen Create full checks
 

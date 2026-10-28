@@ -219,5 +219,72 @@ metadata; it created no operation. A later OAuth refresh used the already
 approved Gmail permission. Both stopped attempts and their recovery records
 are retained privately. The successful continuation has missing event coverage
 and `equality_eligible=false`; it does not establish full original parity.
-Normal-composer Undo, scheduling and Instant Send remain separate candidates
-until their own combined rollout and runtime comparison.
+At that API325/web290 checkpoint, normal-composer Undo, scheduling and Instant
+Send remained separate candidates. Their later bounded live check follows.
+
+## Replica normal composer: Undo, schedule cancellation and Instant Send
+
+The applied **API456/web398** version completed one controlled live lifecycle
+using only the explicitly approved account pair, a newly owned synthetic rich
+draft and one 86-byte text attachment. No existing draft was edited. The local
+draft and attachment were prepared through explicit API actions; this does not
+claim browser attachment selection. The root reviewed exact canonical headers,
+plain text, HTML, attachment metadata and byte hash before the first Send.
+
+Pinned REA 6.8.0 launched Chromium 156.0.8078.48 against the local browser app:
+
+| Stage | Completed steps | Evidence |
+| --- | ---: | --- |
+| Owned draft and delivery guards | 21 | `ev_17d11ed857fce8fb4334863b57176e055935815e620467956fe96977e1753f65` |
+| Send, keyboard Z Undo and exact same-draft restoration | 26 | `ev_02eab7f10b665f799dd66e0d305ac15a18976029c809d64a11834e8a01f9b5c0` |
+| Explicit future schedule and Cancel before claim | 28 | `ev_011006a482313265eb12f9514c7748dbe8da3eaf261faed41b26565dce8d7bd2` |
+| Fresh Send intent and one Instant Send | 18 | `ev_07cca184b95863f06cde85434da8a46d277b87e1ff6fb04a77223e76e96b8647` |
+
+All **93 steps** completed, with no captured page errors and owned-process
+cleanup. The same draft ID, exact canonical content and local attachment bytes
+were preserved at each stage. Read-only postchecks required cancelled
+generations 0 and 1 with **zero delivery attempts**. Generation 1 was scheduled
+about 24 hours ahead and cancelled before claim; this does not test eventual
+scheduled dispatch. Generation 2 used a fresh explicit intent, one acceleration
+receipt and exactly one provider-confirmed sent attempt. No unknown outcome was
+resent. All **18 baseline drafts**, existing Calendar records and model counters
+remained unchanged. All 107 runtime source/configuration entries stayed stable;
+App SHA-256 remained
+`f1d6878d618573f0a55cc069647b881060bc16acbb309c47fe3bfb494cefd040`.
+
+A separate restricted SQLite `mode=ro` observer found one sender SENT copy and
+one non-DRAFT recipient copy after two polls. The sole To, empty Cc, synthetic
+body facts and nonempty InternetMessageID hashes matched. Both imported copies
+retained a rich-HTML formatting indicator and the controlled attachment's
+metadata, including 86-byte size. Recipient attachment bytes were **not
+downloaded**. Exact byte preservation applies to the local attachment; MIME
+transport equality, imported Bcc, dispatch latency and an exact cancellation
+cutoff are not established. The observer made no HTTP, provider or model calls
+and no database writes.
+
+All four captures retain missing event coverage and `equality_eligible:false`.
+The original manual Z shortcut was not activated in the earlier original Undo
+capture; the replica Z result is an implementation check. The original Instant
+Send observation and receipt proof above support only their respective
+controlled fixture. Hover postponement, exact deadline and restart semantics,
+due-time scheduled delivery and broader delivery parity remain open.
+
+The first harness attempt remains failed during a read-only baseline query: it
+assumed a physical subject column, while the summary schema stores that field
+inside JSON. It created no draft, attachment or browser action. A new helper
+version added a real in-memory schema control. The second attempt initially
+failed an undispatched localhost status GET under restricted networking; it had
+no seed intent or creation POST. Only that undispatched stage was resumed with
+loopback access, before the successful lifecycle. These failures are retained;
+no Send, cancellation or provider attempt was retried. The helper's nine offline
+controls are separate from live evidence.
+
+Retained reviewed-report SHA-256 values are
+`e001bc7a3519b81bb428fbfc771c63239a1a6506aea8b790baa07631afc979d9`
+(Undo), `39bc4205810f956ac803bd56e1f470869d0b7ff8215f307bdbd437e3cbf7818f`
+(schedule cancellation),
+`4a678dae29637494a8554a74742bbe50a2aa5f0b9fa5704b081b2fe9c9358ebe`
+(Instant Send) and
+`3cd315b1716b7955021f660855b24a8cdf07019e16e0589a4270418f6e9230f9`
+(imported receipt pair). Private account, draft, operation and provider IDs stay
+out of this record.

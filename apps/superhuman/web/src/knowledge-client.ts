@@ -1,6 +1,6 @@
 import { ApiError } from './api.ts';
-import type { KnowledgeSource,KnowledgeSourcePage,KnowledgeStatus } from '../../api/src/knowledge-types.ts';
-export type { KnowledgeSource,KnowledgeSourcePage,KnowledgeStatus };
+import type { KnowledgeSource,KnowledgeSourcePage,KnowledgeStatus,KnowledgeActionRequest,KnowledgeActionResponse } from '../../api/src/knowledge-types.ts';
+export type { KnowledgeSource,KnowledgeSourcePage,KnowledgeStatus,KnowledgeActionRequest,KnowledgeActionResponse };
 export type KnowledgeRequest=(path:string,body?:unknown,method?:string,options?:{signal?:AbortSignal;raw?:boolean})=>Promise<unknown>;
 export type KnowledgeStorage={getItem:(key:string)=>string|null;setItem:(key:string,value:string)=>void;removeItem:(key:string)=>void};
 export type KnowledgeFile={name:string;size:number;arrayBuffer:()=>Promise<ArrayBuffer>};
@@ -31,6 +31,29 @@ export function validKnowledgeSource(value:unknown,accountId:string,id?:string):
 }
 export function parseKnowledgeSource(value:unknown,accountId:string,id?:string):KnowledgeSource{if(!object(value)||!validKnowledgeSource(value.source,accountId,id))throw Error('Unexpected Private Knowledge response. No source was applied.');return structuredClone(value.source)}
 export function parseKnowledgePage(value:unknown,accountId:string):KnowledgeSourcePage{if(!object(value)||!Array.isArray(value.sources)||value.sources.length>100||value.sources.some(source=>!validKnowledgeSource(source,accountId))||new Set(value.sources.map(source=>source.id)).size!==value.sources.length||typeof value.hasMore!=='boolean'||value.nextCursor!==null&&typeof value.nextCursor!=='string'||value.hasMore!==(value.nextCursor!==null))throw Error('Unexpected Private Knowledge list.');return structuredClone(value) as KnowledgeSourcePage}
+export function knowledgeActionRequestJson(request:KnowledgeActionRequest):string{
+ if(request.kind==='file')return JSON.stringify({kind:'file',name:request.name,sha256:request.sha256});
+ if(request.kind==='link')return JSON.stringify({kind:'link',url:request.url});
+ return JSON.stringify({kind:'retry',id:request.sourceId,expectedRevision:request.expectedRevision});
+}
+export async function knowledgeActionFingerprint(request:KnowledgeActionRequest):Promise<string>{const buffer=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(knowledgeActionRequestJson(request)));return Array.from(new Uint8Array(buffer),byte=>byte.toString(16).padStart(2,'0')).join('')}
+export async function parseKnowledgeAction(value:unknown,expected:{accountId:string;clientRequestId:string;request:KnowledgeActionRequest}):Promise<KnowledgeActionResponse>{
+ const fail=()=>{throw Error('The Knowledge action receipt did not match the submitted request. No source was applied.')};
+ try{value=structuredClone(value)}catch{return fail()}
+ if(!object(value)||!object(value.receipt)||!object(value.resolution))return fail();const receipt=value.receipt,resolution=value.resolution;
+ if(receipt.version!==1||!knowledgeId(receipt.id)||receipt.accountId!==expected.accountId||receipt.clientRequestId!==expected.clientRequestId||!knowledgeId(receipt.sourceId)||receipt.fingerprintProtocol!=='knowledge-request-json-sha256-v1'||!hash(receipt.fingerprint))return fail();
+ if(expected.request.kind==='retry'&&receipt.sourceId!==expected.request.sourceId)return fail();
+ if(receipt.provenance==='accepted'){
+  if(!date(receipt.acceptedAt)||!knowledgeId(receipt.acceptedContentVersion)||!object(receipt.request))return fail();const request=receipt.request,wanted=expected.request;
+  if(request.kind!==wanted.kind)return fail();
+  if(wanted.kind==='file'){if(request.name!==wanted.name||request.sha256!==wanted.sha256||request.bytes!==wanted.bytes||Object.keys(request).some(key=>!['kind','name','sha256','bytes'].includes(key)))return fail()}
+  else if(wanted.kind==='link'){if(request.url!==wanted.url||Object.keys(request).some(key=>!['kind','url'].includes(key)))return fail()}
+  else if(request.sourceId!==wanted.sourceId||request.expectedRevision!==wanted.expectedRevision||Object.keys(request).some(key=>!['kind','sourceId','expectedRevision'].includes(key)))return fail();
+ }else if(receipt.provenance!=='legacy-reference'||receipt.request!==null||receipt.acceptedAt!==null||receipt.acceptedContentVersion!==null)return fail();
+ if(resolution.availability==='available'){if(!validKnowledgeSource(value.source,expected.accountId,receipt.sourceId)||resolution.sourceId!==receipt.sourceId||resolution.currentContentVersion!==value.source.contentVersion)return fail()}
+ else if(!['deleted','unavailable'].includes(resolution.availability)||value.source!==null||resolution.sourceId!==null||resolution.currentContentVersion!==null)return fail();
+ if(receipt.fingerprint!==await knowledgeActionFingerprint(expected.request))return fail();return structuredClone(value) as KnowledgeActionResponse;
+}
 export async function knowledgeApi(path:string,body?:unknown,method=body===undefined?'GET':'POST',options:{signal?:AbortSignal;raw?:boolean}={}){
  const response=await fetch('/api'+path,{method,signal:options.signal,...(method==='GET'?{cache:'no-store' as const}:{}),headers:body===undefined?{}:{'Content-Type':options.raw?'application/octet-stream':'application/json'},body:body===undefined?undefined:options.raw?body as ArrayBuffer:JSON.stringify(body)});const result=await response.json();if(!response.ok)throw new ApiError(result.error?.message||`Knowledge request failed (${response.status})`,response.status,result.error?.code);return result;
 }

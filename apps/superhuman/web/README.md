@@ -307,3 +307,21 @@ aborts the request, resets the inline session, and rejects late text even if a
 draft ID were reused. Retry retains the original account and selection snapshot.
 The server can apply that account's saved manual preferences; learned voice is
 still unavailable, and Rewrite in my voice retains its explicit setup error.
+
+## Historical Knowledge action recovery
+
+File, link and explicit processing-retry acknowledgements now carry an immutable
+account/key/request receipt plus a separate current source resolution. Recovery
+verifies that receipt against the saved browser journal, including its fixed
+SHA-256 fingerprint protocol. A matching accepted action can settle when its
+source was later deleted or is unavailable; it does not recreate or reingest it.
+Legacy reference receipts retain unknown acceptance time/version instead of
+inventing them. A missing key, corrupt or foreign receipt keeps the action locked.
+
+A late result cannot remove a replacement journal from another tab or apply its
+old source behind that newer pending action. Save/Delete retain their separate
+revision/metadata recovery behavior. Only explicit new user actions can submit
+another upload or retry. The source editor also uses equal metadata columns and
+focuses Name initially only while its loading container still owns focus.
+These are local reconstruction policies and synthetic checks; full original
+recovery behavior and pixel equality have not been established.

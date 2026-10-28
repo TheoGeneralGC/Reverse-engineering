@@ -821,3 +821,66 @@ prove equality with the original. The separate 55-step Knowledge/personalization
 workflow, actual file chooser proof, live Claude turn and 17-step answer/citation
 restore retain their own source identities and coverage limits in the combined
 checkpoint. No full feature-family parity is inferred.
+
+## Focused receipt recovery and editor checks — API456/web398
+
+The subsequent applied version passed 456 API/398 web tests, build and strict
+types; the web count includes 96 actual-App tests. These focused checks do not
+change the preceding 444/385 full 16-case/407-step regression's source identity.
+App remains `f1d6878d618573f0a55cc069647b881060bc16acbb309c47fe3bfb494cefd040`.
+The recovery API/web manifest SHA-256 values are
+`ce3a38d5dbcd57836bcdab2d111e3d7fef891c4201e19d700cd212b27c5f8ae9` and
+`cd715597830c026893a201e8e007c5d5db1500bb15b08106640af242b5d83f1f`.
+
+| Focused check | Completed steps | REA evidence | Coverage |
+| --- | ---: | --- | --- |
+| Exact pending-key journal remount after terminal-controlled accepted upload/deletion | 9 | `ev_c1bd5e267a284bd16544e8c3801e144d227455b4375761b2984eab53070ca040` | Missing events; equality false |
+| Protected source editor, initial Name focus and retained Updated/Owner layout | 7 | `ev_4523116ab474afbe7776f758eb1158a7751052c3f55ff384f7e29931fdb0cb11` | Complete/equality eligible; no pixel-equality claim |
+
+Pinned REA 6.8.0 launched Chromium 156.0.8078.48; owned-process cleanup passed.
+All 107 runtime source/configuration entries stayed unchanged. The first flow
+used two raw API uploads and one guarded disposable DELETE, zero model POSTs,
+no providers, and protected the original synthetic source/FTS/preferences/draft.
+It proves receipt GET recovery with a seeded remount, not browser file selection
+or an in-browser upload failure. The separate chooser proof keeps its own
+provenance. The seven-step editor check observed no writes and preserved its
+table hashes; it does not assert absence of requests.
+
+Recovery attempt01 remains failed before upload intent: null-prototype SQLite
+FTS rows and JSON-roundtripped objects falsely compared unequal. It made zero
+POSTs/DELETEs and created no source/receipt. A retained helper successor corrected
+only row representation and passed a JSON-roundtrip control before attempt02.
+See [the recovery record](../knowledge-recovery-check-20261028.md) for exact
+report hashes and original-versus-replica limits.
+
+## Controlled normal-composer live lifecycle — API456/web398
+
+One new owned rich draft and an API-attached synthetic text file completed the
+following checks against the explicitly approved account pair. No existing user
+draft was edited, and no model request was made by the lifecycle.
+
+| Stage | Completed steps | REA evidence |
+| --- | ---: | --- |
+| Canonical draft/recipient/body/attachment guards | 21 | `ev_17d11ed857fce8fb4334863b57176e055935815e620467956fe96977e1753f65` |
+| Send→keyboard Z Undo→same owned draft | 26 | `ev_02eab7f10b665f799dd66e0d305ac15a18976029c809d64a11834e8a01f9b5c0` |
+| Future Schedule→Cancel before claim | 28 | `ev_011006a482313265eb12f9514c7748dbe8da3eaf261faed41b26565dce8d7bd2` |
+| Fresh Send→one Instant Send | 18 | `ev_07cca184b95863f06cde85434da8a46d277b87e1ff6fb04a77223e76e96b8647` |
+
+All 93 steps completed, with no captured page errors, 107 unchanged runtime
+entries and owned-process cleanup. All four captures retain missing events and
+equality false. The 18 baseline drafts, Calendar records and model counters
+remained unchanged. Cancelled generations 0 and 1 had zero attempts; generation
+2 had one sent attempt and one acceleration. A restricted read-only observer
+found one matching sender/recipient imported pair after two polls. Local
+canonical rich content and attachment bytes stayed exact; received attachment
+metadata, not downloaded bytes, was checked. No due-time scheduled dispatch,
+exact cancellation cutoff or latency is claimed.
+
+The first baseline attempt remains failed before any creation or browser action
+because its SQL assumed a physical subject column. A new helper added a real
+in-memory-schema control. The next attempt's initial undispatched localhost GET
+failed under restricted networking; it made no draft/attachment POST, and only
+that undispatched stage resumed with loopback access. No Send or cancellation
+was retried. The helper's nine offline controls do not replace runtime evidence.
+Exact report hashes and comparison limits are in
+[Undo observations](../undo-send.md#replica-normal-composer-undo-schedule-cancellation-and-instant-send).

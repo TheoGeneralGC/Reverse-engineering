@@ -357,6 +357,9 @@ real21-format text extraction, bounded public-page snapshots, source lifecycle
 and typed Ask AI receipts. It adds no model calls on upload/save/read and no team
 sharing. Team permissions, full-domain crawling/live refresh and original parser
 fidelity remain open. Root/main deployment and original comparison are separate.
+[Knowledge action recovery](KNOWLEDGE-RECOVERY.md) adds immutable upload/link/retry
+receipts and read-only deleted/unavailable-target resolution in the subsequent
+private candidate. It never repeats ingestion to recover a lost acknowledgement.
 
 Saved account preferences and immutable AI-turn snapshots are described in [Personalization](PERSONALIZATION.md).
 Legacy cached Gmail scope adoption is documented in [Mail grant migration](MAIL-GRANT-MIGRATION.md).

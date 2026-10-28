@@ -15,6 +15,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Finding ledger](research/findings.md)
 - [Local search grammar and limits](research/search.md)
 - [Combined delivery, Knowledge and personalization checkpoint](research/combined-checkpoint-20261028.md)
+- [Knowledge receipt recovery checkpoint](research/knowledge-recovery-check-20261028.md)
 
 Keep private source material in `evidence/private/` and `evidence/raw/` (ignored).
 Store sanitized specifications and synthetic fixtures under version control.
@@ -25,12 +26,18 @@ after the initial data-flow and interaction inventory.
 
 ## Run the current implementation
 
-The running combined version passed **444 API/385 frontend tests**, build and
-strict types, plus **16 cases/407 browser steps**. Private Knowledge ingestion,
-citations, account personalization and durable composer delivery are now applied.
-The [checkpoint](research/combined-checkpoint-20261028.md) records source identity,
-the preserved data audit, bounded checks and remaining parity gaps. Earlier
-checkpoint counts below retain their historical scope.
+The running version passed **456 API/398 frontend tests**, build and strict types.
+The earlier **444 API/385 frontend** version retains its **16-case/407-step** full
+browser regression. The subsequent recovery version passed a focused 9-step
+Knowledge journal-remount check and a separate 7-step source-editor check; the
+upload acknowledgement loss was terminal-controlled, not a browser chooser test.
+A controlled normal-composer lifecycle passed 93 steps: Z Undo, future schedule
+cancellation and one Instant Send with a matching imported receipt pair. Received
+attachment bytes and exact delivery timing were not verified. The
+[combined checkpoint](research/combined-checkpoint-20261028.md) and
+[recovery record](research/knowledge-recovery-check-20261028.md) preserve source
+identities, data audits, failed checks and remaining parity gaps. Earlier counts
+below retain their historical scope.
 
 From the monorepo root, run `npm run dev:superhuman`, then open
 http://127.0.0.1:5173. Node 24.22.1 from the existing Codex runtime is selected
@@ -69,7 +76,7 @@ Outlook is outside the current scope at the user's request. Tracking, team
 collaboration, and many advanced settings remain unimplemented. A local demo
 account contains synthetic email; it cannot send mail.
 
-The latest frozen source regression passed **16 cases/407 steps**, all eight
+The earlier frozen Send/Undo-source regression passed **16 cases/407 steps**, all eight
 persisted assertions and 98 stable manifest entries, with **325 API/290 web
 tests**, build and strict types. App hash is
 `5650ebf07a4bf3c92535204d9bfb6a20733d5375fee73f07e617a05e14df492b`. Reply-all retains incomplete

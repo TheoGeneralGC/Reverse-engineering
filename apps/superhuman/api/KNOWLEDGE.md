@@ -71,8 +71,9 @@ win over late ingestion results (`descriptionOrigin:'user'`).
 - `GET /api/knowledge/status?accountId` → `{knowledge:KnowledgeStatus}`.
 - `GET /api/knowledge/sources?accountId&limit&cursor` → metadata-only page.
 - `GET /api/knowledge/sources/:id?accountId` → `{source}`.
-- `GET /api/knowledge/source-actions/by-request/:key?accountId` → same source,
-  never another ingestion. A deleted original key cannot resurrect/retarget.
+- `GET /api/knowledge/source-actions/by-request/:key?accountId` → immutable
+  action receipt plus current available/deleted/unavailable resolution. A deleted
+  target has null source; its verified old key never ingests, resurrects or retargets.
 - `PATCH /api/knowledge/sources/:id` accepts
   `{accountId,expectedRevision,name?,description?}`. Save never invokes a model
   or reingests content.
@@ -86,6 +87,11 @@ win over late ingestion results (`descriptionOrigin:'user'`).
 - `GET /api/knowledge/sources/:id/download?accountId` returns owned original
   bytes or the cached page snapshot with attachment/nosniff headers; never a
   signed external redirect.
+
+File/link/retry POST acknowledgements include the same receipt/resolution fields
+alongside their current source; Save/Delete metadata responses are unchanged.
+Legacy request-ledger keys expose only a truthful historical reference. Exact
+field shapes and fingerprint binding are in [Knowledge action recovery](KNOWLEDGE-RECOVERY.md).
 
 One bounded local extraction job runs at a time. Revision/content-version and
 owner fences reject late callbacks after deletion, replacement or dead-owner
@@ -164,9 +170,9 @@ characters and controls. These are local deployment/security checks, not origina
 product comparisons or a complete OS-sandbox guarantee. The earlier407 archive
 is preserved unchanged.
 
-A known safe recovery limitation remains: if an accepted upload/retry loses its
-response and another window deletes that source, the key's read route returns404.
-The client preserves uncertainty and never uploads again automatically, but this
-can block later writes for that account. An explicit historical action receipt
-with a deleted/unavailable resolution is a future improvement. Do not clear the
-journal, retarget the key or infer failure from404.
+The frozen444 baseline had a safe recovery limitation: if an accepted upload/retry
+lost its response and another window deleted that source, the key's read route
+returned404. This separate candidate adds an immutable key-scoped receipt and
+current-source resolution; see [Knowledge action recovery](KNOWLEDGE-RECOVERY.md).
+The client must still preserve uncertainty when no verifiable key history exists:
+never upload again automatically, retarget the key or infer failure from404.

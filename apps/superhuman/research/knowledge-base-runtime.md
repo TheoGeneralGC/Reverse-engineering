@@ -56,3 +56,18 @@ effects on old citations, other formats, file boundaries, failures and link
 crawling remain untested. The generated title/description is observed output;
 the service or algorithm producing it is unknown. This fixture establishes
 neither a processing-time guarantee nor full Knowledge Base parity.
+
+## Separate replica implementation checks
+
+The [combined checkpoint](combined-checkpoint-20261028.md) retains the replica's
+earlier 444 API/385 web source, 55-step synthetic Knowledge/personalization
+workflow, actual local chooser proof and one real Claude retrieval/navigation
+check. These do not change the original observations above.
+
+The subsequent [456 API/398 web recovery checkpoint](knowledge-recovery-check-20261028.md)
+passed a nine-step seeded browser-remount check after terminal-controlled
+acknowledgement loss and deletion of one disposable synthetic source. A separate
+seven-step read-only editor check retained Name focus and equal Updated/Owner
+columns. Original lost-acknowledgement/deleted-key behavior was not tested; this
+is a local recovery policy, with no claim of in-browser upload loss or full
+visual parity. The earlier failed fixture comparison remains failed.

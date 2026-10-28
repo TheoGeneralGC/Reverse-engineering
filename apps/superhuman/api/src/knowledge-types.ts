@@ -23,3 +23,22 @@ export type KnowledgeChunk={id:string;sourceId:string;accountId:string;contentVe
 export type KnowledgeSearchHit={source:KnowledgeSource;chunkId:string;chunkHash:string;ordinal:number;excerpt:string};
 export type KnowledgeRead={source:KnowledgeSource;chunks:KnowledgeChunk[];truncated:boolean};
 export type KnowledgeExtraction={text:string;parser:string;truncated:boolean;warnings:string[]};
+
+// Local recovery contract, independent of mutable/current source metadata.
+export type KnowledgeActionRequest =
+ | {kind:'file';name:string;sha256:string;bytes:number}
+ | {kind:'link';url:string}
+ | {kind:'retry';sourceId:string;expectedRevision:number};
+type KnowledgeActionIdentity={
+ version:1;id:string;accountId:string;clientRequestId:string;sourceId:string;
+ fingerprintProtocol:'knowledge-request-json-sha256-v1';fingerprint:string;
+};
+export type KnowledgeActionReceipt=KnowledgeActionIdentity&(
+ | {provenance:'accepted';acceptedAt:string;acceptedContentVersion:string;request:KnowledgeActionRequest}
+ | {provenance:'legacy-reference';acceptedAt:null;acceptedContentVersion:null;request:null}
+);
+export type KnowledgeActionResolution={
+ availability:'available'|'deleted'|'unavailable';
+ sourceId:string|null;currentContentVersion:string|null;
+};
+export type KnowledgeActionResponse={receipt:KnowledgeActionReceipt;source:KnowledgeSource|null;resolution:KnowledgeActionResolution};
