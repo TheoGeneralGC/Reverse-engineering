@@ -9,14 +9,15 @@ import { requestComposerRewrite,rewriteCommands } from './composer-ai.ts';
 import type { ComposerRewriteRequest } from './composer-ai.ts';
 
 export type RichComposerHandle={getValue:()=>ComposerValue&{draftId:string};insertText:(text:string)=>void;replaceText:(text:string)=>void;focus:()=>void;openAI:()=>void};
-type Props={draftId:string;body:string;html?:string;readOnly?:boolean;onChange:(value:ComposerValue)=>void;onFiles?:(files:File[])=>void;generateAI?:(request:ComposerRewriteRequest,signal:AbortSignal)=>Promise<string>};
+type Props={accountId:string;draftId:string;body:string;html?:string;readOnly?:boolean;onChange:(value:ComposerValue)=>void;onFiles?:(files:File[])=>void;generateAI?:(request:ComposerRewriteRequest,signal:AbortSignal)=>Promise<string>};
 type InlineAI={target:RewriteTarget;phase:'ready'|'working'|'done'|'error';prompt:string;error:string;lastRequest?:ComposerRewriteRequest;top:number};
 const palette=[{name:'No color',value:null,swatch:'rgb(34, 34, 34)'},{name:'Lava Red',value:'rgb(222, 84, 84)',swatch:'rgb(222, 84, 84)'},{name:'Irascible Orange',value:'rgb(233, 150, 56)',swatch:'rgb(233, 150, 56)'},{name:'Seafoam Green',value:'rgb(92, 186, 135)',swatch:'rgb(92, 186, 135)'},{name:'Conscientious Blue',value:'rgb(74, 143, 225)',swatch:'rgb(74, 143, 225)'},{name:'Pretty In Pink',value:'rgb(201, 118, 209)',swatch:'rgb(201, 118, 209)'}];
 const emptyFormat:FormatState={bold:false,italic:false,underline:false,strike:false,bullets:false,numbers:false,quote:false};
 const ListIcon=({numbered=false}:{numbered?:boolean})=><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.25"><path d="M8 4h10M8 10h10M8 16h10"/>{numbered?<><path d="M2 3h1v4M1 7h4M1 10c3-2 5 0 2 2l-2 2h4M1 16h3l-2 1 2 1-3 1"/></>:<><circle cx="3" cy="4" r="1" fill="currentColor"/><circle cx="3" cy="10" r="1" fill="currentColor"/><circle cx="3" cy="16" r="1" fill="currentColor"/></>}</svg>;
 const LinkIcon=()=><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 6H5a4 4 0 0 0 0 8h3m4-8h3a4 4 0 0 1 0 8h-3M5 10h10"/></svg>;
 const ColorIcon=()=><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="4" fill="#3284a4"/><circle cx="7" cy="12" r="4" fill="#448d6e"/><circle cx="13" cy="12" r="4" fill="#a9525c"/></svg>;
-export default forwardRef<RichComposerHandle,Props>(function RichComposer({draftId,body,html,readOnly=false,onChange,onFiles,generateAI=requestComposerRewrite},ref){
+export default forwardRef<RichComposerHandle,Props>(function RichComposer({accountId,draftId,body,html,readOnly=false,onChange,onFiles,generateAI=requestComposerRewrite},ref){
+ const identity=useRef({accountId,draftId});identity.current={accountId,draftId};
  const root=useRef<HTMLDivElement>(null),controller=useRef<ComposerController|null>(null),change=useRef(onChange),files=useRef(onFiles),disabled=useRef(readOnly),linkRange=useRef<Range|null>(null),urlField=useRef<HTMLInputElement>(null);
  const [format,setFormat]=useState(emptyFormat),[selection,setSelection]=useState(false),[toolbar,setToolbar]=useState({left:0,top:0}),[link,setLink]=useState(false),[url,setURL]=useState(''),[linkError,setLinkError]=useState(''),[colors,setColors]=useState(false),[selectedColor,setSelectedColor]=useState<string|null>(null);
  const [ai,setAI]=useState<InlineAI|null>(null),aiState=useRef<InlineAI|null>(null),aiInput=useRef<HTMLInputElement>(null),aiRequest=useRef<AbortController|null>(null),aiRevision=useRef(0);
@@ -30,16 +31,16 @@ export default forwardRef<RichComposerHandle,Props>(function RichComposer({draft
  };
  const rewrite=async(instruction:string,retry=false)=>{
   const session=aiState.current,current=controller.current;if(!session||!current||disabled.current||session.phase==='working')return;
-  const request=retry&&session.lastRequest?session.lastRequest:{instruction,text:session.target.text};
-  if(!request.instruction.trim())return;
+  const request=retry&&session.lastRequest?session.lastRequest:{accountId,instruction,text:session.target.text};
+  if(!request.instruction.trim()||request.accountId!==accountId)return;
   const revision=++aiRevision.current,abort=new AbortController();aiRequest.current?.abort();aiRequest.current=abort;
   showAI({...session,phase:'working',error:'',lastRequest:request});
   try{
    const result=await generateAI(request,abort.signal);
-   if(revision!==aiRevision.current||controller.current!==current||disabled.current)return;
+   if(revision!==aiRevision.current||controller.current!==current||disabled.current||identity.current.accountId!==request.accountId||identity.current.draftId!==draftId)return;
    if(typeof result!=='string'||!result.trim())throw new Error('AI returned no replacement text. Your draft has been kept.');
    const target=current.applyRewrite(result,session.target);showAI({...session,target,phase:'done',prompt:'',error:'',lastRequest:request});
-  }catch(error){if(revision===aiRevision.current&&!abort.signal.aborted)showAI({...session,phase:'error',lastRequest:request,error:error instanceof Error?error.message:'AI could not edit this text. Your draft has been kept.'})}
+  }catch(error){if(revision===aiRevision.current&&!abort.signal.aborted&&identity.current.accountId===request.accountId&&identity.current.draftId===draftId)showAI({...session,phase:'error',lastRequest:request,error:error instanceof Error?error.message:'AI could not edit this text. Your draft has been kept.'})}
   finally{if(aiRequest.current===abort)aiRequest.current=null}
  };
  change.current=onChange;files.current=onFiles;disabled.current=readOnly;
@@ -62,14 +63,14 @@ export default forwardRef<RichComposerHandle,Props>(function RichComposer({draft
   current.editor.addEventListener('blur',()=>setSelection(false));
   current.editor.addEventListener('pasteImage',event=>{const pasted=(event as CustomEvent<{clipboardData:DataTransfer}>).detail?.clipboardData;const list=Array.from(pasted?.files||[]);if(list.length&&!disabled.current)files.current?.(list)});
   return()=>{current.destroy();if(controller.current===current)controller.current=null};
- },[draftId]);
+ },[accountId,draftId]);
  useEffect(()=>{controller.current?.update({body,html})},[body,html]);
  useEffect(()=>{if(root.current)root.current.contentEditable=String(!readOnly);if(readOnly){setLink(false);setSelection(false);setColors(false);aiRevision.current++;aiRequest.current?.abort();showAI(null)}},[readOnly]);
- useEffect(()=>()=>{aiRevision.current++;aiRequest.current?.abort()},[draftId]);
+ useEffect(()=>()=>{aiRevision.current++;aiRequest.current?.abort()},[accountId,draftId]);
  useEffect(()=>{if(ai?.phase==='ready')aiInput.current?.focus()},[ai?.phase]);
  useEffect(()=>{if(link)urlField.current?.focus()},[link]);
  useEffect(()=>{if(!link&&!colors)return;const close=(event:PointerEvent)=>{if(root.current?.parentElement&&!root.current.parentElement.contains(event.target as Node)){setLink(false);setColors(false)}};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close)},[link,colors]);
- useImperativeHandle(ref,()=>({getValue:()=>({...(controller.current?.getValue()||{body,html:html||''}),draftId}),insertText:text=>controller.current?.insertText(text),replaceText:text=>controller.current?.replaceText(text),focus:()=>controller.current?.editor.focus(),openAI}),[draftId,body,html]);
+ useImperativeHandle(ref,()=>({getValue:()=>({...(controller.current?.getValue()||{body,html:html||''}),draftId}),insertText:text=>controller.current?.insertText(text),replaceText:text=>controller.current?.replaceText(text),focus:()=>controller.current?.editor.focus(),openAI}),[accountId,draftId,body,html]);
  const run=(command:FormatCommand)=>{controller.current?.run(command);updateFormat()};
  const openLink=()=>{if(readOnly||!controller.current)return;const range=controller.current.editor.getSelection();linkRange.current=range.cloneRange();const node=range.startContainer.nodeType===1?range.startContainer as Element:range.startContainer.parentElement;setURL(node?.closest('a')?.getAttribute('href')||'');position(range,214);setColors(false);setLinkError('');setLink(true)};
  const openColors=()=>{if(readOnly||!controller.current)return;const range=controller.current.editor.getSelection();position(range,221);setSelectedColor(controller.current.editor.getFontInfo(range).color||null);setColors(!colors)};

@@ -330,3 +330,33 @@ Implementation references: [Google OAuth](https://developers.google.com/identity
 [Claude models](https://platform.claude.com/docs/en/models/overview),
 [Claude stop reasons](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons),
 and [official OpenAI text-generation documentation](https://developers.openai.com/api/docs/guides/text).
+
+## Normal composer durable Send candidate
+
+The private implementation adds account-scoped keyed composer Send/Undo routes
+without replacing an existing Draft ID. See [COMPOSER-DELIVERY.md](./COMPOSER-DELIVERY.md)
+for request/receipt recovery, same-draft restoration, frozen reply context,
+shutdown/ownership boundaries and remaining Gmail cloud-draft gaps. A fresh
+keyed intent is required after any confirmed Undo; a delayed keyless Send or
+schedule cannot rearm the cancelled message. This source candidate is not a
+record of live Gmail verification or rollout.
+
+## Explicit Instant Send candidate
+
+[ACCELERATION.md](./ACCELERATION.md) documents the shared scoped receipt control
+for an already accepted immediate AI/composer Send. Acceleration preserves one
+provider attempt and original deadline audit; it never authorizes a scheduled
+message or an unknown retry. The private375 source checkpoint includes keyed
+Send later and its independent shutdown-race fix. Apply matching frontend
+journals/deadline-transition validation together with this backend candidate.
+
+## Private Knowledge candidate
+
+[KNOWLEDGE.md](./KNOWLEDGE.md) documents durable account-private raw uploads,
+real21-format text extraction, bounded public-page snapshots, source lifecycle
+and typed Ask AI receipts. It adds no model calls on upload/save/read and no team
+sharing. Team permissions, full-domain crawling/live refresh and original parser
+fidelity remain open. Root/main deployment and original comparison are separate.
+
+Saved account preferences and immutable AI-turn snapshots are described in [Personalization](PERSONALIZATION.md).
+Legacy cached Gmail scope adoption is documented in [Mail grant migration](MAIL-GRANT-MIGRATION.md).

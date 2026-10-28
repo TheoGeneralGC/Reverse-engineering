@@ -1,0 +1,13 @@
+import {extname}from'node:path';
+import {createHash}from'node:crypto';
+import {HttpError}from'./types.ts';
+export const KNOWLEDGE_MAX_FILE_BYTES=50*1024*1024;
+export const KNOWLEDGE_MAX_TEXT_BYTES=1024*1024;
+export const KNOWLEDGE_EXTENSIONS=['c','cpp','cs','css','doc','docx','go','html','java','js','json','md','pdf','php','pptx','py','rb','sh','tex','ts','txt']as const;
+export const KNOWLEDGE_MEDIA:Record<string,string>={doc:'application/msword',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',pdf:'application/pdf',pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation',html:'text/html',json:'application/json',md:'text/markdown'};
+export function knowledgeFilename(raw:unknown){if(typeof raw!=='string'||!raw.trim()||Buffer.byteLength(raw)>1024||/[\x00-\x1f\x7f/\\]/.test(raw)||raw==='.'||raw==='..')throw new HttpError(400,'Choose a valid file name','knowledge_invalid_file');const extension=extname(raw).slice(1).toLowerCase();if(!KNOWLEDGE_EXTENSIONS.includes(extension as typeof KNOWLEDGE_EXTENSIONS[number]))throw new HttpError(400,'This file extension is not supported','knowledge_unsupported_extension');return{name:raw,extension,mediaType:KNOWLEDGE_MEDIA[extension]??'text/plain',title:raw.slice(0,-extension.length-1)||raw}}
+export function knowledgeFile(rawName:unknown,bytes:Buffer){const file=knowledgeFilename(rawName);if(!bytes.length)throw new HttpError(400,'The selected file is empty','knowledge_empty_file');if(bytes.length>KNOWLEDGE_MAX_FILE_BYTES)throw new HttpError(413,'Files must be 50 MiB or smaller','knowledge_file_too_large');return{...file,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}}
+export function knowledgeField(raw:unknown,maximum:number,empty=true):string{if(typeof raw!=='string'||Buffer.byteLength(raw)>maximum||/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(raw)||(!empty&&!raw.trim()))throw new HttpError(400,'Invalid knowledge source field','knowledge_invalid_request');return raw}
+export function knowledgeKey(raw:unknown):string{if(typeof raw!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(raw))throw new HttpError(400,'Invalid knowledge request key','knowledge_invalid_request');return raw}
+export function knowledgeObject(raw:unknown,allowed:string[]):Record<string,unknown>{if(!raw||typeof raw!=='object'||Array.isArray(raw)||Object.keys(raw).some(key=>!allowed.includes(key)))throw new HttpError(400,'Invalid knowledge source request','knowledge_invalid_request');return raw as Record<string,unknown>}
+export function knowledgeRevision(raw:unknown):number{if(typeof raw!=='number'||!Number.isSafeInteger(raw)||raw<1)throw new HttpError(400,'Invalid source revision','knowledge_invalid_request');return raw}

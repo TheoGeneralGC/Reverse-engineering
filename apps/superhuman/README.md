@@ -14,6 +14,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Parity inventory](research/parity.csv)
 - [Finding ledger](research/findings.md)
 - [Local search grammar and limits](research/search.md)
+- [Combined delivery, Knowledge and personalization checkpoint](research/combined-checkpoint-20261028.md)
 
 Keep private source material in `evidence/private/` and `evidence/raw/` (ignored).
 Store sanitized specifications and synthetic fixtures under version control.
@@ -23,6 +24,13 @@ Planned layout: `web/` for the browser client, `api/` for the backend, and
 after the initial data-flow and interaction inventory.
 
 ## Run the current implementation
+
+The running combined version passed **444 API/385 frontend tests**, build and
+strict types, plus **16 cases/407 browser steps**. Private Knowledge ingestion,
+citations, account personalization and durable composer delivery are now applied.
+The [checkpoint](research/combined-checkpoint-20261028.md) records source identity,
+the preserved data audit, bounded checks and remaining parity gaps. Earlier
+checkpoint counts below retain their historical scope.
 
 From the monorepo root, run `npm run dev:superhuman`, then open
 http://127.0.0.1:5173. Node 24.22.1 from the existing Codex runtime is selected
@@ -66,7 +74,10 @@ persisted assertions and 98 stable manifest entries, with **325 API/290 web
 tests**, build and strict types. App hash is
 `5650ebf07a4bf3c92535204d9bfb6a20733d5375fee73f07e617a05e14df492b`. Reply-all retains incomplete
 event coverage. These synthetic/mocked checks do not establish full original
-parity or a live replica Send/Undo lifecycle. The separate current-source Create
+parity. A subsequent controlled live artifact Send/Undo and fresh-generation
+delivery passed, with all 17 existing drafts unchanged and matching approved-pair
+receipt identities; see the separately retained failed-guard/recovery record in
+[Undo observations](research/undo-send.md). The separate current-source Create
 regression passed 45 steps: exact keyboard edit/save/reopen, owned empty discard
 and fresh generation3 creation, with no new model or Send call. It preserves the
 original seed provenance and earlier failed content assertion. See the

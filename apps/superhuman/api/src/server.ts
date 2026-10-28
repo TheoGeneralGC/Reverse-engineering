@@ -7,6 +7,11 @@ import { GoogleProvider } from './google.ts';
 import { AiProvider } from './ai.ts';
 import { AiChatService } from './ai-chat.ts';
 import { AiDraftSendService } from './ai-draft-send.ts';
+import { DraftSendService } from './draft-send.ts';
+import { DeliveryAccelerationService } from './delivery-accelerate.ts';
+import { KnowledgeService } from './knowledge.ts';
+import { KNOWLEDGE_MAX_FILE_BYTES, knowledgeFilename, knowledgeKey, knowledgeObject, knowledgeRevision } from './knowledge-input.ts';
+import { PersonalizationService } from './personalization.ts';
 import { deliveryDeadline } from './delivery-delay.ts';
 import { identifier as aiId, integer as aiInteger, invalid as aiInvalid, strictObject as aiObject } from './ai-chat-store.ts';
 import { OperationQueue } from './operation-queue.ts';
@@ -47,13 +52,18 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const syncPollMs = 30_000; const syncContinuationMs = 1_500;
   let closing = false;
   const store = new Store(configuredDatabase ?? resolve(rootPath, '.local/superhuman/mail.sqlite'), options.seed ?? true);
-  store.recoverInterruptedDeliveries();
   const google = new GoogleProvider(store, env);
+  try { google.migrateLegacyMailGrants(); } catch (error) { store.close(); throw error; }
   const ai = new AiProvider(store, env, options.aiFetch);
+  const personalization = new PersonalizationService(store, scheduler.now);
   const calendar = new GoogleCalendarProvider(store, google, env, google.fetcher, { now: scheduler.now });
+  const knowledge = new KnowledgeService(store, { now: scheduler.now, resume: options.runJobs !== false });
   const inFlightSends = new Set<string>();
   const aiChat = new AiChatService(store, env, options.aiFetch, { now: scheduler.now, isDraftLocked: id => inFlightSends.has(id) });
   const aiSend = new AiDraftSendService(store, aiChat.drafts, google, scheduler.now, undefined, { windowMs: options.undoWindowMs ?? 10000, schedule: (callback,ms)=>scheduler.schedule(callback,ms) });
+  const draftSend = new DraftSendService(store, google, scheduler.now, undefined, { windowMs: options.undoWindowMs ?? 10000, schedule: (callback,ms)=>scheduler.schedule(callback,ms), isDraftLocked: id => inFlightSends.has(id) });
+  const deliveryControl = new DeliveryAccelerationService(store, aiSend, draftSend, scheduler.now);
+  store.recoverInterruptedDeliveries(draft => !aiSend.ownsLiveDelivery(draft.id) && !draftSend.ownsLiveDelivery(draft.id));
   if (options.runJobs !== false) aiChat.startIndexing();
   let jobsPromise: Promise<void> | undefined;
   const deliveryMetadataJobs = new Set<Promise<void>>();
@@ -133,25 +143,35 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       if (health?.requiresReconnect || (health?.nextSyncAt && Date.parse(health.nextSyncAt) > now)) continue;
       // Give due/soon-due authorized deliveries priority over another import
       // slice. Accounts remain independent even when one provider is slow.
-      if (store.list<Draft>('draft').some(draft => draft.accountId === account.id && draft.status === 'scheduled' && draft.scheduledAt && Date.parse(draft.scheduledAt) <= now + 15_000)) continue;
+      if (store.list<Draft>('draft').some(draft => draft.accountId === account.id && draft.status === 'scheduled' && !draft.composerSendId && draft.scheduledAt && Date.parse(draft.scheduledAt) <= now + 15_000) || draftSend.hasDueScheduled(account.id,now+15_000)) continue;
       launched++; void requestSync(account.id).catch(() => {});
     }
     return launched;
   }
 
-  async function deliver(id: string, artifactOperationId?: string) {
+  function assertComposerDelivery(draft: Draft, artifactOperationId?: string, composerOperationId?: string) {
+    const linked = store.composerDeliveryId(draft.id);
+    if ((draft.composerSendId || composerOperationId || linked) && (draft.composerSendId !== composerOperationId || linked !== composerOperationId || artifactOperationId)) throw new HttpError(409, 'Use the exact composer delivery operation', 'composer_delivery_locked');
+    if (!artifactOperationId && !composerOperationId && store.cancelledDeliveryHistory(draft.id)) throw new HttpError(409, 'A fresh explicit keyed Send intent is required after Undo', 'send_intent_required');
+  }
+  const deliverComposer = (draftId: string, operationId: string) => deliver(draftId, undefined, operationId);
+  async function deliver(id: string, artifactOperationId?: string, composerOperationId?: string) {
+    if (closing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
     const selected = store.required<Draft>('draft', id);
     if ((selected.artifactSendId || artifactOperationId || store.artifactDeliveryId(id)) && (selected.artifactSendId !== artifactOperationId || store.artifactDeliveryId(id) !== artifactOperationId)) throw new HttpError(409, 'Use the original artifact Send operation; generic Send cannot redispatch it', 'artifact_delivery_locked');
+    assertComposerDelivery(selected, artifactOperationId, composerOperationId);
     if (inFlightSends.has(id)) throw new HttpError(409, 'Message delivery is already in progress', 'delivery_in_progress');
     const accountId = store.required<Draft>('draft', id).accountId;
     inFlightSends.add(id);
-    try { return await operations.run(accountId, () => dispatchDelivery(id, artifactOperationId)); }
+    try { return await operations.run(accountId, () => dispatchDelivery(id, artifactOperationId, composerOperationId)); }
     finally { inFlightSends.delete(id); }
   }
-  async function dispatchDelivery(id: string, artifactOperationId?: string) {
+  async function dispatchDelivery(id: string, artifactOperationId?: string, composerOperationId?: string) {
+    if (closing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
     const draft = store.required<Draft>('draft', id);
     if ((draft.artifactSendId || artifactOperationId || store.artifactDeliveryId(id)) && (draft.artifactSendId !== artifactOperationId || store.artifactDeliveryId(id) !== artifactOperationId)) throw new HttpError(409, 'The artifact operation owns this delivery', 'artifact_delivery_locked');
-    const deliveryContext = { artifactOperationId };
+    assertComposerDelivery(draft, artifactOperationId, composerOperationId);
+    const deliveryContext = { artifactOperationId, composerOperationId };
     if (draft.status === 'sent') throw new HttpError(409, 'Message was already sent', 'already_sent');
     if (draft.status === 'sending' || draft.status === 'delivery_unknown') throw new HttpError(409, 'Delivery outcome must be reconciled; this message will not be resent automatically', 'delivery_requires_reconciliation');
     // Validate all recipients before any external operation or state transition.
@@ -187,15 +207,16 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       const current = store.required<Draft>('draft', id); if (current.status === 'sent') return { resolved: true, draft: current };
       const result = await google.reconcileDelivery(current);
       const message = result.reason === 'legacy_attempt_unverifiable' ? 'This older attempt has no verifiable delivery marker. It remains locked; inspect the provider manually.' : result.reason === 'multiple_marker_matches' ? 'Multiple Sent messages carry this delivery marker. The attempt remains unknown and requires review.' : result.scanComplete ? 'No verified Sent match was found yet. The attempt remains unknown and will not be resent automatically.' : 'The bounded Sent check could not prove a unique match. The attempt remains unknown and will not be resent automatically.';
-      return { resolved: result.found, matches: result.matches, scanComplete: result.scanComplete, scannedCandidates: result.scannedCandidates, reason: result.reason, draft: result.found ? store.completeDelivery(id, result.providerMessageId, result.providerInternetMessageId, true, aiSend.deliveryContext(current, true)) : store.required<Draft>('draft', id), ...(!result.found ? { message } : {}) };
+      return { resolved: result.found, matches: result.matches, scanComplete: result.scanComplete, scannedCandidates: result.scannedCandidates, reason: result.reason, draft: result.found ? store.completeDelivery(id, result.providerMessageId, result.providerInternetMessageId, true, current.composerSendId ? { composerOperationId: current.composerSendId, reconciliation: true } : aiSend.deliveryContext(current, true)) : store.required<Draft>('draft', id), ...(!result.found ? { message } : {}) };
     });
   }
   function runJobs() {
     if (jobsPromise) return jobsPromise;
     if (closing) return Promise.resolve();
     jobsPromise = (async () => {
+      draftSend.runScheduled(deliverComposer);
       const waking = wakeSnoozes(); const groups = new Map<string, string[]>();
-      for (const draft of store.list<Draft>('draft').filter(draft => draft.status === 'scheduled')) groups.set(draft.accountId, [...(groups.get(draft.accountId) ?? []), draft.id]);
+      for (const draft of store.list<Draft>('draft').filter(draft => draft.status === 'scheduled' && !draft.composerSendId && !store.composerDeliveryId(draft.id))) groups.set(draft.accountId, [...(groups.get(draft.accountId) ?? []), draft.id]);
       await Promise.all([waking, ...[...groups.values()].map(async ids => { for (const id of ids) {
         const selected = store.get<Draft>('draft', id);
         if (selected?.status !== 'scheduled' || !selected.scheduledAt || Date.parse(selected.scheduledAt) > scheduler.now()) continue;
@@ -227,6 +248,38 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname; const method = request.method;
+      if(path.startsWith('/api/knowledge/')){
+        const query=(allowed:string[])=>{if([...url.searchParams.keys()].some(key=>!allowed.includes(key)||url.searchParams.getAll(key).length!==1))throw new HttpError(400,'Invalid knowledge query','knowledge_invalid_request');return Object.fromEntries(url.searchParams)};
+        const decode=(value:string)=>{try{const id=decodeURIComponent(value);if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw Error();return id}catch{throw new HttpError(400,'Invalid knowledge source ID','knowledge_invalid_request')}};
+        if(path==='/api/knowledge/status'&&method==='GET'){const q=query(['accountId']);return json(response,200,{knowledge:knowledge.status(q.accountId)});}
+        if(path==='/api/knowledge/sources'&&method==='GET'){const q=query(['accountId','limit','cursor']);return json(response,200,knowledge.repository.list(q.accountId,q.limit===undefined?50:Number(q.limit),q.cursor));}
+        if(path==='/api/knowledge/sources/files'&&method==='POST'){
+          const q=query(['accountId','clientRequestId','name']);knowledge.repository.account(q.accountId);knowledgeFilename(q.name);knowledgeKey(q.clientRequestId);
+          if((request.headers['content-type']??'').split(';')[0].trim()!=='application/octet-stream')throw new HttpError(415,'Upload the selected file as raw binary bytes','knowledge_upload_content_type');
+          const declared=request.headers['content-length'];if(typeof declared==='string'&&/^\d+$/.test(declared)&&Number(declared)>KNOWLEDGE_MAX_FILE_BYTES)throw new HttpError(413,'Files must be 50 MiB or smaller','knowledge_file_too_large');
+          let size=0;const chunks:Buffer[]=[];for await(const chunk of request){const bytes=Buffer.from(chunk);size+=bytes.length;if(size>KNOWLEDGE_MAX_FILE_BYTES)throw new HttpError(413,'Files must be 50 MiB or smaller','knowledge_file_too_large');chunks.push(bytes)}
+          const result=knowledge.upload(q.accountId,q.clientRequestId,q.name,Buffer.concat(chunks,size));return json(response,result.created?201:200,{source:result.source});
+        }
+        if(path==='/api/knowledge/sources/links'&&method==='POST'){const input=knowledgeObject(await body(request,16384),['accountId','clientRequestId','url']);const result=knowledge.addLink(string(input.accountId),string(input.clientRequestId),string(input.url));return json(response,result.created?201:200,{source:result.source});}
+        const recovered=path.match(/^\/api\/knowledge\/source-actions\/by-request\/([^/]+)$/);
+        if(recovered&&method==='GET'){const q=query(['accountId']);return json(response,200,{source:knowledge.repository.byRequest(q.accountId,decode(recovered[1]))});}
+        const source=path.match(/^\/api\/knowledge\/sources\/([^/]+)(?:\/(download|retry))?$/);
+        if(source){const id=decode(source[1]);
+          if(method==='GET'){const q=query(['accountId']),value=knowledge.repository.get(q.accountId,id);if(!source[2])return json(response,200,{source:value});if(source[2]==='download'){const bytes=knowledge.repository.blob(q.accountId,id),filename=value.file?.name??value.name+'.'+(value.link?.extension??'html'),encoded=encodeURIComponent(filename).replace(/['()*]/g,c=>'%'+c.charCodeAt(0).toString(16).toUpperCase());response.writeHead(200,{'content-type':value.file?.mediaType??value.link?.mediaType??'text/html; charset=utf-8','content-disposition':`attachment; filename*=UTF-8''${encoded}`,'cache-control':'no-store','x-content-type-options':'nosniff'});response.end(bytes);return;}}
+          if(!source[2]&&method==='PATCH'){const input=knowledgeObject(await body(request,65536),['accountId','expectedRevision','name','description']);if(input.name===undefined&&input.description===undefined)throw new HttpError(400,'Choose a field to save','knowledge_invalid_request');return json(response,200,{source:knowledge.repository.edit(string(input.accountId),id,knowledgeRevision(input.expectedRevision),{name:input.name,description:input.description})});}
+          if(!source[2]&&method==='DELETE'){const input=knowledgeObject(await body(request,3000),['accountId','expectedRevision']);return json(response,200,knowledge.repository.remove(string(input.accountId),id,knowledgeRevision(input.expectedRevision)));}
+          if(source[2]==='retry'&&method==='POST'){const input=knowledgeObject(await body(request,5000),['accountId','clientRequestId','expectedRevision']);const result=knowledge.retry(string(input.accountId),id,string(input.clientRequestId),knowledgeRevision(input.expectedRevision));return json(response,result.created?202:200,{source:result.source});}
+        }
+        throw new HttpError(404,'Knowledge route not found','knowledge_not_found');
+      }
+      if (path === '/api/personalization') {
+        if ([...url.searchParams.keys()].some(key => key !== 'accountId') || url.searchParams.getAll('accountId').length !== 1) throw new HttpError(400, 'Select exactly one personalization account', 'personalization_invalid');
+        const accountId = url.searchParams.get('accountId');
+        if (!accountId || Buffer.byteLength(accountId) > 1024 || /[\x00-\x20\x7f]/.test(accountId)) throw new HttpError(400, 'Select a valid personalization account', 'personalization_invalid');
+        if (method === 'GET') return json(response, 200, { settings: personalization.get(accountId) });
+        if (method === 'PATCH') return json(response, 200, { settings: personalization.patch(accountId, await body(request)) });
+        throw new HttpError(405, 'Use GET or PATCH for personalization', 'method_not_allowed');
+      }
       if (path.startsWith('/api/ai/chat/')) {
         const decode = (value: string) => { try { return aiId(decodeURIComponent(value)); } catch { return aiInvalid(); } };
         const query = (keys: string[]) => { if ([...url.searchParams.keys()].some(k => !keys.includes(k) || url.searchParams.getAll(k).length !== 1)) aiInvalid(); return Object.fromEntries(url.searchParams); };
@@ -261,6 +314,23 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
         const source = path.match(/^\/api\/ai\/chat\/sources\/([^/]+)$/);
         if (source && method === 'GET') { const q = query(['accountId', 'sessionId', 'turnId']); return json(response, 200, aiChat.source(aiId(q.accountId), aiId(q.sessionId), aiId(q.turnId), decode(source[1]))); }
         throw new HttpError(404, 'Chat route not found', 'ai_chat_not_found');
+      }
+      if(path==='/api/delivery-accelerations'&&method==='POST'){const result=deliveryControl.accelerate(await body(request,5000));if(result.created){const op=result.response.snapshot.operation!;if(result.response.source==='artifact')void aiSend.execute(op.id,deliver).catch(()=>{});else void draftSend.execute(op.id,deliverComposer).catch(()=>{});}return json(response,result.created?201:200,result.response);}
+      const acceleration=path.match(/^\/api\/delivery-accelerations\/by-request\/([^/]+)$/);
+      if(acceleration&&method==='GET'){const keys=['source','accountId','operationId','sessionId','turnId'];if([...url.searchParams.keys()].some(key=>!keys.includes(key)||url.searchParams.getAll(key).length!==1))aiInvalid();let key:string;try{key=aiId(decodeURIComponent(acceleration[1]))}catch{return aiInvalid()}return json(response,200,deliveryControl.byRequest(Object.fromEntries(url.searchParams),key));}
+      if (path.startsWith('/api/draft-send-') || /^\/api\/drafts\/[^/]+\/send-operations$/.test(path)) {
+        const decode = (value:string) => { try { return aiId(decodeURIComponent(value)); } catch { return aiInvalid(); } };
+        const query = (keys:string[]) => { if ([...url.searchParams.keys()].some(key => !keys.includes(key) || url.searchParams.getAll(key).length !== 1)) aiInvalid(); return Object.fromEntries(url.searchParams); };
+        const intent = path.match(/^\/api\/drafts\/([^/]+)\/send-operations$/);
+        if (intent && method === 'GET') { const q=query(['accountId']); return json(response,200,draftSend.current(aiId(q.accountId),decode(intent[1]))); }
+        if (intent && method === 'POST') { const result=draftSend.submit(decode(intent[1]),await body(request,5000)); if(result.accepted) void draftSend.execute(result.snapshot.operation!.id,deliverComposer).catch(()=>{}); return json(response,result.accepted?202:200,result.snapshot); }
+        const byKey = path.match(/^\/api\/draft-send-operations\/by-request\/([^/]+)$/);
+        if(byKey && method==='GET'){const q=query(['accountId','draftId']);return json(response,200,draftSend.byRequest(aiId(q.accountId),aiId(q.draftId),decode(byKey[1])));}
+        const action = path.match(/^\/api\/draft-send-operations\/([^/]+)\/(cancel|reconcile)$/);
+        if(action && method==='POST') { if(action[2]==='cancel') return json(response,200,draftSend.cancel(decode(action[1]),await body(request,5000))); const input=aiObject(await body(request,5000),['accountId']); const accountId=aiId(input.accountId),op=draftSend.operation(accountId,decode(action[1])); if(op.state!=='outcome_unknown') throw new HttpError(409,'No unknown delivery to reconcile','draft_send_conflict'); const reconciliation=await reconcileDraft(op.draftId); return json(response,200,{...draftSend.byRequest(accountId,op.draftId,op.clientRequestId),reconciliation}); }
+        const cancellation = path.match(/^\/api\/draft-send-cancellations\/by-request\/([^/]+)$/);
+        if(cancellation && method==='GET'){const q=query(['accountId','operationId']);return json(response,200,draftSend.byCancelRequest(aiId(q.accountId),aiId(q.operationId),decode(cancellation[1])));}
+        throw new HttpError(404,'Draft delivery route not found','draft_send_not_found');
       }
       if (path === '/api/health' && method === 'GET') return json(response, 200, { ok: true, persistence: 'sqlite', mode: 'local-development' });
       if (path === '/api/provider/status' && method === 'GET') return json(response, 200, { google: google.status(), calendar: calendar.status(store.preferences().activeAccountId), microsoft: { configured: false, implemented: false }, ai: ai.status() });
@@ -324,7 +394,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       }
       if (draftMatch && !draftMatch[2] && method === 'DELETE') { const id = decodeURIComponent(draftMatch[1]); const draft = store.required<Draft>('draft', id); if (['sent', 'sending', 'delivery_unknown'].includes(draft.status) || inFlightSends.has(id)) throw new HttpError(409, 'Cannot delete a sent, sending, or unresolved delivery'); if (draft.providerDraftId) throw new HttpError(409, 'Provider-synced drafts must be managed in Gmail; local deletion will not silently delete a provider draft', 'provider_draft_deletion_requires_action'); store.deleteDraft(id); return json(response, 200, { deleted: true }); }
       if (draftMatch && draftMatch[2] === 'send' && method === 'POST') return json(response, 200, await deliver(decodeURIComponent(draftMatch[1])));
-      if (draftMatch && draftMatch[2] === 'schedule' && method === 'POST') { const input = await body(request); const id = decodeURIComponent(draftMatch[1]); if (inFlightSends.has(id)) throw new HttpError(409, 'Delivery is queued or already in progress', 'delivery_in_progress'); const draft = store.required<Draft>('draft', id); if (draft.status === 'sent') throw new HttpError(409, 'Already sent'); google.validateDelivery(draft); if (store.required<Account>('account', draft.accountId).provider !== 'google') throw new HttpError(409, 'Demo accounts cannot schedule delivery', 'demo_delivery_disabled'); const scheduledAt = date(input.scheduledAt); if (Date.parse(scheduledAt) <= Date.now()) throw new HttpError(400, 'Choose a future time'); return json(response, 200, { draft: store.saveDraft({ id, scheduledAt, status: 'scheduled' }) }); }
+      if (draftMatch && draftMatch[2] === 'schedule' && method === 'POST') { const input = await body(request); const id = decodeURIComponent(draftMatch[1]); if (inFlightSends.has(id)) throw new HttpError(409, 'Delivery is queued or already in progress', 'delivery_in_progress'); const draft = store.required<Draft>('draft', id); if (store.cancelledDeliveryHistory(id)) throw new HttpError(409, 'A fresh explicit keyed Send intent is required after Undo', 'send_intent_required'); if (draft.status === 'sent') throw new HttpError(409, 'Already sent'); google.validateDelivery(draft); if (store.required<Account>('account', draft.accountId).provider !== 'google') throw new HttpError(409, 'Demo accounts cannot schedule delivery', 'demo_delivery_disabled'); const scheduledAt = date(input.scheduledAt); if (Date.parse(scheduledAt) <= Date.now()) throw new HttpError(400, 'Choose a future time'); return json(response, 200, { draft: store.saveDraft({ id, scheduledAt, status: 'scheduled' }) }); }
       if (draftMatch && draftMatch[2] === 'cancel' && method === 'POST') { const id = decodeURIComponent(draftMatch[1]); if (inFlightSends.has(id)) throw new HttpError(409, 'Delivery is already in progress'); store.required<Draft>('draft', id); return json(response, 200, { draft: store.saveDraft({ id, status: 'draft', scheduledAt: undefined }) }); }
       if (path === '/api/auth/google/start' && method === 'GET') { const auth = google.startAuth({ service: (url.searchParams.get('service') ?? 'mail') as GoogleService, accountId: url.searchParams.get('accountId') ?? undefined }); response.writeHead(302, { location: auth.url, 'set-cookie': `rea_oauth_state=${auth.state}; HttpOnly; SameSite=Lax; Path=/api/auth/google; Max-Age=600`, 'cache-control': 'no-store' }); response.end(); return; }
       if (path === '/api/auth/google/callback' && method === 'GET') {
@@ -360,10 +430,10 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const close = () => {
     if (closePromise) return closePromise;
     closing = true;
-    closePromise = (async () => { syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await aiChat.close(); await aiSend.close(); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs]); await calendar.close(); store.close(); })();
+    closePromise = (async () => { syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs]); await calendar.close(); store.close(); })();
     return closePromise;
   };
-  return { server, store, google, calendar, aiChat, aiSend, close, runJobs, deliver, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
+  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

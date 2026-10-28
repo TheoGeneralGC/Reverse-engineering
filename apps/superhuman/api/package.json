@@ -10,9 +10,13 @@
   },
   "dependencies": {
     "@js-temporal/polyfill": "0.5.1",
+    "fflate": "0.8.3",
+    "markdown-it": "15.0.3",
     "parse5": "8.0.1",
+    "pdfjs-dist": "6.4.299",
     "sanitize-html": "2.18.1",
-    "markdown-it": "15.0.3"
+    "saxes": "6.0.0",
+    "word-extractor": "1.0.4"
   },
   "devDependencies": {
     "@types/sanitize-html": "2.16.2"

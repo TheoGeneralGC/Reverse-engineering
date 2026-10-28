@@ -181,3 +181,129 @@ resolve their original operation and never resend or retarget newer drafts.
 Normal composer Undo remains a separate gap. Synthetic controller and actual App
 checks establish this local lifecycle; a new browser/live comparison is required
 for the current implementation.
+
+## Private normal composer delivery candidate
+
+This copy is isolated under `.local/composer-delivery-implementation/web`; it
+has not replaced the running API325/web290 checkpoint. Normal immediate Send and
+Send Later now use the keyed `/drafts/:id/send-operations` contract. The editor
+locks before its last recipient/rich-content save, then compares the acknowledged
+draft with a fresh scoped server snapshot. The accepted revision, content hash,
+generation and optional canonical send time are journalled before a single POST.
+An attachment still being read, uploaded or removed prevents that Send intent.
+
+The global notification survives closing Ask AI and uses read-only recovery of its
+original key. Undo/cancel has a separate durable key and restores the same draft,
+attachments and provider linkage. An unknown acknowledgement never authorizes a
+new Send key. Late restoration acknowledgements cache the restored draft and
+leave newer typing, accounts and workspaces intact. A subsequent explicit Send
+or schedule after confirmed Undo uses the new current revision/hash/generation;
+old keys remain historical. Scheduled cancellation follows server `canCancel`,
+including an overdue operation that has not been claimed. New sends and schedules do not call the old keyless routes. Explicit cancellation
+of a pre-existing legacy schedule retains its legacy cancel route; an intent-owned
+schedule always uses its keyed cancellation receipt.
+
+This candidate preserves the existing AI-card flows. Immediate acceptance uses
+the observed optimistic “Message sent” notification, while the operation state
+remains queued/sending until actual provider confirmation. Scheduled acceptance
+uses “Message scheduled” and an explicit cancel control. No Instant Send, hover
+extension, cloud draft write/delete, scheduling precision, or browser/provider
+parity is claimed by these mocked checks. The backend schedule poll currently has
+its own documented cadence. Runtime rollout and comparison belong to the parent
+checkpoint process; this author has made no API, database, browser, model or mail
+calls while implementing the private candidate.
+
+## Separate private queued-delivery acceleration candidate
+
+This copy extends the frozen normal-composer315 source and the matching private
+API375. It adds explicit Instant Send to an owned queued immediate AI-card or
+normal-composer operation. Scheduling remains excluded. The control journals a
+separate opaque key and the expected operation revision before its one POST;
+transport failures and404 recover only through the original scoped read route.
+It never starts another Send, changes recipients/content, or treats acceleration
+as provider confirmation.
+
+Both Send controllers permit one authoritative shortened-deadline transition only
+when the operation supplies the original deadline, acceleration receipt ID and
+accepted timestamp. Known acceleration metadata stays immutable. The global
+notification shows “Send accelerated!” after the receipt, removes Undo and
+Instant Send, and retains the durable queued/sending/provider state separately.
+It currently stays until dismissal; the original notification's exact successful
+acceleration lifetime remains unmeasured. No hover extension is added.
+
+The original observation establishes the explicit control and success label;
+current tests are synthetic and mocked. This author has made no live API,
+provider, model, database or browser calls and has not applied either private
+candidate to the root application. Root rollout, browser comparison and real
+mail validation remain separate steps.
+
+## Private Knowledge Base candidate
+
+This isolated copy extends the frozen delivery frontend331. It has not been
+applied to the running root325/290 application. The observed original Private
+TXT upload, persisted extensionless title, owner/timestamp, one grounded answer,
+Sources row and source-editor overlay are recorded in
+`apps/superhuman/research/knowledge-base-runtime.md`; those observations do not
+verify this implementation or the full file-format/link/sharing family.
+
+The Knowledge workspace reads account-private metadata and shows source
+processing/errors separately from ready content. Explicit file selection or drop
+validates the21 declared extensions and50 MiB bound, hashes the selected bytes,
+persists a source-action key, and posts the original bytes without JSON/base64.
+Source creation and retry recover only by the saved key; a lost response/404
+never causes another upload or retry automatically. Metadata edits are staged
+until Save; unchanged Save is disabled. Revision conflicts retain edited fields
+while explicitly loading current untouched fields. Delete has a separate
+confirmation and uncertain deletion uses scoped GET recovery. A disappeared
+source cannot silently discard uncertain saved edits.
+
+Source citations resolve a server-owned typed Knowledge target, then fetch its
+current account/source metadata. The editor overlays Mail/Calendar and Ask AI
+without replacing their components or inserting content. Late account/session/
+history/editor changes fence the read. Download is an explicit scoped local GET,
+not a model-selected external URL. HTML/code stays inert. Source editor/link
+input is cached per account; a storage outage keeps a memory fallback, while all
+server mutations still require durable recovery storage.
+
+Private Knowledge is included with Mail for new questions by the parent’s
+chosen policy, supported by the bounded original file-retrieval observation.
+An explicit context checkbox can exclude it, and `resources: []` still excludes
+all new retrieval. Existing mail-only histories remain readable. Retrieval uses
+only bounded scoped tools; opening Knowledge or a citation does not generate a
+question or ingest another source.
+
+Team sharing stays disabled until real membership/authorization exists. This
+candidate’s Add Link saves one public HTTPS page; it does not claim the original
+copy’s domain crawling or live retrieval. Generated descriptions currently come
+from the backend’s deterministic local excerpt, not a hidden model call. Parser
+coverage, extraction limits/OCR, original batch and failure behavior, complete
+sharing, source-update/delete comparison, exact geometry and full parity remain
+open. The Personalization link is an optional integration callback for the
+coordinated merge with the separate Personalization candidate.
+
+All author verification used mocked requests, synthetic files and isolated test
+state. No live API, database, browser, provider or model call, root source edit,
+service restart or account-wide change was made by this frontend work.
+
+Current Knowledge consumption is Ask AI only. Inline Write with AI and Auto
+Drafts source integration remain unimplemented; the info panel does not claim
+otherwise. Delete/Discard confirmations own safe initial focus and a separate
+Tab scope, with background fields inert. Delete uses the revision captured when
+that confirmation was requested, so a background processing/status update cannot
+silently broaden the confirmed action to a newer revision.
+
+
+The combined private candidate also includes the account-scoped Personalization
+editor. Knowledge and Personalization link to each other through guarded
+navigation; staged source fields stay mounted while the modal covers them.
+Confirmed navigation holds the preference editor read-only while the mail draft
+save completes, and a failed save returns to the same staged settings. This
+combined copy has not yet been compared with the original in a browser.
+
+
+Inline AI rewriting now carries the owned draft account explicitly from App
+through its editor and immutable rewrite request. Changing account or draft
+aborts the request, resets the inline session, and rejects late text even if a
+draft ID were reused. Retry retains the original account and selection snapshot.
+The server can apply that account's saved manual preferences; learned voice is
+still unavailable, and Rewrite in my voice retains its explicit setup error.

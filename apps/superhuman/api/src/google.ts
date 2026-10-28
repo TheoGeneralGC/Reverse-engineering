@@ -7,6 +7,8 @@ import { parseOutgoingRecipientHeaders } from './outgoing-recipients.ts';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { calendarCapabilities, CALENDAR_REQUEST_SCOPES, GMAIL_SCOPE, type GoogleService, type GoogleServiceGrant, type GoogleAuthContext } from './google-scopes.ts';
 
+import { migrateLegacyMailGrantMetadata } from './legacy-mail-grants.ts';
+
 type Tokens = { access_token: string; refresh_token?: string; expires_at: number; grantedScopes?: string[] };
 type TokenResponse = { access_token: string; refresh_token?: string; expires_in: number; scope?: string };
 type GmailPart = { partId?: string; mimeType?: string; filename?: string; body?: { data?: string; attachmentId?: string; size?: number }; parts?: GmailPart[]; headers?: { name: string; value: string }[] };
@@ -106,6 +108,10 @@ export class GoogleProvider implements MailProvider {
   unseal(value: string): Tokens { const [iv, tag, data] = value.split('.').map(x => Buffer.from(x, 'base64url')); const cipher = createDecipheriv('aes-256-gcm', this.key(), iv); cipher.setAuthTag(tag); return JSON.parse(Buffer.concat([cipher.update(data), cipher.final()]).toString('utf8')); }
   private tokenKey(accountId: string, service: GoogleService) { return service === 'mail' ? accountId : `calendar:${accountId}`; }
   grant(accountId: string, service: GoogleService) { return this.store.get<GoogleServiceGrant>('googleGrant', `${service}:${accountId}`); }
+  migrateLegacyMailGrants() {
+    if (!this.status().configured) return { adopted: 0 };
+    return migrateLegacyMailGrantMetadata(this.store, value => this.unseal(value), this.timing.now);
+  }
   saveTokens(accountId: string, tokens: Tokens, service: GoogleService = 'mail') { this.store.db.prepare('INSERT INTO secrets VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET value=excluded.value').run(this.tokenKey(accountId, service), this.seal(tokens)); }
   private readTokens(accountId: string, service: GoogleService = 'mail') { const row = this.store.db.prepare('SELECT value FROM secrets WHERE account_id=?').get(this.tokenKey(accountId, service)); if (!row) throw new HttpError(401, 'Reconnect this Google service', 'reconnect_required'); return this.unseal(String(row.value)); }
   async tokens(accountId: string, service: GoogleService = 'mail'): Promise<Tokens> {
@@ -364,10 +370,12 @@ export class GoogleProvider implements MailProvider {
   mime(draft: Draft) {
     const account = this.store.required<Account>('account', draft.accountId);
     const thread = draft.threadId ? this.store.get<Thread>('thread', draft.threadId) : undefined;
-    const raw = Buffer.from(buildMime(draft, account, thread?.messages.at(-1), (draft.attachments ?? []).map(metadata => ({ metadata, bytes: this.store.attachmentBytes(draft.id, metadata.id) })))).toString('base64url');
-    return { raw, ...(thread?.providerId ? { threadId: thread.providerId } : {}) };
+    const raw = Buffer.from(buildMime(draft, account, draft.deliveryReplyContext ?? thread?.messages.at(-1), (draft.attachments ?? []).map(metadata => ({ metadata, bytes: this.store.attachmentBytes(draft.id, metadata.id) })))).toString('base64url');
+    const providerThreadId = draft.deliveryReplyContext ? draft.deliveryReplyContext.providerThreadId : thread?.providerId;
+    return { raw, ...(providerThreadId ? { threadId: providerThreadId } : {}) };
   }
   async syncDraft(draft: Draft) {
+    if (draft.composerSendId || this.store.composerDeliveryId(draft.id)) throw new HttpError(409, 'Composer deliveries cannot synchronize an editable provider draft', 'composer_delivery_locked');
     if (draft.artifactSendId || this.store.artifactDeliveryId(draft.id)) throw new HttpError(409, 'Artifact deliveries cannot synchronize an editable provider draft', 'artifact_delivery_locked');
     if (this.store.required<Account>('account', draft.accountId).provider !== 'google') throw new HttpError(409, 'Demo drafts cannot sync to Google');
     const message = this.mime(draft);
@@ -380,6 +388,12 @@ export class GoogleProvider implements MailProvider {
       const pending = this.store.required<Draft>('draft', draft.id);
       if (draft.artifactSendId !== linked || pending.artifactSendId !== linked || pending.status !== 'sending' || draft.status !== 'sending' || !draft.deliveryAttemptId || pending.deliveryAttemptId !== draft.deliveryAttemptId || pending.deliveryMarker !== draft.deliveryMarker) throw new HttpError(409, 'Artifact Send requires its durable claimed attempt', 'artifact_delivery_locked');
     }
+    const composer = this.store.composerDeliveryId(draft.id);
+    if (composer || draft.composerSendId) {
+      const pending = this.store.required<Draft>('draft', draft.id);
+      if (draft.composerSendId !== composer || pending.composerSendId !== composer || pending.status !== 'sending' || draft.status !== 'sending' || !draft.deliveryAttemptId || pending.deliveryAttemptId !== draft.deliveryAttemptId || pending.deliveryMarker !== draft.deliveryMarker) throw new HttpError(409, 'Composer Send requires its durable claimed attempt', 'composer_delivery_locked');
+    }
+    if (!composer && !linked && this.store.cancelledDeliveryHistory(draft.id)) throw new HttpError(409, 'A fresh explicit keyed Send intent is required after Undo', 'send_intent_required');
     this.validateDelivery(draft);
     const account = this.store.required<Account>('account', draft.accountId);
     if (account.provider !== 'google') throw new HttpError(409, 'Demo accounts cannot deliver email', 'demo_delivery_disabled');

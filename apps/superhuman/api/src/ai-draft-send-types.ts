@@ -7,7 +7,7 @@ export type AiDraftSendOperation = {
   generation: number; creationId: string; draftId: string; clientRequestId: string; payloadHash: string;
   state: AiDraftSendState; revision: number; createdAt: string; startedAt: string | null; confirmedAt: string | null;
   deliveryAttemptId: string | null; providerMessageId: string | null;
-  cancellableUntil: string; cancelledAt: string | null; cancelledFromRevision?: number;
+  originalCancellableUntil?:string; accelerationId?:string; acceleratedAt?:string; cancellableUntil: string; cancelledAt: string | null; cancelledFromRevision?: number;
   error: null | { code: string; message: string; retry: 'none'; providerOutcome: 'not_dispatched' | 'unknown' | 'confirmed' };
 };
 export type AiDraftSendRequest = { accountId: string; sessionId: string; turnId: string; clientRequestId: string; expectedPreviewHash: string; expectedGeneration: number };

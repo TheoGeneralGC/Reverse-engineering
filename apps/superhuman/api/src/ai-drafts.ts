@@ -1,3 +1,4 @@
+import { deliveryActionKeyInUse } from './delivery-action-keys.ts';
 import { randomUUID } from 'node:crypto';
 import type { Store } from './store.ts';
 import { HttpError, type Draft, type Person } from './types.ts';
@@ -124,6 +125,7 @@ export class AiDraftService {
       const { preview } = this.owned(scope, previewId); const fingerprint = hash({ ...scope, previewId, expectedPreviewHash: value.expectedPreviewHash, expectedGeneration });
       const prior = this.store.db.prepare('SELECT fingerprint,data,creation_id FROM ai_draft_requests WHERE account_id=? AND client_key=?').get(scope.accountId, key);
       if (prior) { if (prior.fingerprint !== fingerprint) throw new HttpError(409, 'This action key belongs to a different draft request', 'ai_draft_request_conflict'); const original = this.creationById(scope, String(prior.creation_id)); return { created: false, result: this.response(preview, original, JSON.parse(String(prior.data))) }; }
+      if(deliveryActionKeyInUse(this.store.db,scope.accountId,key,['ai_draft_requests','ai_draft_sends','ai_draft_send_cancellations']))throw new HttpError(409,'This key belongs to another delivery action','ai_draft_action_conflict');
       if (this.store.db.prepare("SELECT 1 FROM sqlite_master WHERE name='ai_draft_send_cancellations'").get() && this.store.db.prepare('SELECT 1 FROM ai_draft_send_cancellations WHERE account_id=? AND client_key=?').get(scope.accountId,key)) throw new HttpError(409,'This action key belongs to Undo','ai_draft_action_conflict');
       if (this.hasSendClaim(previewId) || (this.store.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_draft_sends'").get() && this.store.db.prepare('SELECT 1 FROM ai_draft_sends WHERE account_id=? AND client_key=?').get(scope.accountId, key))) throw new HttpError(409, 'This preview or action key already belongs to a Send action', 'ai_draft_action_conflict');
       if (value.expectedPreviewHash !== preview.payloadHash) throw new HttpError(409, 'The preview changed; reload it before creating a draft', 'ai_draft_preview_changed');

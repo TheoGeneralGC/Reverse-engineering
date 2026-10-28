@@ -17,18 +17,18 @@ Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});window.Range.prototype
 const {act,createElement,createRef}=await import('react'),{createRoot}=await import('react-dom/client'),{default:RichComposer}=await import('../src/RichComposer.tsx');hook.deregister();
 const deferred=()=>{let resolve!:(value:string)=>void,reject!:(error:Error)=>void;return{promise:new Promise<string>((yes,no)=>{resolve=yes;reject=no}),resolve:(value:string)=>resolve(value),reject:(error:Error)=>reject(error)}};
 async function mount(generateAI:(request:ComposerRewriteRequest,signal:AbortSignal)=>Promise<string>){
- const host=window.document.createElement('div');window.document.body.append(host);const root=createRoot(host),ref=createRef<RichComposerHandle>();let value={body:'Before target text after',html:'<div><b>Before </b>target text<i> after</i></div>'},readOnly=false;
- const render=()=>root.render(createElement(RichComposer,{ref,draftId:'owned-synthetic-ai-draft',...value,readOnly,generateAI,onChange:next=>{value=next;render()}}));await act(async()=>render());
+ const host=window.document.createElement('div');window.document.body.append(host);const root=createRoot(host),ref=createRef<RichComposerHandle>();let value={body:'Before target text after',html:'<div><b>Before </b>target text<i> after</i></div>'},readOnly=false,accountId='synthetic-account';
+ const render=()=>root.render(createElement(RichComposer,{ref,accountId,draftId:'owned-synthetic-ai-draft',...value,readOnly,generateAI,onChange:next=>{value=next;render()}}));await act(async()=>render());
  const body=()=>host.querySelector<HTMLElement>('[aria-label="Message body"]')!;
  const selectTarget=async()=>{await act(async()=>{body().focus();const range=window.document.createRange();range.selectNodeContents(body().querySelector('div')!.childNodes[1]);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);window.document.dispatchEvent(new window.Event('selectionchange'))})};
  const click=async(name:string)=>{const button=Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(button=>button.textContent?.trim()===name||button.getAttribute('aria-label')===name);assert.ok(button,'Missing '+name);await act(async()=>button.click())};
- return{host,body,ref,getValue:()=>value,selectTarget,click,open:async()=>{await selectTarget();await act(async()=>ref.current!.openAI())},lock:async()=>{readOnly=true;await act(async()=>render())},close:async()=>{await act(async()=>root.unmount());host.remove()}};
+ return{host,body,ref,setAccount:async(nextAccount:string,nextBody:string)=>{accountId=nextAccount;value={body:nextBody,html:'<div>'+nextBody+'</div>'};await act(async()=>render())},getValue:()=>value,selectTarget,click,open:async()=>{await selectTarget();await act(async()=>ref.current!.openAI())},lock:async()=>{readOnly=true;await act(async()=>render())},close:async()=>{await act(async()=>root.unmount());host.remove()}};
 }
 
 test('inline AI sends only the selection, applies it directly and offers Done and explicit Retry',async()=>{
  const calls:ComposerRewriteRequest[]=[];const app=await mount(async request=>{calls.push(request);return calls.length===1?'Short text':'Retried text'});try{
   await app.open();assert.ok(app.host.querySelector('[aria-label="Describe how to edit the text"]'));await app.click('Shorten');
-  assert.deepEqual(calls,[{instruction:'Shorten',text:'target text'}]);assert.equal(app.getValue().body,'Before Short text after');assert.match(app.getValue().html,/<b>Before /);assert.match(app.getValue().html,/<i> after<\/i>/);
+  assert.deepEqual(calls,[{accountId:'synthetic-account',instruction:'Shorten',text:'target text'}]);assert.equal(app.getValue().body,'Before Short text after');assert.match(app.getValue().html,/<b>Before /);assert.match(app.getValue().html,/<i> after<\/i>/);
   await app.click('Retry');assert.deepEqual(calls[1],calls[0]);assert.equal(app.getValue().body,'Before Retried text after');await app.click('Done');assert.equal(app.host.querySelector('[aria-label="Edit with AI"]'),null);
  }finally{await app.close()}
 });
@@ -52,4 +52,12 @@ test('delivery becoming read-only aborts AI and keeps a late output from enterin
  const pending=deferred();let signal:AbortSignal|undefined;const app=await mount(async(_request,abort)=>{signal=abort;return pending.promise});try{
   await app.open();await app.click('Improve writing');await app.lock();assert.equal(signal?.aborted,true);await act(async()=>pending.resolve('Too late'));assert.equal(app.getValue().body,'Before target text after');assert.equal(app.host.querySelector('[aria-label="Edit with AI"]'),null);
  }finally{await app.close()}
+});
+
+test('an in-place account change aborts its rewrite even when the draft ID is reused',async()=>{
+ const pending=deferred();let signal:AbortSignal|undefined;const requests:ComposerRewriteRequest[]=[];const app=await mount(async(request,abort)=>{requests.push(request);signal=abort;return pending.promise});try{await app.open();await app.click('Shorten');assert.equal(requests[0].accountId,'synthetic-account');await app.setAccount('other-account','Other account text');assert.equal(signal?.aborted,true);assert.equal(app.host.querySelector('[aria-label="Edit with AI"]'),null);await act(async()=>pending.resolve('Foreign delayed replacement'));assert.equal(app.getValue().body,'Other account text');assert.equal(app.host.textContent?.includes('Foreign delayed replacement'),false)}finally{await app.close()}
+});
+
+test('the rewrite adapter requires an explicit account and never infers the active account',async()=>{
+ const {requestComposerRewrite}=await import('../src/composer-ai.ts'),original=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({text:'Unexpected'}))};try{for(const accountId of[undefined,'',' ','bad\naccount'])await assert.rejects(()=>requestComposerRewrite({accountId:accountId as string,instruction:'Shorten',text:'Synthetic'},new AbortController().signal),/Select an account/);assert.equal(calls,0)}finally{globalThis.fetch=original}
 });

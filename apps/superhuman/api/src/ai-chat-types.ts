@@ -1,6 +1,7 @@
 // Browser-safe persistent Ask AI contracts. See research/ai-chat-contract.md.
 import type { AiDraftPreview } from './ai-draft-types.ts';
-export type AiResource = 'mail' | 'calendar';
+import type { PersonalizationSnapshot } from './personalization-types.ts';
+export type AiResource = 'mail' | 'calendar' | 'knowledge';
 export type AiTurnState = 'queued' | 'running' | 'cancel_requested'
   | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'outcome_unknown';
 export type AiPhase = 'queued' | 'connecting' | 'thinking' | 'retrieving'
@@ -28,6 +29,7 @@ export type AiChatTurn = {
   id: string; sessionId: string; accountId: string; seq: number;
   clientRequestId: string; retryOfTurnId?: string;
   prompt: string; context: AiChatSubmit['context'];
+  personalization?: PersonalizationSnapshot;
   state: AiTurnState; phase: AiPhase; revision: number; lastEventSeq: number;
   createdAt: string; startedAt?: string; finishedAt?: string; deadlineAt?: string;
   provider: 'anthropic'; model: string;
@@ -49,13 +51,14 @@ export type AiChatTurn = {
 
 export type AiSourceTarget =
   | { kind: 'mail'; accountId: string; threadId: string; messageIds: string[] }
-  | { kind: 'calendar'; accountId: string; calendarId: string; eventId: string };
+  | { kind: 'calendar'; accountId: string; calendarId: string; eventId: string }
+  | { kind: 'knowledge'; accountId:string; sourceId:string; chunkIds:string[] };
 
 export type AiSourceReceipt = {
   id: string; accountId: string; sessionId: string; turnId: string;
   number: number; // Positive server-assigned display number, local to this turn.
   target: AiSourceTarget;
-  basis: 'selected-thread' | 'mail-summary' | 'mail-text' | 'calendar-cache';
+  basis: 'selected-thread' | 'mail-summary' | 'mail-text' | 'calendar-cache' | 'knowledge-summary' | 'knowledge-text';
   label: string; secondaryLabel: string; excerpt: string;
   snapshotHash: string; fetchedAt: string;
   sourceVersion?: string;
@@ -77,7 +80,7 @@ export type AiChatAnswer = {
 
 export type AiCoverage = {
   resource: AiResource;
-  scope: 'local-imported' | 'local-cache';
+  scope: 'local-imported' | 'local-cache' | 'local-private';
   status: 'complete-local-snapshot' | 'partial' | 'unavailable';
   lastUpdatedAt: string | null;
   indexedRecords?: number;
@@ -89,14 +92,14 @@ export type AiCoverage = {
 
 export type AiTurnLimits = {
   providerRounds: number; toolCalls: number; summaryHits: number;
-  fullThreadReads: number; contextBytes: number; outputTokens: number;
+  fullThreadReads: number; knowledgeReads?:number; contextBytes: number; outputTokens: number;
   exhausted: string[];
 };
 export type AiChatStatus = {
   implemented: boolean; configured: boolean; provider: 'anthropic';
   model: string | null; missing: string[];
   capabilities: ('persistent-chat' | 'streaming' | 'local-mail-retrieval'
-    | 'cached-calendar-retrieval' | 'source-citations' | 'cancel' | 'draft-preview' | 'create-local-draft' | 'send-artifact' | 'undo-artifact-send')[];
+    | 'cached-calendar-retrieval' | 'private-knowledge-retrieval' | 'source-citations' | 'cancel' | 'draft-preview' | 'create-local-draft' | 'send-artifact' | 'undo-artifact-send' | 'account-personalization')[];
   policyVersion: string; coverage: AiCoverage[]; limitations: string[];
 };
 
@@ -106,7 +109,7 @@ export type AiProgressPayload =
   | { kind: 'thinking'; state: 'started' | 'finished' }
   | { kind: 'thinking_summary_delta'; text: string }
   | { kind: 'tool'; callId: string;
-      tool: 'mail_search' | 'mail_read' | 'calendar_cache_search' | 'propose_email_draft';
+      tool: 'mail_search' | 'mail_read' | 'calendar_cache_search' | 'knowledge_search' | 'knowledge_read' | 'propose_email_draft';
       state: 'started' | 'completed' | 'failed'; resultCount?: number;
       errorCode?: string }
   | { kind: 'source'; source: AiSourceReceipt }

@@ -781,3 +781,43 @@ web gate then passed 175 tests plus build/strict types at App
 `43246ef97d71e3bccc3d445bf11b85ddc7fc65e30a6df3042264cad21c5d3975`.
 These offline checks do not convert any failed browser capture into a pass;
 the new frozen comparison is recorded separately when complete.
+
+
+## Combined delivery, Knowledge and personalization regression — 2026-10-28 UTC
+
+Run `20261028T213713Z` passed 16 cases/407 steps, all eight persisted assertions,
+zero page errors and owned-browser cleanup. All 126 source/config/fixture/scenario
+manifest entries stayed stable. App SHA-256 is
+`f1d6878d618573f0a55cc069647b881060bc16acbb309c47fe3bfb494cefd040`.
+Applied offline gates passed 444 API/385 web tests, build and strict types on
+Node 24.22.1. The 223-file applied-source archive SHA-256 is
+`750118422ce0ddccb41fa6d2c6a5ee75b03c860e178f3716e91aa5bbf9849f53`.
+The root API test fixture portability correction and all earlier failed checks
+remain separately recorded in the [combined checkpoint](../combined-checkpoint-20261028.md).
+These are synthetic local checks; no provider was configured for this run.
+
+| Case | Steps | REA evidence |
+| --- | ---: | --- |
+| draft-save-reopen | 26 | `ev_7e1f7c37208cb0302a43e38d54691164a4d7c3afcff74a1eac1a5bfa187c5734` |
+| search-jordan | 8 | `ev_71a70e37e39f8163dafff6800761e45ae91a3906b8234851a68224ce2725f8c7` |
+| command-keyboard | 16 | `ev_7aa78c0dffc268f4907a1aebd9dfddbd00a3f7318ebf71fad24d30359a475bd8` |
+| archive-undo-native-button | 12 | `ev_b7824244bbfabf25d58e35910a9f3c2b5b14cd24aa2554a738561530f11eb26d` |
+| narrow-viewport | 3 | `ev_2e453a10082a1a58c08ac0f46886950fe57d56c576c256b1fe7235681869da99` |
+| attachment-draft | 8 | `ev_35757452d8c9eaa546a3c93d3b440c9bb3894d09fff27e997b68c2ec8b6ae357` |
+| reply-all | 8 | `ev_af904b78dc580b5816ee4525014597035bc49ada7ba52c8aeac4f8844243ffb6` |
+| reminder-undo | 11 | `ev_60b7f5f9e37c8614b4170e236dea41eba1d67d3545bd6936e55516ee52cccdff` |
+| label-picker | 6 | `ev_c7d2fa4d182162a089508732b9afd76e044a32e54611846c130472eb6b032d17` |
+| rich-compose | 45 | `ev_e52e6497f1b11b39c6ac4f960a7ec0af5b0e240485ec515cbc7a96b99060388b` |
+| inline-ai-unconfigured | 18 | `ev_fbea297e99c67a5cd02b2bf00c04cad467dccc2adb07026cda6e52f50770017e` |
+| side-ai-unconfigured | 42 | `ev_b013003d6151e75aabe14517124a3e05b77bf9e0ce689e4729973905a3fafb11` |
+| calendar-week | 24 | `ev_5453b8688722200500a18d47ae172d93461ffd359fbed6a9ba03521fc7f3b7b8` |
+| calendar-create-edit-delete | 34 | `ev_6e6adad133de96434a88d72df7ebe9c77828cf9ba6b3772771bed9a2e3fd4165` |
+| recipient-editing | 66 | `ev_35e8dc39250107c864892bcca4106783fa084ddbecd7340e1b2aa8370fd67c23` |
+| contact-context | 80 | `ev_f2f6b4f59bd456b785571b1aca928abc8717955f11d083851354a0601e151267` |
+
+Reply-all retains missing event coverage/equality_eligible=false, with its exact
+reply-all POST/201 assertion passing. Other complete captures do not independently
+prove equality with the original. The separate 55-step Knowledge/personalization
+workflow, actual file chooser proof, live Claude turn and 17-step answer/citation
+restore retain their own source identities and coverage limits in the combined
+checkpoint. No full feature-family parity is inferred.

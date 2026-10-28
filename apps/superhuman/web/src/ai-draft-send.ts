@@ -1,3 +1,4 @@
+import { validDeliveryDeadline,validDeliveryDeadlineTransition } from './delivery-acceleration.ts';
 import { ApiError } from './api.ts';
 import { validAiDraftPreview } from './ai-draft.ts';
 import type { AiDraftPreview,AiDraftRequest,AiDraftStorage } from './ai-draft.ts';
@@ -27,6 +28,7 @@ function checked(value:unknown,preview:AiDraftPreview,key?:string,expectedGenera
   if(value.canCancel&&(o.state!=='queued'||o.deliveryAttemptId||Date.parse(value.serverNow)>=Date.parse(o.cancellableUntil)))throw Error('Unexpected cancellation availability.');
   if(o.state==='cancelled'&&(!o.cancelledAt||o.deliveryAttemptId||o.providerMessageId||o.startedAt||o.confirmedAt||!Number.isSafeInteger(o.cancelledFromRevision)||o.cancelledFromRevision<0||o.cancelledFromRevision>=o.revision)||o.state!=='cancelled'&&o.cancelledAt!==null)throw Error('Cancellation has not been confirmed.');
   if(o.state==='sent'&&(!o.providerMessageId||!o.deliveryAttemptId||!o.confirmedAt)||o.state==='sending'&&(!o.startedAt||!o.deliveryAttemptId))throw Error('Delivery confirmation is incomplete.');
+  if(!validDeliveryDeadline(o,value.serverNow))throw Error('The delivery deadline receipt is invalid.');
   if(o.error!==null&&(!object(o.error)||!id(o.error.code)||typeof o.error.message!=='string'||o.error.message.length>4096||o.error.retry!=='none'||!['not_dispatched','unknown','confirmed'].includes(o.error.providerOutcome)))throw Error('Unexpected delivery status.');
  }
  if(value.restoredResolution!==undefined||value.restoredDraft!==undefined){const resolution=value.restoredResolution,draft=value.restoredDraft;if(o?.state!=='cancelled'||!object(resolution)||!['available','unavailable','locked'].includes(resolution.availability)||resolution.draftId!==null&&resolution.draftId!==o.draftId||resolution.availability==='available'&&resolution.draftId!==o.draftId)throw Error('Unexpected restored draft identity.');if(draft!==undefined&&(!object(draft)||draft.accountId!==preview.accountId||draft.id!==o.draftId||!['draft','failed'].includes(draft.status)||draft.artifactSendId||!['to','cc','bcc','subject','body','updatedAt'].every(key=>typeof draft[key]==='string')||resolution.availability!=='available'))throw Error('The restored draft is not editable.');if(resolution.availability==='available'&&!draft)throw Error('The current restored draft is unavailable.');}
@@ -59,7 +61,7 @@ export function createAiDraftSend(options:{preview:AiDraftPreview;request:AiDraf
    const newer=nextGeneration>old.generation;
    if(newer){if(options.sendRequestId||historical||old.state!=='cancelled')throw Error('This Send operation cannot advance to another generation.');}
    else{
-    if(!next||old.id!==next.id||old.creationId!==next.creationId||old.draftId!==next.draftId||old.clientRequestId!==next.clientRequestId||old.generation!==next.generation||old.cancellableUntil!==next.cancellableUntil)throw Error('The recorded Send identity changed. No new Send action will be sent.');
+    if(!next||old.id!==next.id||old.creationId!==next.creationId||old.draftId!==next.draftId||old.clientRequestId!==next.clientRequestId||old.generation!==next.generation||!validDeliveryDeadlineTransition(old,next,response.serverNow))throw Error('The recorded Send identity changed. No new Send action will be sent.');
     if(next.revision<old.revision)return key||historical?response:state.response!;
     if(old.deliveryAttemptId&&old.deliveryAttemptId!==next.deliveryAttemptId||old.providerMessageId&&old.providerMessageId!==next.providerMessageId)throw Error('The recorded delivery receipt changed. Delivery has not been reconfirmed.');
     if(next.revision===old.revision&&next.state!==old.state||['sent','cancelled'].includes(old.state)&&next.state!==old.state)throw Error('The recorded delivery status changed unexpectedly.');

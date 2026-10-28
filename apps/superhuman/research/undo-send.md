@@ -176,3 +176,48 @@ bounded runtime observations above. Live replica comparison, effective
 cancellation timing, hover extension, replica Instant Send, keyboard behavior, normal
 composer Undo and restart/deadline parity still require further work. The local
 10-second artifact deadline remains a provisional implementation policy.
+
+## Replica artifact Send, Undo and fresh generation
+
+The API325/web290 source checkpoint subsequently completed a controlled live
+artifact lifecycle against the approved Gmail pair. A source-free Claude turn
+produced the exact synthetic preview in two model rounds; the delivery check
+reused that completed turn and made no new model request.
+
+In `ev_3441d546494ed58ab6c75823497691c16e98ad2906281391edaad4c31b060720`,
+one Send and one Undo completed. The same local draft reopened with the exact
+recipient, subject and canonical body. The capture then failed its read-only
+body selector: Squire wrapped the text in a child div, which the selector did
+not match. This capture remains failed. Its retained editor DOM and an
+independent read-only ledger check established cancelled generation0, one
+cancellation receipt, zero delivery attempts and the unchanged 17 baseline
+drafts. The owned browser had terminated. No Send or Undo was replayed.
+
+A separately reviewed continuation corrected only the body guard and completed
+**34/34 steps** in
+`ev_dae210a185300b42b12ffcd9e4b01ee184589c4299a56d7ab8bda7b63fc560b4`.
+It reopened the proven owned draft, cleared and discarded only that draft,
+waited for fresh creation eligibility, and clicked Send once for generation1.
+The authoritative operation reached sent. Read-only postchecks required a new
+draft/operation/request key, exactly one linked sent delivery attempt, the old
+cancelled operation with zero attempts, and historical Send/Undo keys that
+retained their original identities. All 17 baseline draft hashes and the
+model/session/turn counters remained unchanged. The 78-entry runtime/config
+source inventory stayed identical throughout.
+
+A separate SQLite observer opened the existing database with mode=ro and an
+authorizer restricted to reviewed SELECTs. Its fifth snapshot found exactly
+one sender SENT copy and one non-DRAFT recipient copy, matching the sole
+approved To, empty Cc, normalized synthetic body facts and the same nonempty
+InternetMessageID hash. It made zero HTTP/provider/model calls and zero writes.
+The 3 existing Calendar operation records also remained byte-identical to the
+stopped-server backup. This is bounded imported-local receipt evidence, with
+no Bcc, MIME-byte, provider-dispatch-time or cancellation-cutoff assertion.
+
+The first pre-browser attempt was blocked by missing legacy mail-grant
+metadata; it created no operation. A later OAuth refresh used the already
+approved Gmail permission. Both stopped attempts and their recovery records
+are retained privately. The successful continuation has missing event coverage
+and `equality_eligible=false`; it does not establish full original parity.
+Normal-composer Undo, scheduling and Instant Send remain separate candidates
+until their own combined rollout and runtime comparison.

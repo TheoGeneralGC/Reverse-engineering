@@ -11,16 +11,28 @@ import { initializeRecipientContacts, recipientSuggestions, refreshRecipientCont
 import { parseOutgoingRecipientHeaders } from './outgoing-recipients.ts';
 import { initializeContactContext, contactContext } from './contact-context.ts';
 
-export type DeliveryContext = { artifactOperationId?: string; reconciliation?: boolean; recovery?: boolean };
+export type DeliveryContext = { artifactOperationId?: string; composerOperationId?: string; reconciliation?: boolean; recovery?: boolean };
 export type DeliveryHooks = { claim: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; complete: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; unknown: (draft: Draft, context: DeliveryContext) => void };
 export class Store {
   deliveryHooks?: DeliveryHooks;
+  composerDeliveryHooks?: DeliveryHooks;
   private deliveryWriteDepth = 0;
   private putDeliveryDraft(draft: Draft): Draft { this.deliveryWriteDepth++; try { return this.put('draft', draft.id, draft); } finally { this.deliveryWriteDepth--; } }
 
   artifactDeliveryId(draftId: string): string | undefined { if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_draft_sends'").get()) return undefined; const row = this.db.prepare("SELECT id FROM ai_draft_sends WHERE draft_id=? AND state<>'cancelled'").get(draftId); return row ? String(row.id) : undefined; }
-  private requireDeliveryHook(draft: Draft) { const linked = this.artifactDeliveryId(draft.id); if (linked && linked !== draft.artifactSendId) throw new HttpError(409, 'The immutable artifact link changed', 'artifact_delivery_locked'); if (draft.artifactSendId && !this.deliveryHooks) throw new HttpError(409, 'This delivery requires its durable artifact owner', 'artifact_delivery_locked'); }
-  private assertDraftMutable(draft: Draft) { if (draft.artifactSendId || this.artifactDeliveryId(draft.id)) throw new HttpError(409, 'A reviewed artifact delivery cannot be edited or reused', 'artifact_delivery_locked'); }
+  composerDeliveryId(draftId:string):string|undefined{if(!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='draft_send_operations'").get())return undefined;const row=this.db.prepare("SELECT id FROM draft_send_operations WHERE draft_id=? AND state<>'cancelled' ORDER BY generation DESC LIMIT 1").get(draftId);return row?String(row.id):undefined;}
+  cancelledDeliveryHistory(draftId:string):boolean{
+    for(const table of ['ai_draft_sends','draft_send_operations'])if(this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)&&this.db.prepare(`SELECT 1 FROM ${table} WHERE draft_id=? AND state='cancelled'`).get(draftId))return true;return false;
+  }
+  private requireDeliveryHook(draft:Draft,context:DeliveryContext={}):DeliveryHooks|undefined{
+    const artifact=this.artifactDeliveryId(draft.id),composer=this.composerDeliveryId(draft.id);
+    if((context.artifactOperationId&&context.composerOperationId)||(context.artifactOperationId&&context.artifactOperationId!==artifact)||(context.composerOperationId&&context.composerOperationId!==composer))throw new HttpError(409,'Delivery context does not own this draft','delivery_identity_conflict');
+    if((artifact||draft.artifactSendId)&&(composer||draft.composerSendId))throw new HttpError(409,'Competing delivery identities','delivery_identity_conflict');
+    if(artifact||draft.artifactSendId){if(artifact!==draft.artifactSendId||!this.deliveryHooks)throw new HttpError(409,'This artifact requires its durable delivery owner','artifact_delivery_locked');return this.deliveryHooks;}
+    if(composer||draft.composerSendId){if(composer!==draft.composerSendId||!this.composerDeliveryHooks)throw new HttpError(409,'This draft requires its durable delivery owner','composer_delivery_locked');return this.composerDeliveryHooks;}
+    return undefined;
+  }
+  private assertDraftMutable(draft: Draft) { if (draft.artifactSendId || draft.composerSendId || this.artifactDeliveryId(draft.id) || this.composerDeliveryId(draft.id)) throw new HttpError(409, 'A reviewed artifact delivery cannot be edited or reused', 'artifact_delivery_locked'); }
 
   db: DatabaseSync;
   constructor(path: string, seed = true) {
@@ -155,7 +167,7 @@ export class Store {
     const content = { ...input };
     if (input.html !== undefined) { content.html = sanitizeDraftHtml(input.html); if (input.body === undefined) content.body = plainTextFromHtml(content.html); }
     else if (input.body !== undefined) content.html = undefined;
-    const draft: Draft = { id: input.id ?? randomUUID(), accountId, to: '', cc: '', bcc: '', subject: '', body: '', attachments: [], status: 'draft', ...old, ...content, updatedAt: new Date().toISOString() };
+    const draft: Draft = { id: input.id ?? randomUUID(), accountId, to: '', cc: '', bcc: '', subject: '', body: '', attachments: [], status: 'draft', ...old, ...content, revision:(old?.revision??0)+1, updatedAt: new Date().toISOString() };
     return this.put('draft', draft.id, draft);
   }
   restoreCancelledArtifactDraft(id: string, operationId: string, at: string): Draft {
@@ -167,18 +179,34 @@ export class Store {
     if(!row||draft.accountId!==row.account_id||draft.artifactSendId!==operationId||draft.status!=='send_queued'||draft.deliveryAttemptId)throw new HttpError(409,'This draft can no longer be restored by Undo','ai_draft_send_not_cancellable');
     const restored={...draft,status:'draft' as const,artifactSendId:undefined,updatedAt:at,error:undefined};return this.putDeliveryDraft(restored);
   }
+  lockComposerDraft(id:string,operationId:string,replyContext:NonNullable<Draft['deliveryReplyContext']>={}):Draft{
+    if(!this.db.isTransaction)throw new Error('Composer lock requires its intent transaction');
+    const draft=this.required<Draft>('draft',id),row=this.db.prepare("SELECT account_id,data FROM draft_send_operations WHERE id=? AND draft_id=? AND state='queued'").get(operationId,id);
+    if(!row||row.account_id!==draft.accountId||!['draft','failed'].includes(draft.status)||draft.artifactSendId||draft.composerSendId||this.artifactDeliveryId(id)||draft.deliveryAttemptId)throw new HttpError(409,'Draft cannot be locked for this intent','draft_send_conflict');
+    const op=JSON.parse(String(row.data))as {mode?:string;scheduledAt?:string|null};
+    return this.putDeliveryDraft({...draft,status:op.mode==='scheduled'?'scheduled':'send_queued',scheduledAt:op.mode==='scheduled'?op.scheduledAt??undefined:undefined,composerSendId:operationId,deliveryReplyContext:replyContext});
+  }
+  restoreCancelledComposerDraft(id:string,operationId:string,at:string):Draft{
+    if(!this.db.isTransaction)throw new Error('Composer restore requires its cancellation transaction');
+    const row=this.db.prepare("SELECT account_id,data FROM draft_send_operations WHERE id=? AND draft_id=? AND state='cancelled' AND json_extract(data,'$.deliveryAttemptId') IS NULL").get(operationId,id),raw=row?this.db.prepare("SELECT data FROM records WHERE kind='draft' AND id=? AND json_extract(data,'$.accountId')=?").get(id,String(row.account_id)):undefined;
+    if(!raw)throw new HttpError(409,'The owned draft cannot be restored','draft_send_not_cancellable');const draft=JSON.parse(String(raw.data))as Draft;
+    const op=JSON.parse(String(row!.data))as {mode?:string;scheduledAt?:string|null};
+    if(draft.composerSendId!==operationId||(op.mode==='scheduled'?(draft.status!=='scheduled'||draft.scheduledAt!==op.scheduledAt):draft.status!=='send_queued')||draft.deliveryAttemptId||draft.artifactSendId)throw new HttpError(409,'This draft has already changed delivery state','draft_send_not_cancellable');
+    return this.putDeliveryDraft({...draft,status:'draft',scheduledAt:undefined,composerSendId:undefined,deliveryReplyContext:undefined,revision:(draft.revision??0)+1,error:undefined,updatedAt:at});
+  }
   beginDelivery(id: string, context: DeliveryContext = {}) {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const draft = this.required<Draft>('draft', id);
       if (draft.status === 'sent') throw new HttpError(409, 'Message was already sent', 'already_sent');
       if (draft.status === 'sending' || draft.status === 'delivery_unknown') throw new HttpError(409, 'Delivery outcome must be reconciled; this message will not be resent automatically', 'delivery_requires_reconciliation');
-      this.requireDeliveryHook(draft);
+      if(!context.artifactOperationId&&!context.composerOperationId&&this.cancelledDeliveryHistory(id))throw new HttpError(409,'A fresh explicit keyed Send intent is required after Undo','send_intent_required');
+      const hooks=this.requireDeliveryHook(draft,context);
       parseOutgoingRecipientHeaders(draft);
       const attemptId = randomUUID(); const messageId = `<rea-${attemptId}@reconstruction.invalid>`; const marker = randomBytes(24).toString('base64url');
       const attempt: DeliveryAttempt = { id: attemptId, draftId: id, status: 'dispatching', messageId, marker, startedAt: new Date().toISOString() };
       const pending: Draft = { ...draft, status: 'sending', deliveryAttemptId: attemptId, deliveryMessageId: messageId, deliveryMarker: marker, providerMessageId: undefined, providerInternetMessageId: undefined, deliveryMarkerVerified: undefined, error: undefined, updatedAt: attempt.startedAt };
-      if (draft.artifactSendId) this.deliveryHooks!.claim(pending, attempt, context);
+      hooks?.claim(pending,attempt,context);
       this.put('delivery', attemptId, attempt); this.putDeliveryDraft(pending); this.db.exec('COMMIT');
       return pending;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
@@ -190,7 +218,7 @@ export class Store {
       const attempt = this.required<DeliveryAttempt>('delivery', draft.deliveryAttemptId); const completedAt = new Date().toISOString();
       this.put('delivery', attempt.id, { ...attempt, status: 'sent', providerMessageId, providerInternetMessageId, markerVerified, completedAt, error: undefined });
       const sent: Draft = { ...draft, status: 'sent', providerMessageId, providerInternetMessageId, deliveryMarkerVerified: markerVerified, scheduledAt: undefined, error: undefined, updatedAt: completedAt };
-      this.requireDeliveryHook(draft); if (draft.artifactSendId) this.deliveryHooks!.complete(sent, { ...attempt, status: 'sent', providerMessageId }, context);
+      this.requireDeliveryHook(draft,context)?.complete(sent,{...attempt,status:'sent',providerMessageId},context);
       this.putDeliveryDraft(sent); this.db.exec('COMMIT'); return sent;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -208,11 +236,11 @@ export class Store {
       if (draft.status === 'sent') { this.db.exec('COMMIT'); return draft; }
       if (draft.deliveryAttemptId) { const attempt = this.required<DeliveryAttempt>('delivery', draft.deliveryAttemptId); this.put('delivery', attempt.id, { ...attempt, status: 'unknown', error: reason }); }
       const unknown: Draft = { ...draft, status: 'delivery_unknown', error: reason, updatedAt: new Date().toISOString() };
-      if (draft.artifactSendId && !context.recovery) { this.requireDeliveryHook(draft); this.deliveryHooks!.unknown(unknown, context); }
+      if (!context.recovery) this.requireDeliveryHook(draft,context)?.unknown(unknown,context);
       this.putDeliveryDraft(unknown); this.db.exec('COMMIT'); return unknown;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
-  recoverInterruptedDeliveries() { for (const draft of this.list<Draft>('draft')) if (draft.status === 'sending') this.unknownDelivery(draft.id, 'The process stopped during delivery. Check the provider and reconcile this attempt before any further action.', { recovery: true }); }
+  recoverInterruptedDeliveries(shouldRecover: (draft: Draft) => boolean = () => true) { for (const draft of this.list<Draft>('draft')) if (draft.status === 'sending' && shouldRecover(draft)) this.unknownDelivery(draft.id, 'The process stopped during delivery. Check the provider and reconcile this attempt before any further action.', { recovery: true }); }
   addAttachment(draftId: string, input: { name: string; mimeType: string; data: string }) {
     const draft = this.required<Draft>('draft', draftId);
     if (draft.status !== 'draft' && draft.status !== 'failed') throw new HttpError(409, 'Cancel scheduling before editing attachments');

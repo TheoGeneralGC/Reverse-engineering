@@ -4,7 +4,7 @@ import { HttpError } from './types.ts';
 import { sanitizeDraftHtml } from './rich-text.ts';
 import { parseOutgoingRecipientHeaders, formatOutgoingRecipientHeader } from './outgoing-recipients.ts';
 
-export function buildMime(draft: Draft, account: Account, previous: Message | undefined, attachments: { metadata: Attachment; bytes: Buffer }[] = []) {
+export function buildMime(draft: Draft, account: Account, previous: Pick<Message, 'internetMessageId' | 'references'> | undefined, attachments: { metadata: Attachment; bytes: Buffer }[] = []) {
   if ([account.email, draft.to, draft.cc, draft.bcc, draft.subject].some(value => /[\r\n]/.test(value))) throw new HttpError(400, 'Email headers cannot contain line breaks');
   const recipients = parseOutgoingRecipientHeaders(draft, false);
   const folded = (bytes: Buffer) => bytes.toString('base64').match(/.{1,76}/g)?.join('\r\n') ?? '';

@@ -7,7 +7,7 @@ export const CALENDAR_SCOPES = {
   freebusy: 'https://www.googleapis.com/auth/calendar.events.freebusy',
 } as const;
 export const CALENDAR_REQUEST_SCOPES = ['openid', 'email', ...Object.values(CALENDAR_SCOPES)];
-export type GoogleServiceGrant = { accountId: string; service: GoogleService; requestedScopes: string[]; grantedScopes: string[]; scopeSource: 'response' | 'requested'; updatedAt: string; outcome: 'granted' | 'partial' };
+export type GoogleServiceGrant = { accountId: string; service: GoogleService; requestedScopes: string[]; grantedScopes: string[]; scopeSource: 'response' | 'requested' | 'token-cache'; updatedAt: string; outcome: 'granted' | 'partial' };
 export type GoogleAuthContext = { service: GoogleService; accountId?: string; requestedScopes: string[] };
 export function calendarCapabilities(scopes: readonly string[]) {
   const has = (...values: string[]) => values.some(value => scopes.includes(value));

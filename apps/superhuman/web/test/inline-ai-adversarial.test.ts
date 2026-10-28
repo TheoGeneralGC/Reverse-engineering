@@ -47,7 +47,7 @@ test('AI output containing markup and surrogate pairs remains literal text with 
 async function mounted(generateAI: (request: ComposerRewriteRequest, signal: AbortSignal) => Promise<string>, keyed = false) {
   const host = window.document.createElement('div'); window.document.body.append(host); const root = createRoot(host), ref = createRef<RichComposerHandle>();
   let draftId = 'synthetic-old-draft', value = { body: 'Before target after', html: '<div><b>Before </b>target<i> after</i></div>' }, changes = 0, disposed = false;
-  const render = () => root.render(createElement(RichComposer, { key: keyed ? draftId : undefined, ref, draftId, ...value, generateAI, onChange: next => { changes++; value = next; render(); } })); await act(async () => render());
+  const render = () => root.render(createElement(RichComposer, { key: keyed ? draftId : undefined, ref, accountId: 'synthetic-account', draftId, ...value, generateAI, onChange: next => { changes++; value = next; render(); } })); await act(async () => render());
   const body = () => host.querySelector<HTMLElement>('[aria-label="Message body"]')!;
   const open = async () => { await act(async () => { body().focus(); const range = window.document.createRange(); range.selectNodeContents(body().querySelector('div')!.childNodes[1]); const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); ref.current!.openAI(); }); };
   const click = async (name: string) => { const button = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent?.trim() === name || item.getAttribute('aria-label') === name); assert.ok(button, name); await act(async () => button.click()); };
@@ -94,12 +94,12 @@ test('the rewrite adapter sends the selected text only, carries cancellation, an
   const original = globalThis.fetch, abort = new AbortController(); let calls = 0; let empty = false;
   globalThis.fetch = async (url, init) => {
     calls++; assert.equal(String(url), '/api/ai'); assert.equal(init!.method, 'POST'); assert.equal(init!.signal, abort.signal);
-    const body = JSON.parse(String(init!.body)), prompt = JSON.parse(body.prompt); assert.equal(body.mode, 'write'); assert.equal(prompt.selection, 'Synthetic selected passage'); assert.equal(prompt.instruction, 'Shorten'); assert.equal('threadId' in body, false);
+    const body = JSON.parse(String(init!.body)), prompt = JSON.parse(body.prompt); assert.equal(body.mode, 'write'); assert.equal(body.accountId, 'synthetic-account'); assert.equal(prompt.selection, 'Synthetic selected passage'); assert.equal(prompt.instruction, 'Shorten'); assert.equal('threadId' in body, false);
     return new Response(JSON.stringify({ text: empty ? '' : 'Synthetic rewritten passage' }), { status: 200 });
   };
   try {
-    assert.equal(await requestComposerRewrite({ instruction: 'Shorten', text: 'Synthetic selected passage' }, abort.signal), 'Synthetic rewritten passage');
-    empty = true; await assert.rejects(() => requestComposerRewrite({ instruction: 'Shorten', text: 'Synthetic selected passage' }, abort.signal), /no replacement text/);
-    await assert.rejects(() => requestComposerRewrite({ instruction: 'Shorten', text: 'x'.repeat(10_001) }, abort.signal), /shorter passage/); assert.equal(calls, 2);
+    assert.equal(await requestComposerRewrite({ accountId: 'synthetic-account', instruction: 'Shorten', text: 'Synthetic selected passage' }, abort.signal), 'Synthetic rewritten passage');
+    empty = true; await assert.rejects(() => requestComposerRewrite({ accountId: 'synthetic-account', instruction: 'Shorten', text: 'Synthetic selected passage' }, abort.signal), /no replacement text/);
+    await assert.rejects(() => requestComposerRewrite({ accountId: 'synthetic-account', instruction: 'Shorten', text: 'x'.repeat(10_001) }, abort.signal), /shorter passage/); assert.equal(calls, 2);
   } finally { globalThis.fetch = original; }
 });

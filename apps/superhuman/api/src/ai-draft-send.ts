@@ -1,3 +1,5 @@
+import type { DeliveryAccelerationReceipt } from './delivery-control-types.ts';
+import { deliveryActionKeyInUse } from './delivery-action-keys.ts';
 import { randomUUID } from 'node:crypto';
 import { HttpError, type Account, type Draft, type DeliveryAttempt } from './types.ts';
 import type { Store, DeliveryContext } from './store.ts';
@@ -5,7 +7,7 @@ import type { GoogleProvider } from './google.ts';
 import { hash, identifier, strictObject } from './ai-chat-store.ts';
 import { AiDraftService, draftPreviewHeaders } from './ai-drafts.ts';
 import type { AiDraftScope, AiDraftPreview, AiDraftCreation } from './ai-draft-types.ts';
-import { deliveryDeadline, beforeDeliveryDeadline, atOrAfterDeliveryDeadline, waitForDeliveryDeadline, type DeliveryClock } from './delivery-delay.ts';
+import { deliveryDeadline, beforeDeliveryDeadline, atOrAfterDeliveryDeadline, waitForMutableDeliveryDeadline, type DeliveryClock } from './delivery-delay.ts';
 import type { AiDraftSendCancellation, AiDraftSendCancelResponse } from './ai-draft-send-types.ts';
 import type { AiDraftSendOperation, AiDraftSendSnapshot, AiDraftSendEligibility } from './ai-draft-send-types.ts';
 
@@ -19,7 +21,7 @@ const finalStates = new Set(['sent', 'not_dispatched', 'outcome_unknown', 'cance
 
 export class AiDraftSendService {
   readonly store: Store; readonly drafts: AiDraftService; readonly google: GoogleProvider; readonly now: () => number;
-  readonly owner = randomUUID(); readonly active = new Map<string, Promise<void>>(); private closing = false; readonly clock: DeliveryClock; readonly windowMs: number; private waiting = new Map<string,AbortController>();
+  readonly owner = randomUUID(); readonly active = new Map<string, Promise<void>>(); private closing = false; readonly clock: DeliveryClock; readonly windowMs: number; private waiting = new Map<string,AbortController>(); private deadlineWakes=new Map<string,()=>void>();
   constructor(store: Store, drafts: AiDraftService, google: GoogleProvider, now = Date.now, ownerAlive = alive, timing: {windowMs?:number;schedule?:DeliveryClock['schedule']} = {}) {
     this.store=store;this.drafts=drafts;this.google=google;this.now=now;this.windowMs=timing.windowMs??10000;deliveryDeadline(now(),this.windowMs);this.clock={now,schedule:timing.schedule??((callback,ms)=>{const timer=setTimeout(callback,ms);timer.unref();return{cancel:()=>clearTimeout(timer)}})};
     const createSendTable=`CREATE TABLE IF NOT EXISTS ai_draft_sends(id TEXT PRIMARY KEY,account_id TEXT NOT NULL,session_id TEXT NOT NULL,turn_id TEXT NOT NULL,preview_id TEXT NOT NULL,creation_id TEXT NOT NULL,draft_id TEXT NOT NULL UNIQUE,client_key TEXT NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,owner TEXT NOT NULL,owner_pid INTEGER NOT NULL,content_hash TEXT NOT NULL,sender_email TEXT NOT NULL,generation INTEGER NOT NULL CHECK(typeof(generation)='integer' AND generation>=0 AND generation<=1000000),data TEXT NOT NULL,UNIQUE(account_id,client_key),UNIQUE(preview_id,generation));`;
@@ -56,6 +58,7 @@ export class AiDraftSendService {
     }
     liveOwners.add(this.owner);
   }
+  ownsLiveDelivery(draftId:string):boolean { const row=this.store.db.prepare("SELECT owner,owner_pid FROM ai_draft_sends WHERE draft_id=? AND state IN ('queued','sending')").get(draftId); if(!row)return false;return Number(row.owner_pid)===process.pid?liveOwners.has(String(row.owner)):alive(Number(row.owner_pid)); }
   private preview(scope: AiDraftScope, previewId: string): AiDraftPreview { try { return this.drafts.readPreview(scope, previewId); } catch (error) { if (error instanceof HttpError && error.status === 404) missing(); throw error; } }
   private raw(id: string): AiDraftSendOperation { const row = this.store.db.prepare('SELECT data FROM ai_draft_sends WHERE id=?').get(id); if (!row) missing(); return JSON.parse(String(row.data)); }
   private save(operation: AiDraftSendOperation) { if (!this.store.db.isTransaction) throw new Error('Artifact Send state requires a transaction'); operation = { ...operation, revision: operation.revision + 1 }; this.store.db.prepare('UPDATE ai_draft_sends SET state=?,data=? WHERE id=?').run(operation.state, JSON.stringify(operation), operation.id); return operation; }
@@ -104,6 +107,7 @@ export class AiDraftSendService {
       const preview = this.preview(scope, previewId); const fingerprint = hash({ kind: 'send', ...scope, previewId, expectedPreviewHash: value.expectedPreviewHash, expectedGeneration: value.expectedGeneration });
       const prior = this.store.db.prepare('SELECT fingerprint,data FROM ai_draft_sends WHERE account_id=? AND client_key=?').get(scope.accountId,key);
       if (prior) { if (prior.fingerprint !== fingerprint) conflict('This action key belongs to another immutable Send request'); return { accepted:false, snapshot:this.snapshot(preview,JSON.parse(String(prior.data))) }; }
+      if(deliveryActionKeyInUse(this.store.db,scope.accountId,key,['ai_draft_requests','ai_draft_sends','ai_draft_send_cancellations']))conflict('This key belongs to another delivery action');
       if (this.store.db.prepare('SELECT 1 FROM ai_draft_send_cancellations WHERE account_id=? AND client_key=?').get(scope.accountId,key)) conflict('This key belongs to an Undo action');
       if (this.store.db.prepare('SELECT 1 FROM ai_draft_requests WHERE account_id=? AND client_key=?').get(scope.accountId,key)) conflict('This key belongs to a Create Draft action');
       if (preview.payloadHash !== value.expectedPreviewHash) conflict('The preview hash changed');
@@ -131,6 +135,7 @@ export class AiDraftSendService {
       const prior=this.store.db.prepare('SELECT fingerprint,data FROM ai_draft_send_cancellations WHERE account_id=? AND client_key=?').get(scope.accountId,key);
       if(prior){if(prior.fingerprint!==fingerprint)conflict('This key belongs to another Undo request');return{...this.snapshot(preview,operation),cancellation:JSON.parse(String(prior.data))};}
       if(this.store.db.prepare('SELECT 1 FROM ai_draft_sends WHERE account_id=? AND client_key=?').get(scope.accountId,key)||this.store.db.prepare('SELECT 1 FROM ai_draft_requests WHERE account_id=? AND client_key=?').get(scope.accountId,key))conflict('This key belongs to another action');
+      if(deliveryActionKeyInUse(this.store.db,scope.accountId,key,['ai_draft_requests','ai_draft_sends','ai_draft_send_cancellations']))conflict('This key belongs to another delivery action');
       const at=new Date(this.now()).toISOString();
       if(operation.state==='cancelled'){
         if(value.expectedRevision!==operation.cancelledFromRevision&&value.expectedRevision!==operation.revision)conflict('The cancelled operation revision changed');
@@ -162,6 +167,16 @@ export class AiDraftSendService {
   private claim(draft:Draft,attempt:DeliveryAttempt,context:DeliveryContext) { const {operation,owner}=this.linked(draft,context); if(owner!==this.owner||operation.state!=='queued'||operation.deliveryAttemptId)conflict('This Send operation cannot claim another attempt'); if(!atOrAfterDeliveryDeadline(operation.cancellableUntil,this.now()))throw new HttpError(409,'Delivery cannot claim an attempt before its Undo deadline','ai_draft_send_undo_window'); this.policy(draft); this.save({...operation,state:'sending',startedAt:attempt.startedAt,deliveryAttemptId:attempt.id,error:null}); }
   private complete(draft:Draft,attempt:DeliveryAttempt,context:DeliveryContext) { const {operation,owner}=this.linked(draft,context); if((!context.reconciliation&&(owner!==this.owner||operation.state!=='sending'))||(context.reconciliation&&!['sending','outcome_unknown'].includes(operation.state))||operation.deliveryAttemptId!==attempt.id||!draft.providerMessageId||draft.providerMessageId!==attempt.providerMessageId)conflict('Delivery proof does not belong to the accepted operation'); this.save({...operation,state:'sent',confirmedAt:draft.updatedAt,providerMessageId:draft.providerMessageId,error:null}); }
   private unknown(draft:Draft,context:DeliveryContext) { const {operation}=this.linked(draft,context,false); if(operation.state==='sent')return; if(operation.deliveryAttemptId!==draft.deliveryAttemptId)conflict('Unknown delivery attempt identity changed'); this.save({...operation,state:'outcome_unknown',error:{code:'delivery_requires_reconciliation',message:'Delivery outcome is unknown. Check Sent; this message will not be retried.',retry:'none',providerOutcome:'unknown'}}); }
+  accelerateWithinTransaction(id:string,expectedRevision:number,receipt:DeliveryAccelerationReceipt):void {
+    if(!this.store.db.isTransaction)throw Error('Acceleration requires a receipt transaction');
+    const operation=this.raw(id),row=this.store.db.prepare('SELECT owner FROM ai_draft_sends WHERE id=?').get(id);
+    if(this.closing||row?.owner!==this.owner||operation.state!=='queued'||operation.deliveryAttemptId||operation.revision!==expectedRevision||operation.accelerationId||!beforeDeliveryDeadline(operation.cancellableUntil,this.now()))conflict('This owned queued Send cannot accelerate');
+    const recorded=this.store.db.prepare("SELECT data FROM delivery_accelerations WHERE id=? AND source='artifact' AND account_id=? AND operation_id=?").get(receipt.id,operation.accountId,id);
+    if(!recorded||recorded.data!==JSON.stringify(receipt)||receipt.originalDeadlineAt!==operation.cancellableUntil||!Number.isFinite(Date.parse(receipt.effectiveDeadlineAt))||Date.parse(receipt.effectiveDeadlineAt)>this.now())conflict('Acceleration receipt identity changed');
+    const draftRow=this.store.db.prepare("SELECT data FROM records WHERE kind='draft' AND id=? AND json_extract(data,'$.accountId')=?").get(operation.draftId,operation.accountId);if(!draftRow)conflict('The owned queued draft is unavailable');const draft=JSON.parse(String(draftRow.data))as Draft;if(draft.status!=='send_queued'||draft.scheduledAt!==undefined||draft.composerSendId||this.store.composerDeliveryId(draft.id))conflict('The owned immediate artifact draft is unavailable');this.linked(draft,{artifactOperationId:id});this.policy(draft);
+    this.save({...operation,originalCancellableUntil:operation.cancellableUntil,cancellableUntil:receipt.effectiveDeadlineAt,accelerationId:receipt.id,acceleratedAt:receipt.createdAt});
+  }
+  wakeAcceleration(id:string){this.deadlineWakes.get(id)?.();}
   deliveryContext(draft:Draft,reconciliation=false):DeliveryContext { return draft.artifactSendId?{artifactOperationId:draft.artifactSendId,reconciliation}:{}; }
   execute(operationId:string,dispatcher:(draftId:string,operationId:string)=>Promise<unknown>):Promise<void> {
     const active=this.active.get(operationId);if(active)return active;
@@ -175,11 +190,11 @@ export class AiDraftSendService {
     const promise=Promise.resolve().then(async()=>{
       // Waiting here must never occupy the account queue. Both this callback and
       // the later atomic claim re-read state; a confirmed cancel wins forever.
-      await waitForDeliveryDeadline(operation.cancellableUntil,this.clock,controller.signal);
+      const wait=waitForMutableDeliveryDeadline(()=>this.raw(operationId).cancellableUntil,this.clock,controller.signal);this.deadlineWakes.set(operationId,wait.wake);await wait.promise;
       if(this.closing||this.raw(operationId).state!=='queued')return;
       await dispatcher(operation.draftId,operation.id);
       if(this.raw(operationId).state==='queued')failed(new Error('Dispatcher did not claim a delivery attempt'));
-    }).catch(failed).finally(()=>{this.waiting.delete(operationId);this.active.delete(operationId)});
+    }).catch(failed).finally(()=>{this.deadlineWakes.delete(operationId);this.waiting.delete(operationId);this.active.delete(operationId)});
     this.active.set(operationId,promise);return promise;
   }
   async waitForIdle(){await Promise.allSettled([...this.active.values()]);}

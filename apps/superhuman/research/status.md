@@ -1,8 +1,18 @@
 # Implementation checkpoint — 2026-10-27/28
 
+The current applied combined version passed **444 API/385 frontend tests**, build,
+strict types and **16 cases/407 browser steps** with 126 stable manifest entries.
+It includes durable composer delivery, private Knowledge and manual account
+personalization. The rollout preserved all 18 drafts, three Calendar operations
+and four encrypted credential records byte for byte. See the
+[combined checkpoint](combined-checkpoint-20261028.md) for exact source identities,
+failed fixture checks, earlier live artifact delivery and ongoing coverage limits.
+
 Full one-to-one parity has not been achieved. The browser app runs locally at
 http://127.0.0.1:5173 with private persistent mail, two Gmail accounts, Calendar
-reads and configured Claude generation. Implementation remains uncommitted.
+reads and configured Claude generation. The reviewed initial checkpoint is
+published at commit `2900d54aa115d3df833e4751bcb051f3da186523`; continued work
+uses branch `codex/superhuman-parity`.
 Recipient chips, local-participant autocomplete and bounded contact-context
 navigation are implemented at the frozen checkpoint below; broader contacts and
 complete recipient parity remain open. Subsequent AI work is outside that frozen
@@ -73,6 +83,20 @@ explicit preview actions have their separately recorded scope.
   notification-retention timing are in [undo-send.md](undo-send.md). Their provider
   and clickability limits remain separate from these replica regression results.
   Normal-composer delivery work in a private candidate is outside this checkpoint.
+
+## Subsequent live artifact delivery check
+
+The same API325/web290 runtime completed the controlled Send/Undo lifecycle
+recorded in [Undo observations](undo-send.md#replica-artifact-send-undo-and-fresh-generation).
+The first capture completed Send and Undo, then failed a nested-editor body
+selector. Its saved DOM and read-only ledger proved exact same-draft restoration,
+a cancelled operation and zero provider attempts. A separately reviewed
+continuation completed 34 steps, discarded only that owned draft and sent one
+fresh generation. One sender SENT copy and one recipient copy had matching
+InternetMessageID hashes. All 17 baseline drafts and model/session/turn counts
+were unchanged. The failed capture remains failed; incomplete event coverage
+and full-parity gaps remain. Combined delivery/Knowledge/personalization
+candidates are outside this runtime identity until separately rolled out.
 
 ## Earlier frozen Create full checks
 
