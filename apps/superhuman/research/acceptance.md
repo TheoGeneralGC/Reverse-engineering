@@ -6,6 +6,12 @@ Replace candidate shortcuts, labels, defaults, and selectors with the original
 capture's actual values before claiming parity. The live reference session is
 owned by the primary investigator; parallel workers must not operate it.
 
+The subsequent [provider draft investigation](provider-drafts.md) adds PD-01–10
+for automatic Gmail save/update/discard, exact mapping, unknown writes, concurrent
+edits and delivery coordination. The controlled original-owned fixture observed
+Gmail draft content and removal from the scoped Drafts search. Replica automatic
+provider saving and imported-draft editing remain unverified.
+
 ## Evidence required for every verified scenario
 
 Record the parity ID, original version/build or resource digests, account plan,

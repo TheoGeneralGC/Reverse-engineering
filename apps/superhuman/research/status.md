@@ -21,7 +21,11 @@ unchanged. Capture event coverage remains incomplete. See
 and the [combined checkpoint](combined-checkpoint-20261028.md) for source
 identities, preserved failed preflights and comparison limits.
 
-Full one-to-one parity has not been achieved. The browser app runs locally at
+Full one-to-one parity has not been achieved. The original now has a bounded
+provider-draft comparison: a new recipient-free fixture appeared and updated in
+Gmail Drafts, then stopped matching after discard. Automatic provider saving and
+imported-draft editing remain reconstruction gaps; see
+[provider draft evidence](provider-drafts.md). The browser app runs locally at
 http://127.0.0.1:5173 with private persistent mail, two Gmail accounts, Calendar
 reads and configured Claude generation. The reviewed initial checkpoint is
 published at commit `2900d54aa115d3df833e4751bcb051f3da186523`; continued work

@@ -14,6 +14,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Parity inventory](research/parity.csv)
 - [Finding ledger](research/findings.md)
 - [Local search grammar and limits](research/search.md)
+- [Provider draft observations and acceptance](research/provider-drafts.md)
 - [Combined delivery, Knowledge and personalization checkpoint](research/combined-checkpoint-20261028.md)
 - [Knowledge receipt recovery checkpoint](research/knowledge-recovery-check-20261028.md)
 
