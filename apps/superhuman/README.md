@@ -15,6 +15,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Finding ledger](research/findings.md)
 - [Local search grammar and limits](research/search.md)
 - [Provider draft observations and acceptance](research/provider-drafts.md)
+- [Provider draft lifecycle and rollout](research/provider-draft-live-check-20261028.md)
 - [Combined delivery, Knowledge and personalization checkpoint](research/combined-checkpoint-20261028.md)
 - [Knowledge receipt recovery checkpoint](research/knowledge-recovery-check-20261028.md)
 
@@ -27,10 +28,18 @@ after the initial data-flow and interaction inventory.
 
 ## Run the current implementation
 
-The running version passed **480 API/429 frontend tests**, build and strict types,
+The running version passed **531 API/495 frontend tests**, build and strict types,
 plus **16 cases/407 browser steps** and all eight persistence assertions.
-Manual Auto Archive/Auto Labels settings and explicit synthetic preview/apply are
-applied; real automatic classification remains open. See the
+New replica-owned Gmail drafts now save automatically, retain a stable provider
+Draft identity through updates, and support keyed discard. A real recipient-free
+create/two-update/discard lifecycle and a separate fresh-process receipt check
+passed. A 35-action synthetic browser recovery/discard check passed after fixing
+the preceding browser flow failure. See the
+[provider draft checkpoint](research/provider-draft-live-check-20261028.md).
+
+The preceding **480 API/429 frontend** version added manual Auto Archive/Auto
+Labels settings and explicit synthetic preview/apply. Real automatic
+classification remains open; see the
 [automation checkpoint](research/automation-runtime.md).
 
 The preceding recovery version passed **456 API/398 frontend tests**.

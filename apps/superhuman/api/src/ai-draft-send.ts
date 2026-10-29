@@ -116,7 +116,7 @@ export class AiDraftSendService {
       // Throw the actual sanitized policy error, before any records are inserted.
       const candidate = this.candidate(preview); this.policy(candidate);
       const id=randomUUID(), draftId=randomUUID(), creationId=randomUUID(), at=new Date(this.now()).toISOString();
-      const draft=this.store.saveDraft({ ...candidate, id:draftId, status:'send_queued', artifactSendId:id });
+      const draft=this.store.saveDraft({ ...candidate, id:draftId, status:'send_queued', artifactSendId:id }, 'ai-send');
       const sender=this.store.required<Account>('account',scope.accountId).email.toLowerCase();
       if(this.contentHash(draft,sender)!==this.contentHash(candidate,sender))conflict('The current content policy changes this preview; generate a newly reviewed preview before sending');
       const creation:AiDraftCreation={id:creationId,...scope,previewId,payloadHash:preview.payloadHash,draftId,generation:value.expectedGeneration as number,createdAt:at};

@@ -946,3 +946,29 @@ assertion passed. Complete capture eligibility elsewhere is not original equalit
 The separately retained 65-state Automation continuation, three failed setup
 captures, independent state review and main rollout audit are in
 [automation-runtime.md](../automation-runtime.md).
+
+
+## Applied provider-draft checkpoint: 2026-10-29 UTC
+
+API531/frontend495 passed the full **16-case/407-step** demo run `20261029T000039Z`, all eight persistence assertions, 152 stable source-manifest entries, zero captured page errors and owned-browser cleanup. App SHA-256: `883b0aa16d88c6bb8a315719d0029b49a0785624760570df878a7f9cc8fe27bc`. Reply-all remains missing events/equality-ineligible; its exact POST/201 assertion passed. This synthetic regression does not add provider delivery or original equivalence evidence.
+
+| Case | Captured states | Evidence ID |
+| --- | --- | --- |
+| draft-save-reopen | 26 | `ev_73cf606b608e02543a772f4c1c7ceef34d1326b6b0f106cd63d83fa151d185a0` |
+| search-jordan | 8 | `ev_5ab49737fe0d5397184f97c32021bb58e008f21ec46938db4be13652ddff040d` |
+| command-keyboard | 16 | `ev_c8c086747725ad802490f432466404e5be6a9dd328c05795e11d43e1e1ba0114` |
+| archive-undo-native-button | 12 | `ev_9a4c66ecd58d487c3cd7ff56237d0952e1a8ff747a3783882a482a75c77cf5de` |
+| narrow-viewport | 3 | `ev_c78e54abe4c8852f8d8e037dee90ed5e2f5107de52bc7ab321cb28f06a50a57f` |
+| attachment-draft | 8 | `ev_3fbfa456b1097cb2bff81eb8de8444e4f2751c2bf594c93a66f1c2b3b6f61b84` |
+| reply-all | 8 | `ev_bc10d5be526ed7811826a8d7168f7df75d46d7b51e73036149d7a62d240ce832` |
+| reminder-undo | 11 | `ev_1d0865695f9bfb51b61fd8424cadbaff021c194e6947abc2af257642cc4a1de2` |
+| label-picker | 6 | `ev_8c93656186d50bb2d9051253fccb97b9ad93dfebacdf1e363c42a3f183f14ec1` |
+| rich-compose | 45 | `ev_b675290e91fbfcacad61083567d809430856cea8fb65c4d75fb405c0aeea6be8` |
+| inline-ai-unconfigured | 18 | `ev_7a4a7af0d53178620c8e7e755a5301cf90e0af02eaaec21f27898b0505935b42` |
+| side-ai-unconfigured | 42 | `ev_5f253425e8857ca43611d62af55a1318cafbcb31009dded2d90699ea592bdc02` |
+| calendar-week | 24 | `ev_a021edef680f633c2bfa83ba43c000ee9dfcb455b64ff8d9ff43004adf8d958c` |
+| calendar-create-edit-delete | 34 | `ev_76574d9bebd5c1d0264a2ae2854c5949233a526f67acd3a97d9c4efa66942854` |
+| recipient-editing | 66 | `ev_f8a9419b6ad629d584da65a8a0e35f4be717e94ccf5d342437c96c488b792cac` |
+| contact-context | 80 | `ev_53c8ef88e387e61362636564c8af3f78689a36b5ca7ffd24020545ee9ea50c60` |
+
+The separate corrected provider browser case passed 35 actions/36 states (`ev_6d5a771ae6d98072b969fc1218a7787a634449402d479e94b00d5520f8ac9e92`) with a mock Google transport, injected accepted-create acknowledgement loss, explicit read recovery, exact newer local/MIME content, direct terminal discard and a never-issued empty-draft tombstone. Its events are incomplete/equality false. The preceding490 browser flow remains failed. The real recipient-free API531 lifecycle, separate fresh-process receipt check and protected-main-data rollout audit have different scope; see [provider draft lifecycle](../provider-draft-live-check-20261028.md).

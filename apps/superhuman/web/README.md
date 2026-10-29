@@ -363,3 +363,44 @@ substitute another artifact after close/reopen.
 These are independently implemented controls and local safety policies. Filled
 original-rule validation, live classification, matching/exclusion precedence,
 new-mail triggers, complete templates and visual parity remain unverified.
+
+# Private provider-draft status preparation
+
+This combined private candidate stages provider459 onto exact root Automation429
+through the historical398 ancestor. Both integrations are retained privately;
+root and all running services remain untouched. The new browser-safe validator/controller and pure view
+separate local saving from current-revision Gmail synchronization, preserve
+typing during unknown/conflict, and expose explicit read-only reconciliation.
+The preserved421 and437 archives retain that preparation scope. The current
+private candidate also wires the account/draft-scoped models into App; see
+`../../provider-draft-implementation/PROVIDER-APP-INTEGRATION.md` for its exact boundaries and merge requirements.
+Nothing here is applied to root or verified against live Gmail by this author.
+
+The additive managed-discard preparation uses one durable exact-snapshot intent
+before POST, receipt-bound GET-only recovery, and a pure confirmation/status
+dialog. Lost acknowledgements retain the browser key and authored editor; a404
+does not authorize another discard. Confirmed terminal resolution still requires
+the host to fence its account/draft/editor identity before closing only that
+editor. Existing unmanaged discard retains its prior path. The subsequent App
+candidate adds exact managed empty-close, guarded status/reconciliation and
+Send/Schedule provider-refusal handling. Backend review, the Automation
+three-way merge and controlled runtime checks still gate rollout.
+
+
+### Private direct-discard successor
+
+The managed-draft toolbar Discard click is the explicit keyed intent. It freezes
+the same editor before awaiting local persistence and sends one revision/hash-
+bound request; it adds no second initial confirmation. Pending or unknown work
+retains the editor, bytes and recovery journal. A terminal acknowledged receipt
+closes only the captured account/draft/view after the existing journal CAS
+release succeeds. A late response cannot close a replacement editor or account.
+Background recovery for an unrelated draft remains a separate notice. The toolbar
+waits for a verified scoped status snapshot before enabling Discard; an initial
+read cannot silently consume an enabled action.
+
+This successor preserves API531 exactly. Five new actual-React controls retain
+the frozen490 failures and exercise direct acceptance, pending-to-terminal
+polling, initial scoped-status readiness and cross-account late acknowledgement. Four older actual-App scenarios
+remove only their now-obsolete second review click; their safety assertions
+remain. Live browser comparison for this successor is still pending.

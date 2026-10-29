@@ -11,6 +11,8 @@ import { DraftSendService } from './draft-send.ts';
 import { DeliveryAccelerationService } from './delivery-accelerate.ts';
 import { KnowledgeService } from './knowledge.ts';
 import { KNOWLEDGE_MAX_FILE_BYTES, knowledgeFilename, knowledgeKey, knowledgeObject, knowledgeRevision } from './knowledge-input.ts';
+import { ProviderDraftService } from './provider-drafts.ts';
+import { googleDraftTransport, type ProviderDraftTransport } from './provider-draft-transport.ts';
 import { PersonalizationService } from './personalization.ts';
 import { AutomationService } from './automation.ts';
 import type { AutomationFixtureClassifier } from './automation-engine.ts';
@@ -45,9 +47,10 @@ export function resolveApplicationDatabasePath(optionPath: unknown, environmentP
   return configured;
 }
 
-export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration> } = {}) {
-  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture'].includes(key));
+export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean } = {}) {
+  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic'].includes(key));
   if (unknownOptions.length) throw new TypeError('Unknown application configuration option');
+  if (options.providerDraftAutomatic !== undefined && typeof options.providerDraftAutomatic !== 'boolean') throw new TypeError('providerDraftAutomatic must be a boolean');
   const env = options.env ?? process.env;
   const configuredDatabase = resolveApplicationDatabasePath(options.databasePath, env.DATABASE_PATH, !!process.env.NODE_TEST_CONTEXT);
   const scheduler = options.scheduler ?? systemScheduler;
@@ -74,6 +77,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const deliveryMetadataJobs = new Set<Promise<void>>();
   const syncs = new Map<string, Promise<unknown>>();
   const operations = new OperationQueue();
+  const providerDrafts = new ProviderDraftService(store, options.providerDraftTransport ?? googleDraftTransport(google), { clock: scheduler, queue: operations, automatic: options.providerDraftAutomatic ?? options.runJobs !== false, resume: options.providerDraftAutomatic ?? options.runJobs !== false });
   let pendingWake: Promise<{ woken: number; failed: number }> | undefined;
 
   function wakeSnoozes(now = scheduler.now()) {
@@ -184,6 +188,8 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     if (store.required<Account>('account', draft.accountId).provider !== 'google') throw new HttpError(409, 'Demo accounts cannot deliver email', 'demo_delivery_disabled');
     let attemptStarted = false;
     try {
+      await providerDrafts.checkBeforeDelivery(draft);
+      if (closing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
       const pending = store.beginDelivery(id, deliveryContext); attemptStarted = true;
       const result = await google.send(pending) as { id?: string };
       if (!result || typeof result.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(result.id)) throw new HttpError(502, 'Gmail returned an invalid delivery acknowledgment', 'invalid_google_send_response');
@@ -377,7 +383,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       const threadMatch = path.match(/^\/api\/threads\/([^/]+)$/);
       if (threadMatch && method === 'GET') return json(response, 200, { thread: store.required<Thread>('thread', decodeURIComponent(threadMatch[1])) });
       const replyMatch = path.match(/^\/api\/threads\/([^/]+)\/reply$/);
-      if (replyMatch && method === 'POST') { const input = await body(request); const mode = string(input.mode, 'reply'); if (!['reply', 'replyAll', 'forward'].includes(mode)) throw new HttpError(400, 'Invalid reply mode'); return json(response, 201, { draft: store.replyDraft(decodeURIComponent(replyMatch[1]), mode as 'reply' | 'replyAll' | 'forward') }); }
+      if (replyMatch && method === 'POST') { const input = await body(request); const mode = string(input.mode, 'reply'); if (!['reply', 'replyAll', 'forward'].includes(mode)) throw new HttpError(400, 'Invalid reply mode'); const draft=store.replyDraft(decodeURIComponent(replyMatch[1]), mode as 'reply' | 'replyAll' | 'forward'); return json(response,201,{draft,providerDraft:providerDrafts.status(draft.accountId,draft.id)}); }
       if (path === '/api/undo' && method === 'POST') {
         const input = await body(request); const undoId = string(input.undoId); const accountId = store.pendingUndo(undoId).accountId;
         return json(response, 200, await operations.run(accountId, async () => { const previous = store.pendingUndo(undoId); const current = store.required<Thread>('thread', previous.id); if (store.required<Account>('account', previous.accountId).provider === 'google') await google.updateThread(current, previous); return { thread: store.commitUndo(undoId, previous) }; }));
@@ -391,16 +397,27 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       if (uploadMatch) {
         const draftId = decodeURIComponent(uploadMatch[1]); const attachmentId = uploadMatch[2] ? decodeURIComponent(uploadMatch[2]) : undefined;
         if (inFlightSends.has(draftId)) throw new HttpError(409, 'Delivery is already in progress');
-        if (method === 'POST' && !attachmentId) { const input = await body(request, 14_100_000); return json(response, 201, store.addAttachment(draftId, { name: string(input.name), mimeType: string(input.mimeType, 'application/octet-stream'), data: string(input.data) })); }
-        if (method === 'DELETE' && attachmentId) return json(response, 200, { draft: store.removeAttachment(draftId, attachmentId) });
+        if (method === 'POST' && !attachmentId) { const input = await body(request, 14_100_000); const result=store.addAttachment(draftId,{name:string(input.name),mimeType:string(input.mimeType,'application/octet-stream'),data:string(input.data)});return json(response,201,{...result,providerDraft:providerDrafts.status(result.draft.accountId,draftId)}); }
+        if (method === 'DELETE' && attachmentId) {const draft=store.removeAttachment(draftId,attachmentId);return json(response,200,{draft,providerDraft:providerDrafts.status(draft.accountId,draftId)});}
         if (method === 'GET' && attachmentId) { const draft = store.required<Draft>('draft', draftId); const metadata = draft.attachments?.find(item => item.id === attachmentId); if (!metadata) throw new HttpError(404, 'Attachment not found'); response.writeHead(200, { 'content-type': metadata.mimeType, 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(metadata.name)}`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); response.end(store.attachmentBytes(draftId, attachmentId)); return; }
       }
+      const providerDraftPath = path.match(/^\/api\/drafts\/([^/]+)\/provider(?:\/(reconcile))?$/);
+      if (providerDraftPath) {
+        const id = decodeURIComponent(providerDraftPath[1]);
+        if (method === 'GET' && !providerDraftPath[2]) { if([...url.searchParams.keys()].some(key=>key!=='accountId')||url.searchParams.getAll('accountId').length!==1)throw new HttpError(400,'Choose one cloud draft account','provider_draft_invalid_request');return json(response,200,{providerDraft:providerDrafts.status(url.searchParams.get('accountId')!,id)}); }
+        if (method === 'POST' && providerDraftPath[2]) { if(url.search)throw new HttpError(400,'Unexpected cloud draft query','provider_draft_invalid_request');const input=await body(request,5000);if(Object.keys(input).some(key=>!['accountId','expectedSyncRevision'].includes(key)))throw new HttpError(400,'Invalid cloud draft check','provider_draft_invalid_request');return json(response,200,await providerDrafts.reconcile(string(input.accountId),id,input.expectedSyncRevision as number)); }
+        throw new HttpError(405,'Use a scoped cloud draft status or check route','method_not_allowed');
+      }
+      const cloudDiscard=path.match(/^\/api\/drafts\/([^/]+)\/discard-operations$/);
+      if(cloudDiscard&&method==='POST'){if(url.search)throw new HttpError(400,'Unexpected discard query','provider_draft_invalid_request');const id=decodeURIComponent(cloudDiscard[1]);if(inFlightSends.has(id))throw new HttpError(409,'Delivery owns this draft','provider_draft_locked');const result=providerDrafts.discard(id,await body(request,5000));if(result.accepted&&result.response.resolution==='pending')void providerDrafts.flush(result.response.receipt.accountId,id).catch(()=>{});return json(response,result.accepted?202:200,result.response);}
+      const cloudDiscardKey=path.match(/^\/api\/draft-discard-operations\/by-request\/([^/]+)$/);
+      if(cloudDiscardKey&&method==='GET'){if([...url.searchParams.keys()].some(key=>!['accountId','draftId'].includes(key)||url.searchParams.getAll(key).length!==1)||!url.searchParams.has('accountId')||!url.searchParams.has('draftId'))throw new HttpError(400,'Invalid discard receipt query','provider_draft_invalid_request');return json(response,200,providerDrafts.discardByRequest(url.searchParams.get('accountId')!,url.searchParams.get('draftId')!,decodeURIComponent(cloudDiscardKey[1])));}
       const draftSyncMatch = path.match(/^\/api\/drafts\/([^/]+)\/sync$/);
-      if (draftSyncMatch && method === 'POST') { const id = decodeURIComponent(draftSyncMatch[1]); const draft = store.required<Draft>('draft', id); if (['sending', 'delivery_unknown', 'sent'].includes(draft.status)) throw new HttpError(409, 'Delivery must be reconciled before editing this draft'); if (inFlightSends.has(id)) throw new HttpError(409, 'Draft sync or delivery is already in progress'); inFlightSends.add(id); try { return json(response, 200, await operations.run(draft.accountId, async () => ({ draft: await google.syncDraft(store.required<Draft>('draft', id)) }))); } finally { inFlightSends.delete(id); } }
+      if (draftSyncMatch && method === 'POST') { const id = decodeURIComponent(draftSyncMatch[1]); const draft = store.required<Draft>('draft', id); if (store.hasProviderDraftLink(id)) { if(inFlightSends.has(id))throw new HttpError(409,'Delivery owns this draft','provider_draft_locked'); await providerDrafts.flush(draft.accountId,id); return json(response,200,{draft:store.required<Draft>('draft',id),providerDraft:providerDrafts.status(draft.accountId,id)}); } if (['sending', 'delivery_unknown', 'sent'].includes(draft.status)) throw new HttpError(409, 'Delivery must be reconciled before editing this draft'); if (inFlightSends.has(id)) throw new HttpError(409, 'Draft sync or delivery is already in progress'); inFlightSends.add(id); try { return json(response, 200, await operations.run(draft.accountId, async () => ({ draft: await google.syncDraft(store.required<Draft>('draft', id)) }))); } finally { inFlightSends.delete(id); } }
       const reconcileMatch = path.match(/^\/api\/drafts\/([^/]+)\/reconcile$/);
       if (reconcileMatch && method === 'POST') return json(response, 200, await reconcileDraft(decodeURIComponent(reconcileMatch[1])));
       const draftMatch = path.match(/^\/api\/drafts\/([^/]+)(?:\/(send|schedule|cancel))?$/);
-      if (draftMatch && !draftMatch[2] && method === 'GET') { const id = decodeURIComponent(draftMatch[1]); return json(response, 200, { draft: store.required<Draft>('draft', id), deliveryPending: inFlightSends.has(id) }); }
+      if (draftMatch && !draftMatch[2] && method === 'GET') { const id = decodeURIComponent(draftMatch[1]); return json(response, 200, { draft: store.required<Draft>('draft', id), deliveryPending: inFlightSends.has(id), providerDraft: providerDrafts.status(store.required<Draft>('draft',id).accountId,id) }); }
       if ((path === '/api/drafts' && method === 'POST') || (draftMatch && !draftMatch[2] && method === 'PATCH')) {
         const input = await body(request); const values: Partial<Draft> = {};
         for (const key of ['accountId', 'threadId', 'to', 'cc', 'bcc', 'subject', 'body', 'html'] as const) if (input[key] !== undefined) values[key] = string(input[key]);
@@ -410,9 +427,9 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
         const existing = id ? store.get<Draft>('draft', id) : undefined;
         const threadId = values.threadId ?? existing?.threadId;
         if (threadId && store.required<Thread>('thread', threadId).accountId !== (values.accountId ?? existing?.accountId ?? store.preferences().activeAccountId)) throw new HttpError(400, 'Reply thread belongs to a different account');
-        return json(response, id ? 200 : 201, { draft: store.saveDraft({ ...values, ...(id ? { id } : {}) }) });
+        const saved = store.saveDraft({ ...values, ...(id ? { id } : {}) }, id ? undefined : 'composer'); return json(response, id ? 200 : 201, { draft: saved, providerDraft: providerDrafts.status(saved.accountId,saved.id) });
       }
-      if (draftMatch && !draftMatch[2] && method === 'DELETE') { const id = decodeURIComponent(draftMatch[1]); const draft = store.required<Draft>('draft', id); if (['sent', 'sending', 'delivery_unknown'].includes(draft.status) || inFlightSends.has(id)) throw new HttpError(409, 'Cannot delete a sent, sending, or unresolved delivery'); if (draft.providerDraftId) throw new HttpError(409, 'Provider-synced drafts must be managed in Gmail; local deletion will not silently delete a provider draft', 'provider_draft_deletion_requires_action'); store.deleteDraft(id); return json(response, 200, { deleted: true }); }
+      if (draftMatch && !draftMatch[2] && method === 'DELETE') { const id = decodeURIComponent(draftMatch[1]); const draft = store.required<Draft>('draft', id); if (['sent', 'sending', 'delivery_unknown'].includes(draft.status) || inFlightSends.has(id)) throw new HttpError(409, 'Cannot delete a sent, sending, or unresolved delivery'); if (store.hasProviderDraftLink(id)) throw new HttpError(409, 'Use the keyed managed draft discard action', 'provider_draft_deletion_requires_action'); if (draft.providerDraftId) throw new HttpError(409, 'Provider-synced drafts must be managed in Gmail; local deletion will not silently delete a provider draft', 'provider_draft_deletion_requires_action'); store.deleteDraft(id); return json(response, 200, { deleted: true }); }
       if (draftMatch && draftMatch[2] === 'send' && method === 'POST') return json(response, 200, await deliver(decodeURIComponent(draftMatch[1])));
       if (draftMatch && draftMatch[2] === 'schedule' && method === 'POST') { const input = await body(request); const id = decodeURIComponent(draftMatch[1]); if (inFlightSends.has(id)) throw new HttpError(409, 'Delivery is queued or already in progress', 'delivery_in_progress'); const draft = store.required<Draft>('draft', id); if (store.cancelledDeliveryHistory(id)) throw new HttpError(409, 'A fresh explicit keyed Send intent is required after Undo', 'send_intent_required'); if (draft.status === 'sent') throw new HttpError(409, 'Already sent'); google.validateDelivery(draft); if (store.required<Account>('account', draft.accountId).provider !== 'google') throw new HttpError(409, 'Demo accounts cannot schedule delivery', 'demo_delivery_disabled'); const scheduledAt = date(input.scheduledAt); if (Date.parse(scheduledAt) <= Date.now()) throw new HttpError(400, 'Choose a future time'); return json(response, 200, { draft: store.saveDraft({ id, scheduledAt, status: 'scheduled' }) }); }
       if (draftMatch && draftMatch[2] === 'cancel' && method === 'POST') { const id = decodeURIComponent(draftMatch[1]); if (inFlightSends.has(id)) throw new HttpError(409, 'Delivery is already in progress'); store.required<Draft>('draft', id); return json(response, 200, { draft: store.saveDraft({ id, status: 'draft', scheduledAt: undefined }) }); }
@@ -450,10 +467,10 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const close = () => {
     if (closePromise) return closePromise;
     closing = true;
-    closePromise = (async () => { syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close())]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs]); await calendar.close(); store.close(); })();
+    closePromise = (async () => { syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close()), providerDrafts.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs]); await calendar.close(); store.close(); })();
     return closePromise;
   };
-  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
+  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, providerDrafts, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

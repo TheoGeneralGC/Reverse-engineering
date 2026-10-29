@@ -13,7 +13,22 @@ import { initializeContactContext, contactContext } from './contact-context.ts';
 
 export type DeliveryContext = { artifactOperationId?: string; composerOperationId?: string; reconciliation?: boolean; recovery?: boolean };
 export type DeliveryHooks = { claim: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; complete: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; unknown: (draft: Draft, context: DeliveryContext) => void };
+export type DraftLifecycleOrigin = 'composer' | 'reply' | 'forward' | 'ai-created' | 'ai-send';
+export type DraftLifecycleHooks = {
+  beforeWrite?: (before: Draft | undefined, next: Draft) => void;
+  written?: (before: Draft | undefined, next: Draft) => void;
+  created?: (draft: Draft, origin: DraftLifecycleOrigin) => void;
+  beforeRemove?: (draft: Draft, context?: { providerDiscardId?: string }) => void;
+  deliveryReadiness?: (draft: Draft) => void;
+  beforeDelivery?: (draft: Draft) => void;
+  beforeNativeSend?: (draft: Draft) => void;
+};
 export class Store {
+  private readonly draftLifecycleHooks = new Set<DraftLifecycleHooks>();
+  assertProviderDraftDeliveryReady(draft: Draft) { for (const hook of this.draftLifecycleHooks) hook.deliveryReadiness?.(draft); }
+  assertProviderDraftNativeSend(draft: Draft) { for (const hook of this.draftLifecycleHooks) hook.beforeNativeSend?.(draft); }
+  hasProviderDraftLink(draftId: string): boolean { return !!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_draft_links'").get() && !!this.db.prepare('SELECT 1 FROM provider_draft_links WHERE draft_id=?').get(draftId); }
+  registerDraftLifecycleHooks(hooks: DraftLifecycleHooks) { this.draftLifecycleHooks.add(hooks); return () => { this.draftLifecycleHooks.delete(hooks); }; }
   deliveryHooks?: DeliveryHooks;
   composerDeliveryHooks?: DeliveryHooks;
   private deliveryWriteDepth = 0;
@@ -58,15 +73,25 @@ export class Store {
   list<T>(kind: string): T[] { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(String(r.data))); }
   get<T>(kind: string, id: string): T | undefined { const row = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return row ? JSON.parse(String(row.data)) : undefined; }
   put<T>(kind: string, id: string, data: T): T {
-    if (kind === 'draft' && !this.deliveryWriteDepth) { const old = this.get<Draft>('draft', id); if (old) this.assertDraftMutable(old); }
+    const oldDraft = kind === 'draft' ? this.get<Draft>('draft', id) : undefined;
+    if (oldDraft && !this.deliveryWriteDepth) this.assertDraftMutable(oldDraft);
+    const draftHooked = kind === 'draft' && this.draftLifecycleHooks.size > 0;
     if (kind === 'thread') this.db.exec('SAVEPOINT recipient_record_write');
+    if (draftHooked) this.db.exec('SAVEPOINT provider_draft_record_write');
     try {
+      if (draftHooked && !this.deliveryWriteDepth) for (const hook of this.draftLifecycleHooks) hook.beforeWrite?.(oldDraft, data as Draft);
       this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind, id, JSON.stringify(data));
+      if (draftHooked) { for (const hook of this.draftLifecycleHooks) hook.written?.(oldDraft, data as Draft); this.db.exec('RELEASE provider_draft_record_write'); }
       if (kind === 'thread') { refreshRecipientContacts(this.db, { threadId: id }); this.db.exec('RELEASE recipient_record_write'); }
       return data;
-    } catch (error) { if (kind === 'thread') this.db.exec('ROLLBACK TO recipient_record_write; RELEASE recipient_record_write'); throw error; }
+    } catch (error) { if (kind === 'thread') this.db.exec('ROLLBACK TO recipient_record_write; RELEASE recipient_record_write'); if (draftHooked) this.db.exec('ROLLBACK TO provider_draft_record_write; RELEASE provider_draft_record_write'); throw error; }
   }
-  remove(kind: string, id: string) { if (kind === 'draft') { const draft = this.get<Draft>('draft', id); if (draft) this.assertDraftMutable(draft); } this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id); }
+  remove(kind: string, id: string, context?: { providerDiscardId?: string }) {
+    const hooked = kind === 'draft' && this.draftLifecycleHooks.size > 0;
+    if (hooked) this.db.exec('SAVEPOINT provider_draft_remove');
+    try { if (kind === 'draft') { const draft = this.get<Draft>('draft', id); if (draft) { this.assertDraftMutable(draft); for (const hook of this.draftLifecycleHooks) hook.beforeRemove?.(draft, context); } } this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id); if (hooked) this.db.exec('RELEASE provider_draft_remove'); }
+    catch (error) { if (hooked) this.db.exec('ROLLBACK TO provider_draft_remove; RELEASE provider_draft_remove'); throw error; }
+  }
   required<T>(kind: string, id: string): T { const row = this.get<T>(kind, id); if (!row) throw new HttpError(404, `${kind} not found`, 'not_found'); return row; }
   preferences(): Preferences { return this.get<Preferences>('preferences', 'global')!; }
   updatePreferences(value: Partial<Preferences>) { return this.put('preferences', 'global', { ...this.preferences(), ...value }); }
@@ -158,7 +183,7 @@ export class Store {
     // state changes. This synchronous helper remains available for demo fixtures.
     for (const thread of this.dueSnoozes(now, 100)) if (this.get<Account>('account', thread.accountId)?.provider === 'demo') { const { thread: awake } = this.prepareAction(thread.id, 'unarchive'); this.put('thread', thread.id, awake); }
   }
-  saveDraft(input: Partial<Draft>) {
+  saveDraft(input: Partial<Draft>, creationOrigin?: DraftLifecycleOrigin) {
     const old = input.id ? this.get<Draft>('draft', input.id) : undefined;
     const accountId = input.accountId ?? old?.accountId ?? this.preferences().activeAccountId;
     this.required<Account>('account', accountId);
@@ -168,6 +193,11 @@ export class Store {
     if (input.html !== undefined) { content.html = sanitizeDraftHtml(input.html); if (input.body === undefined) content.body = plainTextFromHtml(content.html); }
     else if (input.body !== undefined) content.html = undefined;
     const draft: Draft = { id: input.id ?? randomUUID(), accountId, to: '', cc: '', bcc: '', subject: '', body: '', attachments: [], status: 'draft', ...old, ...content, revision:(old?.revision??0)+1, updatedAt: new Date().toISOString() };
+    if (!old && creationOrigin && this.draftLifecycleHooks.size) {
+      this.db.exec('SAVEPOINT provider_draft_creation');
+      try { this.put('draft', draft.id, draft); for (const hook of this.draftLifecycleHooks) hook.created?.(draft, creationOrigin); this.db.exec('RELEASE provider_draft_creation'); return draft; }
+      catch (error) { this.db.exec('ROLLBACK TO provider_draft_creation; RELEASE provider_draft_creation'); throw error; }
+    }
     return this.put('draft', draft.id, draft);
   }
   restoreCancelledArtifactDraft(id: string, operationId: string, at: string): Draft {
@@ -184,6 +214,7 @@ export class Store {
     const draft=this.required<Draft>('draft',id),row=this.db.prepare("SELECT account_id,data FROM draft_send_operations WHERE id=? AND draft_id=? AND state='queued'").get(operationId,id);
     if(!row||row.account_id!==draft.accountId||!['draft','failed'].includes(draft.status)||draft.artifactSendId||draft.composerSendId||this.artifactDeliveryId(id)||draft.deliveryAttemptId)throw new HttpError(409,'Draft cannot be locked for this intent','draft_send_conflict');
     const op=JSON.parse(String(row.data))as {mode?:string;scheduledAt?:string|null};
+    for (const hook of this.draftLifecycleHooks) hook.beforeDelivery?.(draft);
     return this.putDeliveryDraft({...draft,status:op.mode==='scheduled'?'scheduled':'send_queued',scheduledAt:op.mode==='scheduled'?op.scheduledAt??undefined:undefined,composerSendId:operationId,deliveryReplyContext:replyContext});
   }
   restoreCancelledComposerDraft(id:string,operationId:string,at:string):Draft{
@@ -202,6 +233,7 @@ export class Store {
       if (draft.status === 'sending' || draft.status === 'delivery_unknown') throw new HttpError(409, 'Delivery outcome must be reconciled; this message will not be resent automatically', 'delivery_requires_reconciliation');
       if(!context.artifactOperationId&&!context.composerOperationId&&this.cancelledDeliveryHistory(id))throw new HttpError(409,'A fresh explicit keyed Send intent is required after Undo','send_intent_required');
       const hooks=this.requireDeliveryHook(draft,context);
+      for (const hook of this.draftLifecycleHooks) hook.beforeDelivery?.(draft);
       parseOutgoingRecipientHeaders(draft);
       const attemptId = randomUUID(); const messageId = `<rea-${attemptId}@reconstruction.invalid>`; const marker = randomBytes(24).toString('base64url');
       const attempt: DeliveryAttempt = { id: attemptId, draftId: id, status: 'dispatching', messageId, marker, startedAt: new Date().toISOString() };
@@ -260,7 +292,7 @@ export class Store {
   }
   attachmentBytes(draftId: string, attachmentId: string) { const row = this.db.prepare('SELECT data FROM draft_attachments WHERE id=? AND draft_id=?').get(attachmentId, draftId); if (!row) throw new HttpError(404, 'Attachment not found'); return Buffer.from(row.data as Uint8Array); }
   removeAttachment(draftId: string, attachmentId: string) { const draft = this.required<Draft>('draft', draftId); if (draft.status !== 'draft' && draft.status !== 'failed') throw new HttpError(409, 'Cancel scheduling before editing attachments'); this.attachmentBytes(draftId, attachmentId); this.db.exec('BEGIN'); try { this.db.prepare('DELETE FROM draft_attachments WHERE id=? AND draft_id=?').run(attachmentId, draftId); const next = this.saveDraft({ id: draftId, attachments: (draft.attachments ?? []).filter(item => item.id !== attachmentId) }); this.db.exec('COMMIT'); return next; } catch (error) { this.db.exec('ROLLBACK'); throw error; } }
-  deleteDraft(id: string) { this.assertDraftMutable(this.required<Draft>('draft', id)); this.db.exec('BEGIN'); try { this.db.prepare('DELETE FROM draft_attachments WHERE draft_id=?').run(id); this.remove('draft', id); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; } }
+  deleteDraft(id: string, context?: { providerDiscardId?: string }) { this.assertDraftMutable(this.required<Draft>('draft', id)); this.db.exec('SAVEPOINT owned_draft_delete'); try { this.db.prepare('DELETE FROM draft_attachments WHERE draft_id=?').run(id); this.remove('draft', id, context); this.db.exec('RELEASE owned_draft_delete'); } catch (error) { this.db.exec('ROLLBACK TO owned_draft_delete; RELEASE owned_draft_delete'); throw error; } }
   replyDraft(threadId: string, mode: 'reply' | 'replyAll' | 'forward') {
     const thread = this.required<Thread>('thread', threadId); const account = this.required<Account>('account', thread.accountId); const message = thread.messages.at(-1); if (!message) throw new HttpError(400, 'Conversation has no messages');
     const own = account.email.toLowerCase(); const unique = (people: { name: string; email: string }[]) => [...new Map(people.filter(p => p.email.toLowerCase() !== own).map(p => [p.email.toLowerCase(), p.email])).values()];
@@ -271,7 +303,7 @@ export class Store {
     const forwardText = mode === 'forward' ? message.text || (message.html ? plainTextFromHtml(sanitizeDraftHtml(message.html)) : '') : '';
     const body = mode === 'forward' ? `${forwardHeading}\n\n${forwardText}` : '';
     const html = mode === 'forward' && message.html ? `${plainTextToHtml(forwardHeading)}<blockquote>${sanitizeDraftHtml(message.html)}</blockquote>` : undefined;
-    return this.saveDraft({ accountId: account.id, ...(mode !== 'forward' ? { threadId } : {}), to: to.join(', '), cc: cc.join(', '), subject: `${mode === 'forward' ? /^fwd?:/i.test(thread.subject) ? '' : 'Fwd: ' : /^re:/i.test(thread.subject) ? '' : 'Re: '}${thread.subject}`, body, ...(html !== undefined ? { html } : {}) });
+    return this.saveDraft({ accountId: account.id, ...(mode !== 'forward' ? { threadId } : {}), to: to.join(', '), cc: cc.join(', '), subject: `${mode === 'forward' ? /^fwd?:/i.test(thread.subject) ? '' : 'Fwd: ' : /^re:/i.test(thread.subject) ? '' : 'Re: '}${thread.subject}`, body, ...(html !== undefined ? { html } : {}) }, mode === 'forward' ? 'forward' : 'reply');
   }
   seed() {
     const account: Account = { id: 'demo', email: 'alex@demo.local', name: 'Alex Morgan', provider: 'demo', color: '#6e65cc' };

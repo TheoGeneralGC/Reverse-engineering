@@ -32,6 +32,8 @@ account publication is atomic, and rotated refresh tokens are preserved.
 
 See [manual automation candidate](AUTOMATION.md) for revisioned configuration and
 explicit synthetic preview/apply. Real mailbox processing remains unavailable.
+See [new-owned Gmail draft persistence](PROVIDER-DRAFTS.md) for the private
+autosave candidate, conservative write recovery and legacy-draft boundary.
 
 ## API
 

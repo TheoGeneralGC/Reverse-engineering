@@ -135,7 +135,7 @@ export class AiDraftService {
       // requires an explicit new generation observed after canonical deletion.
       if ((!creation || expectedGeneration !== creation.generation || !this.targetExists(creation.draftId)) && expectedGeneration !== next) throw new HttpError(409, 'The draft generation changed; reload its current state', 'ai_draft_generation_changed');
       if (next === expectedGeneration) {
-        const draft = this.store.saveDraft({ id: randomUUID(), accountId: scope.accountId, ...draftPreviewHeaders(preview.payload), subject: preview.payload.subject, body: preview.payload.body, ...(preview.payload.html !== undefined ? { html: preview.payload.html } : {}), attachments: [], status: 'draft' });
+        const draft = this.store.saveDraft({ id: randomUUID(), accountId: scope.accountId, ...draftPreviewHeaders(preview.payload), subject: preview.payload.subject, body: preview.payload.body, ...(preview.payload.html !== undefined ? { html: preview.payload.html } : {}), attachments: [], status: 'draft' }, 'ai-created');
         creation = { id: randomUUID(), ...scope, previewId, payloadHash: preview.payloadHash, draftId: draft.id, generation: expectedGeneration, createdAt: now }; this.store.db.prepare('INSERT INTO ai_draft_creations VALUES(?,?,?,?,?,?,?,?)').run(creation.id, previewId, scope.accountId, scope.sessionId, scope.turnId, draft.id, creation.generation, JSON.stringify(creation)); created = true;
       }
       if (!creation) throw new Error('Draft creation has no generation');

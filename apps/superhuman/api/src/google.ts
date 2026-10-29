@@ -99,7 +99,7 @@ export class GoogleProvider implements MailProvider {
   status(): ProviderStatus {
     const missing = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'TOKEN_ENCRYPTION_KEY'].filter(k => !this.env[k]);
     if (this.env.TOKEN_ENCRYPTION_KEY && !/^[a-f\d]{64}$/i.test(this.env.TOKEN_ENCRYPTION_KEY)) missing.push('TOKEN_ENCRYPTION_KEY must be 64 hex characters');
-    return { provider: 'google', configured: missing.length === 0, missing, redirectUri: this.redirectUri, deliveryEnabled: missing.length === 0 && this.approved().length > 0 && this.approvedSenders().length > 0, approvedTestRecipients: this.approved(), approvedTestSenders: this.approvedSenders(), capabilities: ['oauth', 'resumable-paginated-sync', 'history-sync', 'background-sync', 'initial-import-live-updates', 'quota-paced-reads', 'labels', 'thread-actions', 'multipart-send', 'attachments', 'explicit-draft-sync', 'service-scoped-consent'], limitations: ['Mailbox imports continue automatically. Updates use polling; push notifications are not configured.', 'Provider drafts sync only when explicitly requested for drafts created in this replica; existing provider drafts are not imported for editing.', 'Calendar requires separate setup and service consent. Contacts and Microsoft Outlook are not implemented.', 'Delivery requires explicitly approved authenticated sender and recipient addresses.'] };
+    return { provider: 'google', configured: missing.length === 0, missing, redirectUri: this.redirectUri, deliveryEnabled: missing.length === 0 && this.approved().length > 0 && this.approvedSenders().length > 0, approvedTestRecipients: this.approved(), approvedTestSenders: this.approvedSenders(), capabilities: ['oauth', 'resumable-paginated-sync', 'history-sync', 'background-sync', 'initial-import-live-updates', 'quota-paced-reads', 'labels', 'thread-actions', 'multipart-send', 'attachments', 'explicit-draft-sync', 'new-owned-draft-autosave', 'service-scoped-consent'], limitations: ['Mailbox imports continue automatically. Updates use polling; push notifications are not configured.', 'Newly replica-owned Gmail drafts autosave. Legacy/imported drafts remain unmanaged; ambiguous cloud writes require an explicit check.', 'Calendar requires separate setup and service consent. Contacts and Microsoft Outlook are not implemented.', 'Delivery requires explicitly approved authenticated sender and recipient addresses.'] };
   }
   approved() { return (this.env.APPROVED_TEST_RECIPIENTS ?? '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean); }
   approvedSenders() { return (this.env.APPROVED_TEST_SENDERS ?? '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean); }
@@ -361,6 +361,7 @@ export class GoogleProvider implements MailProvider {
   }
   providerLabels(thread: Thread) { return thread.providerLabels ?? [...(thread.folder === 'inbox' ? ['INBOX'] : thread.folder === 'trash' ? ['TRASH'] : thread.folder === 'spam' ? ['SPAM'] : []), ...(thread.unread ? ['UNREAD'] : []), ...(thread.starred ? ['STARRED'] : []), ...thread.labels.map(id => this.store.get<Label>('label', id)?.providerId).filter((x): x is string => !!x)]; }
   validateDelivery(draft: Draft) {
+    this.store.assertProviderDraftDeliveryReady(draft);
     const recipients = parseOutgoingRecipientHeaders(draft).recipients.map(person => person.email.toLowerCase());
     if ([draft.to, draft.cc, draft.bcc, draft.subject].some(x => /[\r\n]/.test(x))) throw new HttpError(400, 'Email headers cannot contain line breaks');
     if (recipients.some(x => !this.approved().includes(x))) throw new HttpError(403, 'Delivery is limited to explicitly approved test recipients. Configure APPROVED_TEST_RECIPIENTS after receiving authorization.', 'recipient_not_approved');
@@ -377,6 +378,7 @@ export class GoogleProvider implements MailProvider {
   async syncDraft(draft: Draft) {
     if (draft.composerSendId || this.store.composerDeliveryId(draft.id)) throw new HttpError(409, 'Composer deliveries cannot synchronize an editable provider draft', 'composer_delivery_locked');
     if (draft.artifactSendId || this.store.artifactDeliveryId(draft.id)) throw new HttpError(409, 'Artifact deliveries cannot synchronize an editable provider draft', 'artifact_delivery_locked');
+    if (this.store.hasProviderDraftLink(draft.id)) throw new HttpError(409, 'Use the owned cloud draft ledger', 'provider_draft_owned_requires_ledger');
     if (this.store.required<Account>('account', draft.accountId).provider !== 'google') throw new HttpError(409, 'Demo drafts cannot sync to Google');
     const message = this.mime(draft);
     const result = await this.request(draft.accountId, draft.providerDraftId ? `drafts/${encodeURIComponent(draft.providerDraftId)}` : 'drafts', { method: draft.providerDraftId ? 'PUT' : 'POST', body: JSON.stringify({ ...(draft.providerDraftId ? { id: draft.providerDraftId } : {}), message }) }) as { id: string };
@@ -394,6 +396,7 @@ export class GoogleProvider implements MailProvider {
       if (draft.composerSendId !== composer || pending.composerSendId !== composer || pending.status !== 'sending' || draft.status !== 'sending' || !draft.deliveryAttemptId || pending.deliveryAttemptId !== draft.deliveryAttemptId || pending.deliveryMarker !== draft.deliveryMarker) throw new HttpError(409, 'Composer Send requires its durable claimed attempt', 'composer_delivery_locked');
     }
     if (!composer && !linked && this.store.cancelledDeliveryHistory(draft.id)) throw new HttpError(409, 'A fresh explicit keyed Send intent is required after Undo', 'send_intent_required');
+    this.store.assertProviderDraftNativeSend(draft);
     this.validateDelivery(draft);
     const account = this.store.required<Account>('account', draft.accountId);
     if (account.provider !== 'google') throw new HttpError(409, 'Demo accounts cannot deliver email', 'demo_delivery_disabled');

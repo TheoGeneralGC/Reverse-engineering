@@ -5,8 +5,11 @@ recipient-free Superhuman draft appears in Gmail Drafts, is updated there, and
 stops matching the scoped Drafts search after explicit discard. The retained
 client saves through Superhuman userdata transport. The component that performs
 the Gmail write, the Gmail draft resource ID, and its concurrency protocol remain
-unobserved. This is evidence for a remaining reconstruction requirement, not a
-claim that the replica's explicit provider-sync endpoint already matches it.
+unobserved. The reconstruction now automatically persists newly replica-owned
+Google drafts. Its real recipient-free lifecycle, synthetic browser recovery,
+fresh-process receipt check and rollout are recorded separately in the
+[provider draft checkpoint](provider-draft-live-check-20261028.md). Imported and
+legacy provider-draft editing and full cross-client parity remain open.
 
 ## Evidence and identity
 

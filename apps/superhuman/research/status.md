@@ -1,8 +1,25 @@
-# Implementation checkpoint — 2026-10-27/28
+# Implementation checkpoint — 2026-10-27–29
 
-The current applied version passed **480 API/429 frontend tests**, build and
+The current applied version passed **531 API/495 frontend tests**, build and
 strict types, plus **16 cases/407 browser steps** with all eight persistence
-assertions and 138 stable source entries. Manual Auto Archive/Auto Labels
+assertions, 152 stable source entries and zero captured page errors. New
+replica-owned Gmail drafts save automatically through a durable provider ledger.
+One real recipient-free create/two-update/keyed-discard lifecycle and a separate
+fresh-process local receipt check passed. A corrected synthetic browser case
+passed 35 actions/36 states, including lost-save-response recovery, exact newer
+edits, reopening, direct discard and empty close with no extra cloud write. Its
+preceding 490-frontend browser failure remains failed and retained.
+
+The rollout preserved 19 Draft JSON records, seven attachment rows/bytes, three
+Calendar operations, six delivery records and protected model/action rows. No
+legacy draft was enrolled; all three new provider tables stayed empty on the
+main mail database. Two Calendar access tokens refreshed with unchanged refresh
+credentials and authorization scope sets; account changes were limited to
+lastSyncedAt. HTTP refresh transactions were not captured. See the
+[provider draft checkpoint](provider-draft-live-check-20261028.md).
+
+The preceding **480 API/429 frontend** version passed the same 407-step scope
+with 138 stable entries. Manual Auto Archive/Auto Labels
 configuration and explicit synthetic preview/apply are applied. The rollout
 preserved 19 drafts, three Calendar operations and six delivery records;
 automation tables stayed empty on the real-mail database. Two Calendar access
@@ -31,10 +48,11 @@ unchanged. Capture event coverage remains incomplete. See
 and the [combined checkpoint](combined-checkpoint-20261028.md) for source
 identities, preserved failed preflights and comparison limits.
 
-Full one-to-one parity has not been achieved. The original now has a bounded
-provider-draft comparison: a new recipient-free fixture appeared and updated in
-Gmail Drafts, then stopped matching after discard. Automatic provider saving and
-imported-draft editing remain reconstruction gaps; see
+Full one-to-one parity has not been achieved. The original provider-draft
+comparison observed one new recipient-free fixture appear and update in Gmail
+Drafts, then stop matching after discard. Automatic new-owned persistence is now
+implemented with the bounded checks above. Imported-draft editing, real competing
+clients and complete provider behavior remain open; see
 [provider draft evidence](provider-drafts.md). The browser app runs locally at
 http://127.0.0.1:5173 with private persistent mail, two Gmail accounts, Calendar
 reads and configured Claude generation. The reviewed initial checkpoint is

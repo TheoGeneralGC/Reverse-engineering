@@ -1,0 +1,9 @@
+.provider-draft-status{font-size:11px;line-height:16px;color:var(--muted);padding-top:16px;text-align:right}
+.provider-draft-status-line{display:flex;justify-content:flex-end;align-items:center;gap:7px;flex-wrap:wrap}
+.provider-draft-status button{font:inherit;color:var(--purple);text-decoration:none;padding:0;border:0;background:transparent}
+.provider-draft-status button:hover{text-decoration:underline}.provider-draft-status button:focus-visible{outline:2px solid var(--purple);outline-offset:3px;border-radius:2px}
+.provider-draft-status button:disabled{opacity:.5;cursor:default}
+.provider-draft-status-separator{color:var(--muted)}
+.provider-draft-status-error{margin:5px 0 0;color:#ad3841;font-size:11px;line-height:16px;overflow-wrap:anywhere}
+.provider-draft-status-note{margin:5px 0 0;color:var(--muted);font-size:11px;line-height:16px}
+.provider-draft-status.success .provider-draft-status-line>span:last-of-type{color:var(--muted)}
