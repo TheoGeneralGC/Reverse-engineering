@@ -1,16 +1,20 @@
-# Vercel collector — prepared for deployment
+# Vercel collector
 
 This is an asynchronous own-source collector with an HTTP libSQL adapter and a
 native Express default export. It retains the existing `rea-tracking-v1` wire by
 importing sibling `../collector/src/protocol.ts` byte-for-byte. The legacy
-collector remains an unchanged comparison ancestor. This candidate has no mail,
-Google, Calendar or model dependency and has made no remote database/resource,
-real key, environment or deployment change.
+collector remains an unchanged comparison ancestor. This package has no mail,
+Google, Calendar or model dependency. The later approved setup now has a dedicated
+remote database and Production-only configuration; the first build failed before
+runtime; the corrected build is READY with stable health and31 synthetic wire
+actions passing. Receipt/cursor/fresh-nonce persistence across replacement,
+concurrency10 and the144-request100-event page also pass. See the [deployment checkpoint](../research/vercel-deployment-checkpoint-20261029.md)
+for actual boundaries. Main tracking remains off.
 
-The proposed first target is an eligible personal Vercel Hobby project plus
-Turso Free/libSQL, with no paid upgrade. Actual account/team permission, exact
-assigned origin, Marketplace engine, Free hard-stop/overages settings and region
-are still deployment-time facts to verify. Public prices and the comparison with
+The selected setup uses the user-approved Vercel project, a dedicated Turso
+Starter database on its $0 plan in iad1, and the stable owned Vercel origin.
+No paid upgrade is claimed. Runtime/host verification and managed quota behavior
+remain separate checks. Public prices and the comparison with
 Neon are in [the deployment proposal](deploy/PROPOSAL.md). No claim of hosted/effective
 tracking or named/human-reader evidence follows from local tests.
 
@@ -62,9 +66,9 @@ Root Directory must be `apps/superhuman/collector-vercel`; the setting allowing
 source imports outside that directory must permit the sibling own protocol.
 Type-only Input/Output imports do not load the legacy SQLite module. A Node
 filesystem-permission import probe succeeds with only the protocol and ancestor
-package JSON readable outside this package. Actual Vercel build tracing and edge
-normalization remain unverified; signed external target positive/negative tests
-are required after an authorized deployment.
+package JSON readable outside this package. Actual Vercel build tracing remains unverified. The bounded external signed
+target positive/negative checks now pass; see the deployment checkpoint for their
+exact scope and remaining platform limits.
 
 ## Durable transactions and failure behavior
 
@@ -141,9 +145,10 @@ corrupted in turn; missing/mismatched/null-confirmation middle bindings retain
 corrupt refusal rather than hiding evidence. No page-limit or cursor wire change.
 This is a deterministic request-budget proof, not actual managed-database latency.
 
-Independent source review passed. Actual selected engine/remote isolation/latency,
-signed public raw-target routing, cold-start, backup/isolated restore and stable-origin
-checks remain outstanding. No real tracked message has been sent or verified with
+Independent source review passed. The actual SQLite3.47 primary, signed public
+routing, stable origin, receipt/cursor/nonce persistence across replacement and
+concurrent CAS were tested successfully. Full runtime file tracing, observed cold
+starts, managed backup/isolated restore and per-SQL latency remain outstanding. No real tracked message has been sent or verified with
 this collector. Retained predecessor and all23 ancestor files remain unchanged.
 
 V3 clock audit is in [the clock audit](CLOCK-AUDIT.md). Durable timestamps are captured after

@@ -13,7 +13,8 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Original response draft before conversation opening](research/original-auto-draft-response-observation-20261029.md)
 - [Applied local Auto Drafts checkpoint](research/auto-drafts-local-checkpoint-20261029.md)
 - [Applied tracking and keyboard checkpoint](research/tracking-keyboard-checkpoint-20261029.md)
-- [Vercel collector preparation and limits](research/vercel-collector-checkpoint-20261029.md)
+- [Vercel setup and deployment checkpoint](research/vercel-deployment-checkpoint-20261029.md)
+- [Vercel collector source preparation and limits](research/vercel-collector-checkpoint-20261029.md)
 - [Team/CRM discovery and access limits](research/team-crm.md)
 - [Setup and access](research/setup.md)
 - [Investigation and delivery plan](research/plan.md)
@@ -86,9 +87,15 @@ packaging and eight reproducible controls, bringing the collector suite to
 **53 passing tests**. It has not been deployed or provisioned. The user has since
 selected Vercel; the Render option is unapproved history. The separate [Vercel collector](collector-vercel/README.md) is now applied with
 23 passing package tests, strict types and a restricted import check. It uses a
-remote libSQL primary and a standalone nested lock. Account access remains pending
-after a 403 response; no service has been deployed. See the
-[Vercel checkpoint](research/vercel-collector-checkpoint-20261029.md).
+remote libSQL primary and a standalone nested lock. The approved grant now works;
+a new dedicated $0 Turso resource and Production-only configuration are prepared.
+Actual SDK empty-schema/FK/rollback preflight passed. The first build failed with
+TS5097; the TypeScript configuration correction passed local checks/emission.
+Schema installation is commit-confirmed; builds02/03 are READY, stable health passes,
+and all31 synthetic wire actions pass. Receipt/cursor and fresh-nonce persistence
+survived replacement; concurrency10 and the144-request100-event page passed. Main
+tracking stays off. See the [deployment checkpoint](research/vercel-deployment-checkpoint-20261029.md)
+for exact commits and retained failures.
 
 A separate [paired custom Split case](research/split-inbox-paired-checkpoint-20261029.md)
 completed one authorized original create/name edit/off/on/delete and exact

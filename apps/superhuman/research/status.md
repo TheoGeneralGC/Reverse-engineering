@@ -37,11 +37,19 @@ No full browser regression or original snippet comparison was repeated.
 The separate [Vercel collector preparation](vercel-collector-checkpoint-20261029.md)
 is now applied. Root passed its 23 standalone package tests, strict source/test
 types and restricted import check after an offline nested-lock install. Its
-reviewed remote libSQL adapter has no main API/mail/model dependency. No project,
-database, real key, environment setting or deployment has been created; workspace
-access still returns 403. These tests do not establish hosted behavior or add to
-the existing collector53 count. Its integration checkpoint used 682 API/652
-frontend/53 collector.
+reviewed remote libSQL adapter has no main API/mail/model dependency. The approved
+grant now works, with a new dedicated $0 Turso resource in iad1 and sensitive
+Production-only configuration. Actual SDK empty-primary/FK/rollback preflight
+passed. The regional-host correction passed23/strict/import checks; its first
+build failed TS5097 before runtime. The TypeScript configuration correction passed
+local project checking/emission. Explicit schema installation is commit-confirmed;
+builds02/03 are READY with stable health and all31 synthetic wire actions passing.
+Seven receipt/current/cursor GETs and a separate fresh-nonce replay check passed
+across replacement; concurrency10 and page100’s144 requests passed. Complete
+runtime file tracing, cold starts, backup/restore and real delivery remain open.
+Main tracking stays off. See the [deployment checkpoint](vercel-deployment-checkpoint-20261029.md).
+These tests do not add to the existing collector53 count. The earlier source
+integration checkpoint used 682 API/652 frontend/53 collector.
 
 The preceding **682 API/652 frontend/53 collector** checkpoint’s narrow
 Split footer integration passed 11 focused checks, all 652 frontend tests,
@@ -68,9 +76,9 @@ pass after that integration; the API/web runtime source is unchanged. Docker
 execution, hosting and paid provisioning remain unperformed. The user subsequently
 selected **Vercel**; the Render option is retained as history. A serverless
 collector and remote durable database adapter have been reviewed locally.
-Vercel account access remains pending after a 403 response; no service has been
-deployed.
-The historical Render option has not been approved.
+At that earlier preparation boundary Vercel access returned403 and no deployment
+had run; the later approved setup/build attempts are recorded above. The
+historical Render option has not been approved.
 
 A later [paired custom Split checkpoint](split-inbox-paired-checkpoint-20261029.md)
 completed one approved original create/name-only edit/off/on/delete, positive
