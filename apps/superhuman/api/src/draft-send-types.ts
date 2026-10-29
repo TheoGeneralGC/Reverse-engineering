@@ -36,6 +36,7 @@ export type DraftSendRequest={
   scheduledAt?:string
 };
 export type DraftSendSnapshot={
+  tracking?:import('./tracking-delivery-types.ts').TrackingDeliveryIdentity;
   operation:DraftSendOperation|null;
   latestGeneration:number|null;
   draftRevision:number;

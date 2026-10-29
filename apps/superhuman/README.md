@@ -9,6 +9,8 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Applied tracking and keyboard checkpoint](research/tracking-keyboard-checkpoint-20261029.md)
+- [Team/CRM discovery and access limits](research/team-crm.md)
 - [Setup and access](research/setup.md)
 - [Investigation and delivery plan](research/plan.md)
 - [Parity inventory](research/parity.csv)
@@ -27,9 +29,26 @@ Store sanitized specifications and synthetic fixtures under version control.
 Layout: `web/` contains the browser client, `api/` the persistent backend, and
 `research/` the observed behavior, acceptance scenarios and comparisons.
 
+## Applied tracking and keyboard checkpoint
+
+The applied **682 API/646 frontend/45 collector** source passed the existing
+**16 cases/407 browser steps**, all eight persistence assertions and 436 stable
+source/runtime entries. Separate synthetic read-import and keyboard checks passed
+75 and 50 actions respectively. It adds guarded tracking preferences/delivery,
+local anonymous read-cache/feed UI and bounded physical Ask AI/help focus behavior.
+Public hosting/TLS, effective read/feed capability, real tracked delivery and full
+original parity remain unverified. Root applied 111 source paths matching all 391
+frozen files, checked the stopped migration, then passed fresh 682/646/45 tests
+and build before restarting main. Inbox rendered with Read Statuses and Recent
+Opens off. The postrestart audit preserved protected data and explicitly classified
+normal-sync timestamps/counters rather than claiming all-row equality. See the
+[applied checkpoint](research/tracking-keyboard-checkpoint-20261029.md) for exact
+source identities, retained failures and coverage. No collector credentials or
+real-account tracking activation is implied.
+
 ## Run the current implementation
 
-The running version passed **561 API/536 frontend tests**, build and strict types,
+The preceding serving version passed **561 API/536 frontend tests**, build and strict types,
 plus **16 cases/407 browser steps**, all eight persistence assertions and 165
 stable source entries. Custom Split Inboxes now support account-scoped saves,
 edit/off/on, overlap filtering, empty views, ordering and deletion. A separate
@@ -74,7 +93,8 @@ The API binds to 127.0.0.1:3001 and stores state in the ignored
 `.local/superhuman/mail.sqlite` database. Stop with Ctrl+C.
 
 `npm run build:superhuman` checks frontend types and builds the browser client.
-`npm run test:superhuman` runs backend persistence/integration and frontend state tests.
+`npm run test:superhuman` runs backend persistence/integration, frontend state
+tests and the collector suite.
 See [browser scenarios](research/scenarios/README.md) for REA interaction checks.
 
 The current implementation is an incomplete development version. It includes
@@ -100,8 +120,10 @@ Event coverage is incomplete. Earlier New-prompt/focus failures remain recorded;
 their fixes passed the subsequent full demo run. See the
 [bounded AI browser record](research/ai-chat-browser-check.md).
 
-Outlook is outside the current scope at the user's request. Tracking, team
-collaboration, and many advanced settings remain unimplemented. A local demo
+Outlook is outside the current scope at the user's request. Tracking has the
+bounded applied checkpoint above; public hosting/effective flags remain unverified.
+Team collaboration, CRM
+integrations and many advanced settings remain unimplemented. A local demo
 account contains synthetic email; it cannot send mail.
 
 The earlier frozen Send/Undo-source regression passed **16 cases/407 steps**, all eight

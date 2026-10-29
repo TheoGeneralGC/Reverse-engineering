@@ -1,0 +1,7 @@
+.tracking-read-actions{margin:0 0 18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tracking-read-actions p{flex-basis:100%;font-size:12px;line-height:18px;margin:0}
+.tracking-read-actions button{font-size:12px;color:var(--accent,#7754b5);padding:4px 0}
+.tracking-read-actions button:disabled{color:var(--muted);cursor:default}
+.tracking-read-cache-note{font-size:11px;line-height:17px;color:var(--muted)}
+.tracking-message-read-error,.tracking-message-read-more{font-size:11px;color:var(--muted);margin-inline-start:8px}
+.tracking-read-feed [role=alert]{font-size:12px;line-height:18px;color:#a64750}

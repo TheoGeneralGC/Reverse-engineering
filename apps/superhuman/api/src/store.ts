@@ -1,3 +1,4 @@
+import type { KeyedDeliveryIdentity, KeyedDeliveryObserver } from './keyed-delivery-hooks.ts';
 import { initializeSplitHeaders, refreshSplitHeaders } from './split-inbox-headers.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync } from 'node:fs';
@@ -12,8 +13,8 @@ import { initializeRecipientContacts, recipientSuggestions, refreshRecipientCont
 import { parseOutgoingRecipientHeaders } from './outgoing-recipients.ts';
 import { initializeContactContext, contactContext } from './contact-context.ts';
 
-export type DeliveryContext = { artifactOperationId?: string; composerOperationId?: string; reconciliation?: boolean; recovery?: boolean };
-export type DeliveryHooks = { claim: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; complete: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; unknown: (draft: Draft, context: DeliveryContext) => void };
+export type DeliveryContext = { artifactOperationId?: string; composerOperationId?: string; reconciliation?: boolean; recovery?: boolean; trackingContinuation?: boolean };
+export type DeliveryHooks = { claim: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; complete: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; unknown: (draft: Draft, context: DeliveryContext) => void; held?: (draft:Draft,context:DeliveryContext)=>void; resume?: (draft:Draft,context:DeliveryContext)=>void; native?: (draft:Draft,context:DeliveryContext)=>void };
 export type DraftLifecycleOrigin = 'composer' | 'reply' | 'forward' | 'ai-created' | 'ai-send';
 export type DraftLifecycleHooks = {
   beforeWrite?: (before: Draft | undefined, next: Draft) => void;
@@ -25,6 +26,28 @@ export type DraftLifecycleHooks = {
   beforeNativeSend?: (draft: Draft) => void;
 };
 export class Store {
+  private readonly keyedDeliveryObservers = new Set<KeyedDeliveryObserver>();
+  registerKeyedDeliveryObserver(observer:KeyedDeliveryObserver){this.keyedDeliveryObservers.add(observer);return()=>this.keyedDeliveryObservers.delete(observer)}
+  trackingDeliveryIdentity(accountId:string,source:'composer'|'artifact',operationId:string){if(!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracking_delivery_bindings'").get())return undefined;const table=source==='composer'?'draft_send_operations':'ai_draft_sends',required=this.db.prepare(`SELECT tracking_required FROM ${table} WHERE account_id=? AND id=?`).get(accountId,operationId);return required?.tracking_required===1||this.db.prepare('SELECT 1 FROM tracking_delivery_bindings WHERE account_id=? AND source=? AND operation_id=?').get(accountId,source,operationId)?{accountId,source,operationId}:undefined}
+  keyedDeliveryAccepted(identity:KeyedDeliveryIdentity,draft:Draft){if(!this.db.isTransaction)throw Error('Keyed acceptance requires a transaction');for(const h of this.keyedDeliveryObservers)h.accepted?.(identity,draft);if([...this.keyedDeliveryObservers].some(h=>h.trackingRequired)){const table=identity.source==='composer'?'draft_send_operations':'ai_draft_sends';if(this.db.prepare(`UPDATE ${table} SET tracking_required=1 WHERE account_id=? AND id=? AND draft_id=?`).run(identity.accountId,identity.operationId,identity.draftId).changes!==1)throw new HttpError(409,'Tracking decision owner changed','tracking_delivery_conflict')}}
+  keyedDeliveryCancelled(identity:KeyedDeliveryIdentity,draft:Draft){if(!this.db.isTransaction)throw Error('Keyed cancellation requires a transaction');for(const h of this.keyedDeliveryObservers)h.cancelled?.(identity,draft)}
+  trackingNeverIssued(draft:Draft,context:DeliveryContext={}):boolean{return[...this.keyedDeliveryObservers].some(h=>h.neverIssued?.(draft,context)===true)}
+  holdTrackedDelivery(id:string,context:DeliveryContext={},reason='Tracking requires explicit review before Gmail issue'):boolean{
+    this.db.exec('SAVEPOINT tracking_hold');try{const draft=this.get<Draft>('draft',id);if(!draft){this.db.exec('RELEASE tracking_hold');return false}if(!this.trackingNeverIssued(draft,context)){this.db.exec('RELEASE tracking_hold');return false}
+      this.requireDeliveryHook(draft,context)?.held?.(draft,context);for(const h of this.keyedDeliveryObservers)h.held?.(draft,context);
+      const held={...draft,status:'delivery_held' as const,error:reason};
+      if(draft.deliveryAttemptId){const a=this.required<DeliveryAttempt>('delivery',draft.deliveryAttemptId);if(a.status==='sent')throw new HttpError(409,'Acknowledged delivery cannot be held','delivery_identity_conflict');this.put('delivery',a.id,{...a,status:'not_issued',error:reason})}
+      this.putDeliveryDraft(held);this.db.exec('RELEASE tracking_hold');return true;
+    }catch(error){this.db.exec('ROLLBACK TO tracking_hold; RELEASE tracking_hold');throw error}
+  }
+  resumeTrackedDelivery(id:string,context:DeliveryContext):Draft{
+    if(!this.db.isTransaction)throw Error('Continuation requires its receipt transaction');const draft=this.required<Draft>('draft',id);
+    if(draft.status!=='delivery_held'||!this.trackingNeverIssued(draft,context))throw new HttpError(409,'This delivery is not a never-issued hold','tracking_delivery_conflict');
+    const hooks=this.requireDeliveryHook(draft,context);if(!hooks?.resume)throw new HttpError(409,'The delivery owner cannot continue','tracking_delivery_conflict');hooks.resume(draft,context);
+    const op=context.composerOperationId?this.db.prepare('SELECT data FROM draft_send_operations WHERE id=?').get(context.composerOperationId):undefined;
+    const mode=op?JSON.parse(String(op.data))as{mode:string;scheduledAt:string|null}:undefined;
+    return this.putDeliveryDraft({...draft,status:draft.deliveryAttemptId?'sending':mode?.mode==='scheduled'?'scheduled':'send_queued',error:undefined});
+  }
   private readonly draftLifecycleHooks = new Set<DraftLifecycleHooks>();
   assertProviderDraftDeliveryReady(draft: Draft) { for (const hook of this.draftLifecycleHooks) hook.deliveryReadiness?.(draft); }
   assertProviderDraftNativeSend(draft: Draft) { for (const hook of this.draftLifecycleHooks) hook.beforeNativeSend?.(draft); }
@@ -48,6 +71,8 @@ export class Store {
     if(composer||draft.composerSendId){if(composer!==draft.composerSendId||!this.composerDeliveryHooks)throw new HttpError(409,'This draft requires its durable delivery owner','composer_delivery_locked');return this.composerDeliveryHooks;}
     return undefined;
   }
+  assertUntrackedNativeSend(draft:Draft){for(const h of this.keyedDeliveryObservers)h.untrackedNative?.(draft)}
+  assertKeyedNativeSend(draft:Draft,context:DeliveryContext){this.requireDeliveryHook(draft,context)?.native?.(draft,context)}
   private assertDraftMutable(draft: Draft) { if (draft.artifactSendId || draft.composerSendId || this.artifactDeliveryId(draft.id) || this.composerDeliveryId(draft.id)) throw new HttpError(409, 'A reviewed artifact delivery cannot be edited or reused', 'artifact_delivery_locked'); }
 
   db: DatabaseSync;
@@ -232,7 +257,7 @@ export class Store {
     try {
       const draft = this.required<Draft>('draft', id);
       if (draft.status === 'sent') throw new HttpError(409, 'Message was already sent', 'already_sent');
-      if (draft.status === 'sending' || draft.status === 'delivery_unknown') throw new HttpError(409, 'Delivery outcome must be reconciled; this message will not be resent automatically', 'delivery_requires_reconciliation');
+      if (draft.status === 'sending' || draft.status === 'delivery_unknown' || draft.status === 'delivery_held') throw new HttpError(409, 'Delivery outcome must be reconciled; this message will not be resent automatically', 'delivery_requires_reconciliation');
       if(!context.artifactOperationId&&!context.composerOperationId&&this.cancelledDeliveryHistory(id))throw new HttpError(409,'A fresh explicit keyed Send intent is required after Undo','send_intent_required');
       const hooks=this.requireDeliveryHook(draft,context);
       for (const hook of this.draftLifecycleHooks) hook.beforeDelivery?.(draft);
@@ -241,6 +266,7 @@ export class Store {
       const attempt: DeliveryAttempt = { id: attemptId, draftId: id, status: 'dispatching', messageId, marker, startedAt: new Date().toISOString() };
       const pending: Draft = { ...draft, status: 'sending', deliveryAttemptId: attemptId, deliveryMessageId: messageId, deliveryMarker: marker, providerMessageId: undefined, providerInternetMessageId: undefined, deliveryMarkerVerified: undefined, error: undefined, updatedAt: attempt.startedAt };
       hooks?.claim(pending,attempt,context);
+      for(const h of this.keyedDeliveryObservers)h.claim?.(pending,attempt,context);
       this.put('delivery', attemptId, attempt); this.putDeliveryDraft(pending); this.db.exec('COMMIT');
       return pending;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
@@ -253,6 +279,7 @@ export class Store {
       this.put('delivery', attempt.id, { ...attempt, status: 'sent', providerMessageId, providerInternetMessageId, markerVerified, completedAt, error: undefined });
       const sent: Draft = { ...draft, status: 'sent', providerMessageId, providerInternetMessageId, deliveryMarkerVerified: markerVerified, scheduledAt: undefined, error: undefined, updatedAt: completedAt };
       this.requireDeliveryHook(draft,context)?.complete(sent,{...attempt,status:'sent',providerMessageId},context);
+      for(const h of this.keyedDeliveryObservers)h.complete?.(sent,{...attempt,status:'sent',providerMessageId},context);
       this.putDeliveryDraft(sent); this.db.exec('COMMIT'); return sent;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -262,6 +289,7 @@ export class Store {
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   unknownDelivery(id: string, reason: string, context: DeliveryContext = {}) {
+    if(this.holdTrackedDelivery(id,context))return this.required<Draft>('draft',id);
     this.db.exec('BEGIN IMMEDIATE');
     try {
       // Re-read under the write lock: another process may have committed an ACK
@@ -271,6 +299,7 @@ export class Store {
       if (draft.deliveryAttemptId) { const attempt = this.required<DeliveryAttempt>('delivery', draft.deliveryAttemptId); this.put('delivery', attempt.id, { ...attempt, status: 'unknown', error: reason }); }
       const unknown: Draft = { ...draft, status: 'delivery_unknown', error: reason, updatedAt: new Date().toISOString() };
       if (!context.recovery) this.requireDeliveryHook(draft,context)?.unknown(unknown,context);
+      for(const h of this.keyedDeliveryObservers)h.unknown?.(unknown,context);
       this.putDeliveryDraft(unknown); this.db.exec('COMMIT'); return unknown;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }

@@ -1,0 +1,11 @@
+{
+  "name": "@reconstruction/superhuman-tracking-collector",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "start": "node --experimental-strip-types src/server.ts",
+    "start:deployment": "node --experimental-strip-types src/bootstrap.ts"
+  }
+}

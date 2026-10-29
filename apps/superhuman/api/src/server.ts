@@ -1,3 +1,8 @@
+import { loadTrackingRuntimeConfiguration } from './tracking-runtime-config.ts';
+import { TrackingReadService } from './tracking-read.ts';
+import { TrackingDeliveryService } from './tracking-delivery.ts';
+import { TrackingPreferencesService } from './tracking-preferences.ts';
+import { TrackingCollectorClient, type CollectorConfiguration } from './tracking-collector.ts';
 import { SplitInboxService } from './split-inbox.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
@@ -48,8 +53,8 @@ export function resolveApplicationDatabasePath(optionPath: unknown, environmentP
   return configured;
 }
 
-export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean } = {}) {
-  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic'].includes(key));
+export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration } = {}) {
+  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector'].includes(key));
   if (unknownOptions.length) throw new TypeError('Unknown application configuration option');
   if (options.providerDraftAutomatic !== undefined && typeof options.providerDraftAutomatic !== 'boolean') throw new TypeError('providerDraftAutomatic must be a boolean');
   const env = options.env ?? process.env;
@@ -58,13 +63,21 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   if(options.undoWindowMs!==undefined)deliveryDeadline(scheduler.now(),options.undoWindowMs);
   const syncPollMs = 30_000; const syncContinuationMs = 1_500;
   let closing = false;
-  const store = new Store(configuredDatabase ?? resolve(rootPath, '.local/superhuman/mail.sqlite'), options.seed ?? true);
+  if (options.trackingCollector !== undefined && (!options.trackingCollector || typeof options.trackingCollector !== 'object' || Array.isArray(options.trackingCollector))) throw new TypeError('Invalid tracking collector configuration');
+  const trackingCollector = options.trackingCollector === undefined ? undefined : new TrackingCollectorClient({ ...options.trackingCollector, now: options.trackingCollector.now ?? Date.now });
+  let store: Store;
+  try { store = new Store(configuredDatabase ?? resolve(rootPath, '.local/superhuman/mail.sqlite'), options.seed ?? true); } catch (error) { trackingCollector?.close(); throw error; }
   const google = new GoogleProvider(store, env);
-  try { google.migrateLegacyMailGrants(); } catch (error) { store.close(); throw error; }
+  try { google.migrateLegacyMailGrants(); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   let automation: AutomationService;
-  try { automation = new AutomationService(store, { now: scheduler.now, fixture: options.automationFixture }); } catch (error) { store.close(); throw error; }
+  try { automation = new AutomationService(store, { now: scheduler.now, fixture: options.automationFixture }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   let splitInboxes: SplitInboxService;
-  try { splitInboxes = new SplitInboxService(store, { now: scheduler.now }); } catch (error) { store.close(); throw error; }
+  try { splitInboxes = new SplitInboxService(store, { now: scheduler.now }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
+  let tracking: TrackingPreferencesService;
+  try { tracking = new TrackingPreferencesService(store, { now: scheduler.now, configuration: () => trackingCollector?.capability() ?? { configured: false, configurationFingerprint: null } }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
+  const trackingBasis=options.trackingCollector&&trackingCollector?{origin:options.trackingCollector.origin,keyId:options.trackingCollector.keyId,tenant:options.trackingCollector.tenant,configurationFingerprint:trackingCollector.capability().configurationFingerprint}:null;
+  const trackingDelivery=new TrackingDeliveryService(store,google,tracking,trackingCollector,{configuration:()=>trackingBasis,wallNow:options.trackingCollector?.now??Date.now,isClosing:()=>closing});
+  const trackingReads=new TrackingReadService(store,tracking,trackingDelivery,trackingCollector,{now:options.trackingCollector?.now??Date.now});
   const ai = new AiProvider(store, env, options.aiFetch);
   const personalization = new PersonalizationService(store, scheduler.now);
   const calendar = new GoogleCalendarProvider(store, google, env, google.fetcher, { now: scheduler.now });
@@ -78,6 +91,8 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   if (options.runJobs !== false) aiChat.startIndexing();
   let jobsPromise: Promise<void> | undefined;
   const deliveryMetadataJobs = new Set<Promise<void>>();
+  const trackingConfirmationJobs=new Set<Promise<void>>();
+  function confirmTracking(draft:Draft){const operationId=draft.composerSendId??draft.artifactSendId;if(!operationId||!trackingDelivery.isTracked(draft))return;const work=trackingDelivery.confirm({accountId:draft.accountId,source:draft.composerSendId?'composer':'artifact',operationId}).catch(()=>{});trackingConfirmationJobs.add(work);void work.finally(()=>trackingConfirmationJobs.delete(work));}
   const syncs = new Map<string, Promise<unknown>>();
   const operations = new OperationQueue();
   const providerDrafts = new ProviderDraftService(store, options.providerDraftTransport ?? googleDraftTransport(google), { clock: scheduler, queue: operations, automatic: options.providerDraftAutomatic ?? options.runJobs !== false, resume: options.providerDraftAutomatic ?? options.runJobs !== false });
@@ -167,7 +182,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     if (!artifactOperationId && !composerOperationId && store.cancelledDeliveryHistory(draft.id)) throw new HttpError(409, 'A fresh explicit keyed Send intent is required after Undo', 'send_intent_required');
   }
   const deliverComposer = (draftId: string, operationId: string) => deliver(draftId, undefined, operationId);
-  async function deliver(id: string, artifactOperationId?: string, composerOperationId?: string) {
+  async function deliver(id: string, artifactOperationId?: string, composerOperationId?: string, trackingContinuation=false) {
     if (closing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
     const selected = store.required<Draft>('draft', id);
     if ((selected.artifactSendId || artifactOperationId || store.artifactDeliveryId(id)) && (selected.artifactSendId !== artifactOperationId || store.artifactDeliveryId(id) !== artifactOperationId)) throw new HttpError(409, 'Use the original artifact Send operation; generic Send cannot redispatch it', 'artifact_delivery_locked');
@@ -175,28 +190,31 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     if (inFlightSends.has(id)) throw new HttpError(409, 'Message delivery is already in progress', 'delivery_in_progress');
     const accountId = store.required<Draft>('draft', id).accountId;
     inFlightSends.add(id);
-    try { return await operations.run(accountId, () => dispatchDelivery(id, artifactOperationId, composerOperationId)); }
+    try { return await operations.run(accountId, () => dispatchDelivery(id, artifactOperationId, composerOperationId,trackingContinuation)); }
     finally { inFlightSends.delete(id); }
   }
-  async function dispatchDelivery(id: string, artifactOperationId?: string, composerOperationId?: string) {
+  async function dispatchDelivery(id: string, artifactOperationId?: string, composerOperationId?: string,trackingContinuation=false) {
     if (closing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
     const draft = store.required<Draft>('draft', id);
     if ((draft.artifactSendId || artifactOperationId || store.artifactDeliveryId(id)) && (draft.artifactSendId !== artifactOperationId || store.artifactDeliveryId(id) !== artifactOperationId)) throw new HttpError(409, 'The artifact operation owns this delivery', 'artifact_delivery_locked');
     assertComposerDelivery(draft, artifactOperationId, composerOperationId);
-    const deliveryContext = { artifactOperationId, composerOperationId };
+    const deliveryContext = { artifactOperationId, composerOperationId,trackingContinuation };
     if (draft.status === 'sent') throw new HttpError(409, 'Message was already sent', 'already_sent');
-    if (draft.status === 'sending' || draft.status === 'delivery_unknown') throw new HttpError(409, 'Delivery outcome must be reconciled; this message will not be resent automatically', 'delivery_requires_reconciliation');
+    if (draft.status === 'delivery_held') throw new HttpError(409,'Use the explicit tracking continuation intent','tracking_delivery_held');
+    if ((draft.status === 'sending' && !(trackingContinuation&&store.trackingNeverIssued(draft,deliveryContext))) || draft.status === 'delivery_unknown') throw new HttpError(409, 'Delivery outcome must be reconciled; this message will not be resent automatically', 'delivery_requires_reconciliation');
     // Validate all recipients before any external operation or state transition.
     google.validateDelivery(draft);
     if (store.required<Account>('account', draft.accountId).provider !== 'google') throw new HttpError(409, 'Demo accounts cannot deliver email', 'demo_delivery_disabled');
-    let attemptStarted = false;
+    let attemptStarted = trackingContinuation&&!!draft.deliveryAttemptId;
     try {
       await providerDrafts.checkBeforeDelivery(draft);
       if (closing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
-      const pending = store.beginDelivery(id, deliveryContext); attemptStarted = true;
-      const result = await google.send(pending) as { id?: string };
+      const tracked=attemptStarted?trackingDelivery.isTracked(draft,deliveryContext):await trackingDelivery.prepare(draft,deliveryContext);
+      const pending = attemptStarted?draft:store.beginDelivery(id, deliveryContext); attemptStarted = true;
+      const result = await (tracked?trackingDelivery.send(pending,deliveryContext):google.send(pending)) as { id?: string };
       if (!result || typeof result.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(result.id)) throw new HttpError(502, 'Gmail returned an invalid delivery acknowledgment', 'invalid_google_send_response');
-      store.completeDelivery(id, result.id, undefined, undefined, deliveryContext);
+      const sent=store.completeDelivery(id, result.id, undefined, undefined, deliveryContext);
+      if(tracked)confirmTracking(sent);
       // The ACK is already durable. A best-effort read can enrich its final
       // provider header, but failure must never downgrade or repeat the send.
       const providerMessageId = result.id;
@@ -206,6 +224,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       deliveryMetadataJobs.add(metadataJob); void metadataJob.finally(() => deliveryMetadataJobs.delete(metadataJob));
       return { sent: true, result };
     } catch (error) {
+      if(store.holdTrackedDelivery(id,deliveryContext))throw new HttpError(409,'Tracking is held before Gmail issue; review its status','tracking_delivery_held');
       if (attemptStarted) {
         store.unknownDelivery(id, 'Delivery could not be confirmed. Check the provider and reconcile this attempt; it will not be automatically retried.', deliveryContext);
         throw new HttpError(409, 'Delivery could not be confirmed. Reconcile this attempt before taking further action.', 'delivery_requires_reconciliation');
@@ -221,7 +240,8 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       const current = store.required<Draft>('draft', id); if (current.status === 'sent') return { resolved: true, draft: current };
       const result = await google.reconcileDelivery(current);
       const message = result.reason === 'legacy_attempt_unverifiable' ? 'This older attempt has no verifiable delivery marker. It remains locked; inspect the provider manually.' : result.reason === 'multiple_marker_matches' ? 'Multiple Sent messages carry this delivery marker. The attempt remains unknown and requires review.' : result.scanComplete ? 'No verified Sent match was found yet. The attempt remains unknown and will not be resent automatically.' : 'The bounded Sent check could not prove a unique match. The attempt remains unknown and will not be resent automatically.';
-      return { resolved: result.found, matches: result.matches, scanComplete: result.scanComplete, scannedCandidates: result.scannedCandidates, reason: result.reason, draft: result.found ? store.completeDelivery(id, result.providerMessageId, result.providerInternetMessageId, true, current.composerSendId ? { composerOperationId: current.composerSendId, reconciliation: true } : aiSend.deliveryContext(current, true)) : store.required<Draft>('draft', id), ...(!result.found ? { message } : {}) };
+      const resolved=result.found?store.completeDelivery(id,result.providerMessageId,result.providerInternetMessageId,true,current.composerSendId?{composerOperationId:current.composerSendId,reconciliation:true}:aiSend.deliveryContext(current,true)):store.required<Draft>('draft',id);if(result.found)confirmTracking(resolved);
+      return { resolved: result.found, matches: result.matches, scanComplete: result.scanComplete, scannedCandidates: result.scannedCandidates, reason: result.reason, draft:resolved, ...(!result.found ? { message } : {}) };
     });
   }
   function runJobs() {
@@ -262,6 +282,40 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname; const method = request.method;
+      if(path==='/api/tracking/reads'||path.startsWith('/api/tracking/reads/')){
+        const query=(allowed:string[])=>{if([...url.searchParams.keys()].some(k=>!allowed.includes(k)||url.searchParams.getAll(k).length!==1)||url.searchParams.getAll('accountId').length!==1)throw new HttpError(400,'Select one read account','tracking_read_invalid_request');return Object.fromEntries(url.searchParams)};
+        const decode=(v:string)=>{try{return decodeURIComponent(v)}catch{throw new HttpError(400,'Invalid read identity','tracking_read_invalid_request')}};
+        if(path==='/api/tracking/reads'&&method==='GET')return json(response,200,trackingReads.view(query(['accountId']).accountId));
+        if(path==='/api/tracking/reads/feed'&&method==='GET'){const q=query(['accountId','limit','cursor']);return json(response,200,trackingReads.feed(q.accountId,{...(q.limit===undefined?{}:{limit:q.limit}),...(q.cursor===undefined?{}:{cursor:q.cursor})}))}
+        if(path==='/api/tracking/reads/refresh'&&method==='POST'){if(url.search)throw new HttpError(400,'Unexpected read query','tracking_read_invalid_request');const r=trackingReads.refresh(await body(request,8192));return json(response,r.status,r.response)}
+        const recovered=path.match(/^\/api\/tracking\/reads\/refresh\/requests\/by-request\/([^/]+)$/);
+        if(recovered&&method==='GET')return json(response,200,trackingReads.byRequest(query(['accountId']).accountId,decode(recovered[1])));
+        const message=path.match(/^\/api\/tracking\/reads\/messages\/([^/]+)$/);
+        if(message&&method==='GET'){const q=query(['accountId','limit','cursor']);return json(response,200,trackingReads.message(q.accountId,decode(message[1]),{...(q.limit===undefined?{}:{limit:q.limit}),...(q.cursor===undefined?{}:{cursor:q.cursor})}))}
+        const target=path.match(/^\/api\/tracking\/reads\/targets\/([^/]+)$/);
+        if(target&&method==='GET'){const q=query(['accountId','expectedRevision','expectedTargetVersion']);if(!/^(0|[1-9]\d*)$/.test(q.expectedRevision??'')||!q.expectedTargetVersion)throw new HttpError(400,'Invalid read target context','tracking_read_invalid_request');return json(response,200,trackingReads.target(q.accountId,decode(target[1]),Number(q.expectedRevision),q.expectedTargetVersion))}
+        throw new HttpError(404,'Read evidence route not found','tracking_read_not_found');
+      }
+      if(path==='/api/tracking/feed'||path==='/api/tracking/capabilities'||path.startsWith('/api/tracking/deliveries/')){
+        const decode=(v:string)=>{try{return decodeURIComponent(v)}catch{throw new HttpError(400,'Invalid tracking delivery identity','tracking_delivery_invalid_request')}};
+        const accountQuery=()=>{if([...url.searchParams.keys()].some(k=>k!=='accountId')||url.searchParams.getAll('accountId').length!==1)throw new HttpError(400,'Select one tracking account','tracking_delivery_invalid_request');return url.searchParams.get('accountId')!};
+        if(path==='/api/tracking/feed'&&method==='GET')return json(response,200,trackingDelivery.feed(accountQuery()));
+        if(path==='/api/tracking/capabilities'&&method==='GET')return json(response,200,trackingDelivery.capabilities(accountQuery()));
+        const match=path.match(/^\/api\/tracking\/deliveries\/(composer|artifact)\/([^/]+)(?:\/(reconcile|continue)|\/requests\/by-request\/([^/]+))?$/);
+        if(!match)throw new HttpError(404,'Tracking delivery route not found','tracking_delivery_not_found');
+        const source=match[1]as'composer'|'artifact',operationId=decode(match[2]);
+        if(method==='GET'){const scope={accountId:accountQuery(),source,operationId};if(match[4])return json(response,200,trackingDelivery.byRequest(scope,decode(match[4])));if(!match[3])return json(response,200,trackingDelivery.status(scope))}
+        if(method==='POST'&&match[3]){if(url.search)throw new HttpError(400,'Unexpected tracking query','tracking_delivery_invalid_request');const input=await body(request,8192);return json(response,200,await trackingDelivery.control({accountId:string(input.accountId),source,operationId},match[3]as'reconcile'|'continue',input,(draftId,c)=>deliver(draftId,c.artifactOperationId,c.composerOperationId,true)))}
+        throw new HttpError(404,'Tracking delivery route not found','tracking_delivery_not_found');
+      }
+      if(path==='/api/tracking/preferences'||path.startsWith('/api/tracking/preferences/')){
+        const accountQuery=()=>{if([...url.searchParams.keys()].some(key=>key!=='accountId')||url.searchParams.getAll('accountId').length!==1)throw new HttpError(400,'Select one tracking account','tracking_invalid_request');return url.searchParams.get('accountId')!};
+        if(path==='/api/tracking/preferences'&&method==='GET')return json(response,200,tracking.response(accountQuery()));
+        if(path==='/api/tracking/preferences'&&method==='PATCH'){if(url.search)throw new HttpError(400,'Unexpected tracking query','tracking_invalid_request');return json(response,200,tracking.save(await body(request,8192)));}
+        const recovered=path.match(/^\/api\/tracking\/preferences\/requests\/by-request\/([^/]+)$/);
+        if(recovered&&method==='GET'){let key:string;try{key=decodeURIComponent(recovered[1])}catch{throw new HttpError(400,'Invalid tracking key','tracking_invalid_request');}return json(response,200,tracking.byRequest(accountQuery(),key));}
+        throw new HttpError(404,'Tracking preference route not found','tracking_not_found');
+      }
       if(path==='/api/split-inboxes'||path.startsWith('/api/split-inboxes/')){
         const query=(allowed:string[])=>{if([...url.searchParams.keys()].some(key=>!allowed.includes(key)||url.searchParams.getAll(key).length!==1)||url.searchParams.getAll('accountId').length!==1)throw new HttpError(400,'Select one Split Inbox account','split_invalid_request');return Object.fromEntries(url.searchParams)};
         const decode=(value:string)=>{try{return decodeURIComponent(value)}catch{throw new HttpError(400,'Invalid Split Inbox identity','split_invalid_request')}};
@@ -397,7 +451,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
         return json(response, 200, await operations.run(accountId, async () => { const { before, thread } = store.prepareAction(id, string(input.action), { until: input.until === undefined ? undefined : date(input.until), labelId: input.labelId === undefined ? undefined : string(input.labelId) }); if (store.required<Account>('account', before.accountId).provider === 'google') await google.updateThread(before, thread); return store.commitAction(before, thread); }));
       }
       const threadMatch = path.match(/^\/api\/threads\/([^/]+)$/);
-      if (threadMatch && method === 'GET') return json(response, 200, { thread: store.required<Thread>('thread', decodeURIComponent(threadMatch[1])) });
+      if (threadMatch && method === 'GET') return json(response, 200, { thread: trackingReads.annotate(store.required<Thread>('thread', decodeURIComponent(threadMatch[1]))) });
       const replyMatch = path.match(/^\/api\/threads\/([^/]+)\/reply$/);
       if (replyMatch && method === 'POST') { const input = await body(request); const mode = string(input.mode, 'reply'); if (!['reply', 'replyAll', 'forward'].includes(mode)) throw new HttpError(400, 'Invalid reply mode'); const draft=store.replyDraft(decodeURIComponent(replyMatch[1]), mode as 'reply' | 'replyAll' | 'forward'); return json(response,201,{draft,providerDraft:providerDrafts.status(draft.accountId,draft.id)}); }
       if (path === '/api/undo' && method === 'POST') {
@@ -482,15 +536,19 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   let closePromise: Promise<void> | undefined;
   const close = () => {
     if (closePromise) return closePromise;
-    closing = true;
-    closePromise = (async () => { syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close()), providerDrafts.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs]); await calendar.close(); store.close(); })();
+    closing = true;trackingReads.close();trackingDelivery.close();
+    closePromise = (async () => { trackingCollector?.close(); syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close()), providerDrafts.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs,...trackingConfirmationJobs]);await trackingDelivery.waitForIdle();await trackingReads.waitForIdle();trackingReads.dispose(); await calendar.close(); store.close(); })();
     return closePromise;
   };
-  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, providerDrafts, splitInboxes, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
+  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, providerDrafts, splitInboxes, tracking, trackingCollector,trackingDelivery,trackingReads, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const app = createApp(); const port = Number(process.env.PORT || 3001);
+  const collectorConfiguration = loadTrackingRuntimeConfiguration(process.env);
+  let app: ReturnType<typeof createApp>;
+  try { app = createApp({ trackingCollector: collectorConfiguration }); }
+  finally { collectorConfiguration?.key.fill(0); }
+  const port = Number(process.env.PORT || 3001);
   app.server.listen(port, '127.0.0.1', () => console.log(`Superhuman reconstruction API: http://127.0.0.1:${port}`));
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { void app.close().then(() => process.exit(0)); });
 }

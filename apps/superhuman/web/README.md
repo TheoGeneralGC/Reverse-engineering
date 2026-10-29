@@ -450,3 +450,64 @@ Provider draft status/keyed discard, delivery/Undo/Instant Send, Knowledge,
 Personalization, Automation and independent Ask AI remain in the base tests.
 These synthetic checks do not establish original full parity or authorize any
 original account-wide setting change.
+
+## Private read-import candidate
+
+This successor carries reviewed presentation599 and adds the separately authorized
+read-import browser contract. It is not applied to the public/runtime client.
+The local activity view, feed and annotated-message reads use GET only. Refresh
+requires an explicit action, a durable account-scoped browser key and a reviewed
+revision/basis. Lost responses recover through the same key; neither opening the
+pane nor recovering it issues another refresh POST. Offline prepared requests need
+an explicit Apply action. Account switching stops frontend publication/navigation;
+an already authorized server job may finish its original account cache.
+
+Read data contains opaque message/event/target references and anonymous image-fetch
+evidence. Only the exact authorized target resolver may return an existing Mail
+tuple, after which the App saves the current editor and rechecks its identity and
+workspace before opening the exact message. A newer editor or navigation intent
+wins. The message iframe retains its data-only image policy.
+
+Account snapshot coverage is separate from per-message membership. A no-fetch
+status check requires the message's explicit `snapshotCoverage` to match the
+independently loaded current view's snapshot, revision and basis. Positive retained
+fetch history remains visible when current membership is absent and is labeled as
+history. Image fetches do not prove named identity or a human read. The account
+throttling sample never becomes a per-message missing-read count.
+
+The browser still reports the server's false effective/hosting flags honestly.
+Synthetic tests cover the actual React/App, journals, DTOs and navigation races;
+no original UI, provider, collector, model or live database was used for them.
+Matched runtime proof, public collector hosting and full original tooltip/feed
+state comparison remain separate pending milestones. Root's physical question-key
+shortcut observation is queued separately and is not changed by this candidate.
+
+## Private KB01 / KB02 keyboard successor
+
+This source-only successor adds the observed Inbox physical Shift+/ → Ask AI
+binding and retains Shortcuts through Command search and the existing sidebar help
+button. A separate focus request returns to the same AI conversation and unsent
+prompt; it never requests a new conversation or submits a question. The inherited
+Mail editable/modal/draft/workspace guards remain. A plain slash still opens
+search. Repeated, composed or modified events do not activate this shortcut.
+
+Command → Shortcuts remembers the original editor for guarded focus restoration.
+A newer account/workspace or deliberately focused field wins. Both composer Undo
+histories and account-scoped AI drafts remain unchanged. Six actual-App synthetic
+controls pass, while the same six against exact637 give one existing-help positive
+and five expected failures. No provider, model, browser or live API was used.
+
+The original evidence is one physical Shift+/ Inbox trace, ev_ef7750b1…, plus the
+separate Command/Shortcuts reference observations in `research/keyboard.md`.
+Literal REA `?` and a browser KeyboardEvent are not equated. No claim is made that
+the original124 reference declarations, composer/native/Calendar contexts,
+international layouts or all shortcut states have been implemented or compared.
+
+The v3 focus successor resolves two findings in the historical643 checkpoint:
+question intent from a genuinely focused, noneditable AI History control is handled
+inside that pane; and Help return to a connected same-context editor suppresses
+implicit AI visibility refocus. Other Mail keys remain contained. Explicit newer
+focus wins. Three additive actual-App controls cover these boundaries; the unchanged
+independent corrected three-case fixture passes on pinned Node24. The original
+contradictory test oracle and643 failure logs remain preserved separately. These
+are synthetic focus checks, not additional original-browser comparison evidence.

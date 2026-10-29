@@ -11,7 +11,7 @@
     "test:dashboard": "npm test --workspace @re/progress-dashboard",
     "dev:superhuman": "bash scripts/superhuman-dev.sh",
     "build:superhuman": "npm run build --workspace @re/superhuman-web",
-    "test:superhuman": "npm test --workspace @reconstruction/superhuman-api && npm test --workspace @re/superhuman-web",
+    "test:superhuman": "npm test --workspace @reconstruction/superhuman-api && npm test --workspace @re/superhuman-web && npm test --prefix apps/superhuman/collector",
     "inspect:superhuman": "bash scripts/inspection-browser.sh",
     "rea": "bash scripts/rea.sh",
     "rea:doctor": "bash scripts/rea.sh doctor --client codex --json",

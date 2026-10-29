@@ -1,6 +1,32 @@
 # Implementation checkpoint — 2026-10-27–29
 
-The current applied version passed **561 API/536 frontend tests**, build and
+The current applied source passed **682 API/646 frontend/45 collector tests**,
+build and strict checks, with all 391 frozen source files matching the reviewed
+candidate. Root applied 111 source paths, made a fresh stopped backup and reviewed
+the intentional jobs-off migration with zero network calls. Fresh Root tests and
+build passed after preserved sandbox-only loopback failures. Main restarted and
+its Inbox rendered with Read Statuses and Recent Opens off.
+
+The actual final-source regression passed **16 cases/407 steps**, all eight
+persistence assertions and 436 stable source/runtime entries, with all 16 owned
+browser cleanups. Fifteen captures are complete; reply-all retains missing events
+while exact body/POST201 checks passed. Separate RI04 and KB02 checks passed 75
+and 50 actions with strict stopped audits. No real tracked Send, public TLS/hosting,
+effective read/feed capability or full original parity is established. See the
+[tracking/keyboard checkpoint](tracking-keyboard-checkpoint-20261029.md).
+
+Before normal restart, all 67 existing tables had equal logical rows after only
+the two reviewed default 0 tracking_required columns were normalized. Twenty-one
+new tables, six indexes and three triggers matched their exact migration manifest.
+After normal sync, strict all-row equality was **false**: six account/sync/syncHealth
+records changed only named timestamps, five existing calendar_sync rows changed
+only sync timestamps, and two split-source generation counters advanced through
+existing metadata replacement triggers. No broad exclusion was applied. All 19
+Draft JSON records, seven attachment blobs, six deliveries, all mail/other record
+kinds and four sealed credential ciphertexts stayed exact; total records remained
+11,892. This is a point-in-time reviewed result, not a promise of no future sync.
+
+The preceding applied version passed **561 API/536 frontend tests**, build and
 strict types, plus **16 cases/407 browser steps**, eight persistence assertions
 and 165 stable manifest entries. Account-scoped custom Split settings, shared
 count/list membership, metadata query validation, overlap exclusion, empty-view
@@ -23,10 +49,11 @@ The separate API531/web495 [real mapped Send check](mapped-send-live-check-20261
 confirmed one native delivery after Undo and future Cancel, with exact received
 attachment bytes and matching actual message identity. Its strict received
 plain alternative comparison failed; that outcome is retained without resend.
-Tracking collector, private preference/client foundation and pure projection
-have separately passed bounded reviews but are not yet deployed or integrated
-into the running app's tracked delivery/Recent Opens UI. Typewise SDK access and
-original custom Split mutation approval remain pending.
+The tracking candidate adds reviewed collector/runtime configuration, durable
+preferences/delivery, anonymous read import/feed and bounded keyboard focus work;
+its source is now applied and the runtime checks above passed. Effective read/feed
+and hosting flags remain false; see the separate checkpoint for bounded proofs. At the preceding checkpoint, Typewise SDK access and original
+custom Split mutation approval remained pending.
 
 The preceding applied version passed **531 API/495 frontend tests**, build and
 strict types, plus **16 cases/407 browser steps** with all eight persistence

@@ -30,7 +30,7 @@ function checkedResponse(value:unknown,preview:AiDraftPreview,requestId?:string,
   if(resolution.draftId!==null&&resolution.draftId!==creation.draftId||resolution.availability==='available'&&resolution.draftId!==creation.draftId)throw new Error('Unexpected draft resolution identity.');
   if(receipt!==null&&(!scoped(receipt,preview)||!object(receipt)||!id(receipt.id)||!id(receipt.clientRequestId)||receipt.previewId!==preview.id||receipt.creationId!==creation.id||receipt.generation!==creation.generation||requestId&&receipt.clientRequestId!==requestId))throw new Error('Unexpected draft action identity.');
   if(requestId&&receipt===null)throw new Error('The draft action acknowledgement is unavailable.');
-  if(value.draft!==undefined){const draft=value.draft;if(!object(draft)||draft.accountId!==preview.accountId||draft.id!==creation.draftId||!['draft','failed','scheduled','send_queued','sending','delivery_unknown','sent'].includes(draft.status)||!['to','cc','bcc','subject','body','updatedAt'].every(key=>typeof draft[key]==='string'))throw new Error('Unexpected current draft identity.');}
+  if(value.draft!==undefined){const draft=value.draft;if(!object(draft)||draft.accountId!==preview.accountId||draft.id!==creation.draftId||!['draft','failed','scheduled','send_queued','sending','delivery_held','delivery_unknown','sent'].includes(draft.status)||!['to','cc','bcc','subject','body','updatedAt'].every(key=>typeof draft[key]==='string'))throw new Error('Unexpected current draft identity.');}
   if(resolution.availability==='available'&&value.draft&&!['draft','failed'].includes(value.draft.status))throw new Error('The saved draft is locked.');
   if(resolution.availability==='available'&&!value.draft)throw new Error('The current draft is unavailable.');
  }

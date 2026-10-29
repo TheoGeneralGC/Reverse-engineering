@@ -370,3 +370,7 @@ Saved account preferences and immutable AI-turn snapshots are described in [Pers
 Legacy cached Gmail scope adoption is documented in [Mail grant migration](MAIL-GRANT-MIGRATION.md).
 
 See [SPLIT-INBOX.md](SPLIT-INBOX.md) for the private configurable Split Inbox API, strict supported query subset, account CAS/recovery and metadata coverage limits.
+
+See [TRACKING.md](TRACKING.md) for the isolated account preferences and server-only collector-client foundation; delivery integration and hosting remain unavailable.
+
+Internal mapped tracking delivery and its deliberately unavailable read/feed surfaces are documented in [TRACKING-DELIVERY.md](./TRACKING-DELIVERY.md). No live hosting or full original read-tracking parity is claimed.

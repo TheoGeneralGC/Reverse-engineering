@@ -1,3 +1,5 @@
+import useTrackingDelivery from './tracking/useTrackingDelivery.ts';
+import TrackingDeliveryNotice from './tracking/TrackingDeliveryNotice.tsx';
 import useDeliveryAcceleration from './useDeliveryAcceleration.ts';
 import { useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore } from 'react';
 import { api } from './api.ts';
@@ -16,6 +18,7 @@ export default function AiSendToast({activity,accountId,navigationKey,currentEdi
  useLayoutEffect(()=>{if(activity.phase!=='pending')refreshRequested.current=true},[activity.phase]);
  useLayoutEffect(()=>{if(refreshRequested.current&&!state.loading&&!state.checking&&!state.cancelling&&!state.cancelChecking){refreshRequested.current=false;void model.load()}},[activity.phase,state.loading,state.checking,state.cancelling,state.cancelChecking,model]);
  const response=state.response,operation=response?.operation,restored=response?.restoredDraft;
+ const tracking=useTrackingDelivery(response?.tracking,accountId,operation?.revision,{request,storage,onCurrent:()=>{void model.load()}});
  const acceleration=useDeliveryAcceleration({scope:operation?{source:'artifact' as const,accountId:preview.accountId,sessionId:preview.sessionId,turnId:preview.turnId,operationId:operation.id}:null,snapshot:response,request,storage,isCurrent:()=>active.current&&latest.current.accountId===preview.accountId,onRefresh:()=>{void model.load()}});
  useLayoutEffect(()=>{if(restored&&active.current&&restored.accountId===latest.current.accountId)latest.current.onAcknowledge(restored)},[restored?.id,restored?.updatedAt,model]);
  const open=async(cancel:boolean)=>{
@@ -32,9 +35,9 @@ export default function AiSendToast({activity,accountId,navigationKey,currentEdi
   try{const opened=await latest.current.onOpen({accountId:preview.accountId,draftId:draft.id},sameIntent);if(!opened&&current())setNotice('Draft restored. Open it when your current work is finished.')}catch(error){if(current())setNotice(error instanceof Error?error.message:'The restored draft could not be opened.')}
  };
  const busy=state.cancelling||state.cancelChecking||state.reconciling||acceleration.state.sending||acceleration.state.checking,unknown=state.unknown||state.cancelUnknown;
- useLayoutEffect(()=>{if(operation&&['queued','sending','sent'].includes(operation.state)&&!response?.canCancel&&!unknown&&!busy&&!state.error&&!acceleration.isBlocking())onDismiss()},[operation?.state,response?.canCancel,unknown,busy,state.error,acceleration.state.receipt?.id,acceleration.state.unknown,onDismiss]);
+ useLayoutEffect(()=>{if(operation&&['queued','sending','sent'].includes(operation.state)&&!response?.canCancel&&!unknown&&!busy&&!state.error&&!acceleration.isBlocking()&&(!response?.tracking||['untracked','confirmed','cancelled'].includes(tracking.state?.snapshot?.phase||'')))onDismiss()},[operation?.state,response?.canCancel,unknown,busy,state.error,acceleration.state.receipt?.id,acceleration.state.unknown,tracking.state?.snapshot?.phase,response?.tracking,onDismiss]);
  useLayoutEffect(()=>{registerUndo?.(()=>{const now=model.getSnapshot();if(acceleration.isBlocking()||!active.current||!now.loaded||!now.response?.canCancel||now.unknown||now.cancelUnknown||now.cancelling||now.cancelChecking)return false;void open(true);return true});return()=>registerUndo?.(null)},[model,registerUndo,operation?.id]);
- const label=state.cancelUnknown?'Undo is unconfirmed':operation?.state==='cancelled'?'Sending undone.':acceleration.state.unknown?'Instant Send is unconfirmed':acceleration.state.receipt||operation?.accelerationId?'Send accelerated!':activity.phase==='pending'&&!operation?'Sending…':unknown?'Delivery is unconfirmed':operation?.state==='not_dispatched'?'Message was not sent.':operation?.state==='outcome_unknown'?'Delivery is unconfirmed':operation?'Message sent.':'Checking send status…';
+ const label=state.cancelUnknown?'Undo is unconfirmed':operation?.state==='cancelled'?'Sending undone.':acceleration.state.unknown?'Instant Send is unconfirmed':acceleration.state.receipt||operation?.accelerationId?'Send accelerated!':activity.phase==='pending'&&!operation?'Sending…':unknown?'Delivery is unconfirmed':operation?.state==='held_before_provider'?'Send paused before Gmail.':operation?.state==='not_dispatched'?'Message was not sent.':operation?.state==='outcome_unknown'?'Delivery is unconfirmed':operation?'Message sent.':'Checking send status…';
  return <div className="toast ai-send-toast" role="status" aria-live="polite" data-operation-state={operation?.state||'unconfirmed'}>
   <span>{label}</span>
   {response?.canCancel&&!unknown&&!acceleration.isBlocking()&&<button type="button" disabled={busy||!state.loaded} onClick={()=>void open(true)}>{state.cancelling?'Undoing…':'Undo'}</button>}
@@ -44,6 +47,7 @@ export default function AiSendToast({activity,accountId,navigationKey,currentEdi
   {operation?.state==='outcome_unknown'&&!state.cancelUnknown&&<button type="button" disabled={busy} onClick={()=>void model.reconcile()}>Check Sent</button>}
   {operation?.state==='cancelled'&&restored&&<button type="button" disabled={busy} onClick={()=>void open(false)}>Open draft</button>}
   <button type="button" aria-label="Dismiss send notification" onClick={onDismiss}>×</button>
+  <TrackingDeliveryNotice model={tracking.model} state={tracking.state}/>
   {notice&&<small>{notice}</small>}{acceleration.state.error&&<small>{acceleration.state.error}</small>}{state.error&&activity.phase!=='pending'&&<small>{state.error}</small>}
  </div>;
 }

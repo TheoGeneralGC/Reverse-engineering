@@ -64,9 +64,9 @@ export class DraftSendService{
    CREATE INDEX IF NOT EXISTS draft_send_scope ON draft_send_operations(account_id,draft_id,generation DESC);
    CREATE INDEX IF NOT EXISTS draft_send_due ON draft_send_operations(state,json_extract(data,'$.mode'),json_extract(data,'$.scheduledAt'));
    UPDATE draft_send_operations SET data=json_set(data,'$.mode','immediate','$.scheduledAt',NULL) WHERE json_type(data,'$.mode') IS NULL;
-   CREATE TABLE IF NOT EXISTS draft_send_cancellations(id TEXT PRIMARY KEY,operation_id TEXT NOT NULL,account_id TEXT NOT NULL,draft_id TEXT NOT NULL,client_key TEXT NOT NULL,fingerprint TEXT NOT NULL,data TEXT NOT NULL,UNIQUE(account_id,client_key));`); store.db.exec('COMMIT'); } catch(error) { store.db.exec('ROLLBACK'); throw error; }
+   CREATE TABLE IF NOT EXISTS draft_send_cancellations(id TEXT PRIMARY KEY,operation_id TEXT NOT NULL,account_id TEXT NOT NULL,draft_id TEXT NOT NULL,client_key TEXT NOT NULL,fingerprint TEXT NOT NULL,data TEXT NOT NULL,UNIQUE(account_id,client_key));`); if(!store.db.prepare('PRAGMA table_info(draft_send_operations)').all().some(r=>r.name==='tracking_required'))store.db.exec('ALTER TABLE draft_send_operations ADD COLUMN tracking_required INTEGER NOT NULL DEFAULT 0 CHECK(tracking_required IN (0,1))');store.db.exec('COMMIT'); } catch(error) { store.db.exec('ROLLBACK'); throw error; }
     store.composerDeliveryHooks={
-      claim:(d,a,c)=>this.claim(d,a,c),complete:(d,a,c)=>this.complete(d,a,c),unknown:(d,c)=>this.unknown(d,c)
+      claim:(d,a,c)=>this.claim(d,a,c),complete:(d,a,c)=>this.complete(d,a,c),unknown:(d,c)=>this.unknown(d,c),held:(d,c)=>this.held(d,c),resume:(d,c)=>this.resume(d,c),native:(d,c)=>this.native(d,c)
     };
     for(const row of store.db.prepare("SELECT id,owner,owner_pid,data FROM draft_send_operations WHERE state IN ('queued','sending')").all()){
       const live=liveness===ownerAlive&&Number(row.owner_pid)===process.pid?owners.has(String(row.owner)):liveness(Number(row.owner_pid));
@@ -76,6 +76,7 @@ export class DraftSendService{
         const op=JSON.parse(String(fresh.data))as DraftSendOperation;if(!['queued','sending'].includes(op.state))return;
         const freshLive=liveness===ownerAlive&&Number(fresh.owner_pid)===process.pid?owners.has(String(fresh.owner)):liveness(Number(fresh.owner_pid));if(freshLive)return;
         const draft=this.ownedDraft(op.accountId,op.draftId),attempt=op.deliveryAttemptId?store.get<DeliveryAttempt>('delivery',op.deliveryAttemptId):undefined;
+        if(draft&&store.trackingNeverIssued(draft,{composerOperationId:op.id})){store.holdTrackedDelivery(draft.id,{composerOperationId:op.id});return;}
         let resumable=false;try{resumable=op.mode==='scheduled'&&op.state==='queued'&&!op.deliveryAttemptId&&draft?.status==='scheduled'&&!draft.deliveryAttemptId&&draft.composerSendId===op.id&&draft.scheduledAt===op.scheduledAt&&op.cancellableUntil===op.scheduledAt&&Number.isFinite(Date.parse(op.scheduledAt??''))&&(draft.revision??0)===op.draftRevision&&this.contentIdentity(draft)===op.contentHash}catch{/* Invalid queued content is not dispatched. */}
         if(resumable){store.db.prepare('UPDATE draft_send_operations SET owner=?,owner_pid=? WHERE id=?').run(this.owner,process.pid,op.id);return;}
         if(draft?.status==='sent'&&draft.composerSendId===op.id&&draft.deliveryAttemptId===op.deliveryAttemptId&&attempt?.draftId===draft.id&&attempt.status==='sent'&&draft.providerMessageId&&attempt.providerMessageId===draft.providerMessageId)this.save({
@@ -188,7 +189,7 @@ export class DraftSendService{
     }
     const latestGeneration=current?.generation??null,generation=editable?(current?current.generation+1:0):null;
     const result:DraftSendSnapshot={
-      operation:op,latestGeneration,draftRevision:revision,contentHash,serverNow:new Date(this.now()).toISOString(),canCancel:!!op&&!historical&&op.state==='queued'&&!op.deliveryAttemptId&&(op.mode==='scheduled'||beforeDeliveryDeadline(op.cancellableUntil,this.now())),eligibility:{
+      tracking:op?this.store.trackingDeliveryIdentity(accountId,'composer',op.id):undefined,operation:op,latestGeneration,draftRevision:revision,contentHash,serverNow:new Date(this.now()).toISOString(),canCancel:!!op&&!historical&&op.state==='queued'&&!op.deliveryAttemptId&&(op.mode==='scheduled'||beforeDeliveryDeadline(op.cancellableUntil,this.now())),eligibility:{
         eligible,generation,reason
       },resolution:{
         availability:!draft?'unavailable':editable?'available':'locked',draftId:editable?draftId:null
@@ -237,7 +238,7 @@ export class DraftSendService{
       const id=randomUUID(),at=new Date(this.now()).toISOString(),op:DraftSendOperation={
         id,accountId,draftId,generation:v.expectedGeneration as number,mode:scheduledAt?'scheduled':'immediate',scheduledAt,clientRequestId:key,draftRevision:v.expectedDraftRevision as number,contentHash:v.expectedContentHash as string,state:'queued',revision:0,createdAt:at,startedAt:null,confirmedAt:null,cancellableUntil:scheduledAt??deliveryDeadline(this.now(),this.windowMs),cancelledAt:null,deliveryAttemptId:null,providerMessageId:null,error:null
       };
-      this.store.db.prepare('INSERT INTO draft_send_operations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id,accountId,draftId,op.generation,key,fingerprint,'queued',this.owner,process.pid,op.contentHash,op.draftRevision,this.store.required<Account>('account',accountId).email.toLowerCase(),JSON.stringify(op));this.store.lockComposerDraft(draftId,id,this.replyContext(draft));return{
+      this.store.db.prepare('INSERT INTO draft_send_operations(id,account_id,draft_id,generation,client_key,fingerprint,state,owner,owner_pid,content_hash,draft_revision,sender_email,data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id,accountId,draftId,op.generation,key,fingerprint,'queued',this.owner,process.pid,op.contentHash,op.draftRevision,this.store.required<Account>('account',accountId).email.toLowerCase(),JSON.stringify(op));const locked=this.store.lockComposerDraft(draftId,id,this.replyContext(draft));this.store.keyedDeliveryAccepted({source:'composer',accountId,operationId:id,generation:op.generation,draftId,draftRevision:op.draftRevision,authoredHash:op.contentHash},locked);return{
         accepted:true,snapshot:this.snapshot(accountId,draftId,op)
       };
     });
@@ -262,7 +263,7 @@ export class DraftSendService{
           composerOperationId:op.id
         });op=this.save({
           ...op,state:'cancelled',cancelledAt:at,cancelledFromRevision:op.revision,error:null
-        });this.store.restoreCancelledComposerDraft(op.draftId,op.id,at)
+        });const restored=this.store.restoreCancelledComposerDraft(op.draftId,op.id,at);this.store.keyedDeliveryCancelled({source:'composer',accountId,operationId:op.id,generation:op.generation,draftId:op.draftId,draftRevision:op.draftRevision,authoredHash:op.contentHash},restored)
       }
       const cancellation:DraftSendCancellation={
         id:randomUUID(),operationId,accountId,draftId:op.draftId,clientRequestId:key,createdAt:at
@@ -316,6 +317,17 @@ export class DraftSendService{
       ...op,state:'sent',providerMessageId:draft.providerMessageId,confirmedAt:draft.updatedAt,error:null
     })
   }
+  private native(draft:Draft,context:DeliveryContext){const {op,owner}=this.linked(draft,context);if(this.closing||owner!==this.owner||op.state!=='sending'||op.deliveryAttemptId!==draft.deliveryAttemptId)conflict('The native claim no longer belongs to this live owner')}
+  private held(draft:Draft,context:DeliveryContext){
+    const {op}=this.linked(draft,context,false);if(!['queued','sending','held_before_provider'].includes(op.state))conflict('This operation cannot become a never-issued hold');
+    this.save({...op,state:'held_before_provider',error:{code:'tracking_delivery_held',message:'Tracking requires review before Gmail issue; no native Send was issued.',retry:'none',providerOutcome:'not_dispatched'}});
+  }
+  private resume(draft:Draft,context:DeliveryContext){
+    const {op,owner}=this.linked(draft,context);const row=this.store.db.prepare('SELECT owner_pid FROM draft_send_operations WHERE id=?').get(op.id);
+    if(this.closing||op.state!=='held_before_provider'||owner!==this.owner&&(Number(row?.owner_pid)===process.pid?owners.has(owner):ownerAlive(Number(row?.owner_pid))))conflict('Another live owner holds this operation');
+    this.policy(draft);this.store.db.prepare('UPDATE draft_send_operations SET owner=?,owner_pid=? WHERE id=?').run(this.owner,process.pid,op.id);
+    this.save({...op,state:op.deliveryAttemptId?'sending':'queued',error:null});
+  }
   private unknown(draft:Draft,context:DeliveryContext){
     const{
       op
@@ -350,7 +362,8 @@ export class DraftSendService{
     this.waiting.set(id,controller);
     const failed=(error:unknown)=>{
       const value=this.raw(id);
-      if(terminal.has(value.state)||(this.closing&&value.mode==='scheduled'&&value.state==='queued'&&!value.deliveryAttemptId))return;
+      if(value.state==='held_before_provider'||terminal.has(value.state)||(this.closing&&value.mode==='scheduled'&&value.state==='queued'&&!value.deliveryAttemptId))return;
+      if(this.store.holdTrackedDelivery(value.draftId,{composerOperationId:id}))return;
       if(value.deliveryAttemptId){
         this.store.unknownDelivery(value.draftId,'Composer delivery could not be confirmed',{
           composerOperationId:id

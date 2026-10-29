@@ -200,12 +200,13 @@ export class GoogleProvider implements MailProvider {
       this.store.updatePreferences({ activeAccountId: accountId }); this.store.db.exec('COMMIT'); return accountId;
     } catch (error) { this.store.db.exec('ROLLBACK'); throw error; }
   }
-  async request(accountId: string, path: string, options: RequestInit = {}) {
+  async request(accountId: string, path: string, options: RequestInit = {}, nativeGate?:()=>void) {
     const token = await this.tokens(accountId);
     const method = (options.method ?? 'GET').toUpperCase(); const isRead = method === 'GET';
     const attempts = isRead ? 4 : 1;
     for (let attempt = 0; attempt < attempts; attempt++) {
       if (isRead) await this.paceRead(accountId, readCost(path).units);
+      if(nativeGate){if(method!=='POST'||path!=='drafts/send')throw new HttpError(409,'Tracked native gate requires mapped draft Send','tracking_delivery_conflict');nativeGate()}
       let response: Response;
       try { response = await this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, { ...options, signal: AbortSignal.timeout(25_000), headers: { 'content-type': 'application/json', ...options.headers, authorization: `Bearer ${token.access_token}` } }); }
       catch {
@@ -385,6 +386,7 @@ export class GoogleProvider implements MailProvider {
     return this.store.saveDraft({ id: draft.id, providerDraftId: result.id, providerDraftSyncedAt: new Date().toISOString() });
   }
   async send(draft: Draft) {
+    this.store.assertUntrackedNativeSend(draft);
     const linked = this.store.artifactDeliveryId(draft.id);
     if (linked) {
       const pending = this.store.required<Draft>('draft', draft.id);
@@ -402,6 +404,18 @@ export class GoogleProvider implements MailProvider {
     if (account.provider !== 'google') throw new HttpError(409, 'Demo accounts cannot deliver email', 'demo_delivery_disabled');
     const message = this.mime(draft);
     return this.request(draft.accountId, draft.providerDraftId ? 'drafts/send' : 'messages/send', { method: 'POST', body: JSON.stringify(draft.providerDraftId ? { id: draft.providerDraftId, message } : message) });
+  }
+  // Internal persisted-wire path. No MIME rebuild and no messages.send fallback.
+  async sendPersistedWire(draft:Draft,wire:{providerDraftId:string;raw:string;threadId?:string},authorize:()=>void){
+    const validate=()=>{
+      const current=this.store.required<Draft>('draft',draft.id),operationId=draft.composerSendId??draft.artifactSendId;
+      if(!operationId||current.status!=='sending'||draft.status!=='sending'||current.accountId!==draft.accountId||current.deliveryAttemptId!==draft.deliveryAttemptId||!draft.deliveryAttemptId||current.deliveryMarker!==draft.deliveryMarker||current.composerSendId!==draft.composerSendId||current.artifactSendId!==draft.artifactSendId||!draft.providerDraftId||wire.providerDraftId!==draft.providerDraftId||current.providerDraftId!==wire.providerDraftId)throw new HttpError(409,'Tracked Send requires its exact mapped claim','tracking_delivery_conflict');
+      if(this.store.required<Account>('account',draft.accountId).provider!=='google')throw new HttpError(409,'Demo accounts cannot send email','demo_delivery_disabled');
+      if(typeof wire.raw!=='string'||wire.raw.length>48*1024*1024||!wire.raw||Buffer.from(wire.raw,'base64url').toString('base64url')!==wire.raw||wire.threadId!==undefined&&(typeof wire.threadId!=='string'||!/^[A-Za-z0-9_-]{1,200}$/.test(wire.threadId)))throw new HttpError(409,'Tracked wire is unavailable','tracking_delivery_corrupt');
+      this.store.assertProviderDraftNativeSend(current);this.validateDelivery(current);
+    };
+    validate();const message={raw:wire.raw,...(wire.threadId?{threadId:wire.threadId}:{})},body=JSON.stringify({id:wire.providerDraftId,message});
+    return this.request(draft.accountId,'drafts/send',{method:'POST',body},()=>{validate();authorize()});
   }
   private deliveryMetadataPath(id: string) { const query = new URLSearchParams({ format: 'metadata' }); for (const name of ['X-Reconstruction-Delivery-ID', 'Message-ID', 'From']) query.append('metadataHeaders', name); return `messages/${encodeURIComponent(id)}?${query}`; }
   private inspectDeliveryMetadata(account: Account, id: string, value: unknown, marker: string) {

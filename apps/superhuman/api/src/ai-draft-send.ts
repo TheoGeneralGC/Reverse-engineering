@@ -39,15 +39,17 @@ export class AiDraftSendService {
       store.db.exec(`CREATE INDEX IF NOT EXISTS ai_draft_send_scope ON ai_draft_sends(account_id,session_id,turn_id,preview_id,generation DESC);
         CREATE TABLE IF NOT EXISTS ai_draft_send_cancellations(id TEXT PRIMARY KEY,operation_id TEXT NOT NULL,account_id TEXT NOT NULL,session_id TEXT NOT NULL,turn_id TEXT NOT NULL,client_key TEXT NOT NULL,fingerprint TEXT NOT NULL,data TEXT NOT NULL,UNIQUE(account_id,client_key));
         UPDATE ai_draft_sends SET data=json_set(data,'$.cancellableUntil',json_extract(data,'$.createdAt'),'$.cancelledAt',NULL) WHERE json_type(data,'$.cancellableUntil') IS NULL;`);
+      if(!store.db.prepare('PRAGMA table_info(ai_draft_sends)').all().some(r=>r.name==='tracking_required'))store.db.exec('ALTER TABLE ai_draft_sends ADD COLUMN tracking_required INTEGER NOT NULL DEFAULT 0 CHECK(tracking_required IN (0,1))');
       store.db.exec('COMMIT');
     }catch(error){store.db.exec('ROLLBACK');throw error;}
-    store.deliveryHooks = { claim: (draft, attempt, context) => this.claim(draft, attempt, context), complete: (draft, attempt, context) => this.complete(draft, attempt, context), unknown: (draft, context) => this.unknown(draft, context) };
+    store.deliveryHooks = { claim: (draft, attempt, context) => this.claim(draft, attempt, context), complete: (draft, attempt, context) => this.complete(draft, attempt, context), unknown: (draft, context) => this.unknown(draft, context), held:(d,c)=>this.held(d,c),resume:(d,c)=>this.resume(d,c),native:(d,c)=>this.native(d,c) };
     for (const row of store.db.prepare("SELECT id,owner,owner_pid,data FROM ai_draft_sends WHERE state IN ('queued','sending')").all()) {
       const live = ownerAlive === alive && Number(row.owner_pid) === process.pid ? liveOwners.has(String(row.owner)) : ownerAlive(Number(row.owner_pid));
       if (live) continue;
       this.drafts.chat.transaction(() => {
         const operation = this.raw(String(row.id)); const draft = this.store.get<Draft>('draft', operation.draftId);
         const attempt = operation.deliveryAttemptId ? this.store.get<DeliveryAttempt>('delivery', operation.deliveryAttemptId) : undefined;
+        if(draft&&store.trackingNeverIssued(draft,{artifactOperationId:operation.id})){store.holdTrackedDelivery(draft.id,{artifactOperationId:operation.id});return;}
         if (draft?.status === 'sent' && draft.accountId === operation.accountId && draft.artifactSendId === operation.id && draft.deliveryAttemptId === operation.deliveryAttemptId && attempt?.draftId === draft.id && attempt.status === 'sent' && draft.providerMessageId && draft.providerMessageId === attempt.providerMessageId) {
           this.save({ ...operation, state: 'sent', confirmedAt: attempt.completedAt ?? new Date(this.now()).toISOString(), providerMessageId: draft.providerMessageId, error: null });
         } else {
@@ -87,7 +89,7 @@ export class AiDraftSendService {
   }
   private snapshot(preview: AiDraftPreview, operation: AiDraftSendOperation | null): AiDraftSendSnapshot {
     const creation=operation?this.creation(operation):this.drafts.latestCreation(preview,preview.id);
-    const snapshot:AiDraftSendSnapshot={preview,creation,operation,latestGeneration:this.drafts.latestCreation(preview,preview.id)?.generation??null,eligibility:this.eligibility(preview,creation,operation),serverNow:new Date(this.now()).toISOString(),canCancel:!!operation&&operation.state==='queued'&&!operation.deliveryAttemptId&&beforeDeliveryDeadline(operation.cancellableUntil,this.now())};
+    const snapshot:AiDraftSendSnapshot={tracking:operation?this.store.trackingDeliveryIdentity(operation.accountId,'artifact',operation.id):undefined,preview,creation,operation,latestGeneration:this.drafts.latestCreation(preview,preview.id)?.generation??null,eligibility:this.eligibility(preview,creation,operation),serverNow:new Date(this.now()).toISOString(),canCancel:!!operation&&operation.state==='queued'&&!operation.deliveryAttemptId&&beforeDeliveryDeadline(operation.cancellableUntil,this.now())};
     if(operation?.state==='cancelled'){
       const row=this.store.db.prepare("SELECT data FROM records WHERE kind='draft' AND id=? AND json_extract(data,'$.accountId')=?").get(operation.draftId,operation.accountId);
       if(!row)snapshot.restoredResolution={availability:'unavailable',draftId:null};
@@ -122,7 +124,8 @@ export class AiDraftSendService {
       const creation:AiDraftCreation={id:creationId,...scope,previewId,payloadHash:preview.payloadHash,draftId,generation:value.expectedGeneration as number,createdAt:at};
       this.store.db.prepare('INSERT INTO ai_draft_creations VALUES(?,?,?,?,?,?,?,?)').run(creation.id,previewId,scope.accountId,scope.sessionId,scope.turnId,draftId,creation.generation,JSON.stringify(creation));
       const operation:AiDraftSendOperation={id,...scope,previewId,generation:creation.generation,creationId,draftId,clientRequestId:key,payloadHash:preview.payloadHash,state:'queued',revision:0,createdAt:at,startedAt:null,confirmedAt:null,deliveryAttemptId:null,providerMessageId:null,error:null,cancellableUntil:deliveryDeadline(this.now(),this.windowMs),cancelledAt:null};
-      this.store.db.prepare('INSERT INTO ai_draft_sends VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id,scope.accountId,scope.sessionId,scope.turnId,previewId,creationId,draftId,key,fingerprint,'queued',this.owner,process.pid,this.contentHash(draft,sender),sender,operation.generation,JSON.stringify(operation));
+      this.store.db.prepare('INSERT INTO ai_draft_sends(id,account_id,session_id,turn_id,preview_id,creation_id,draft_id,client_key,fingerprint,state,owner,owner_pid,content_hash,sender_email,generation,data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id,scope.accountId,scope.sessionId,scope.turnId,previewId,creationId,draftId,key,fingerprint,'queued',this.owner,process.pid,this.contentHash(draft,sender),sender,operation.generation,JSON.stringify(operation));
+      this.store.keyedDeliveryAccepted({source:'artifact',accountId:scope.accountId,operationId:id,generation:operation.generation,draftId,draftRevision:draft.revision??0,authoredHash:this.contentHash(draft,sender)},draft);
       return {accepted:true,snapshot:this.snapshot(preview,operation)};
     });
   }
@@ -144,7 +147,7 @@ export class AiDraftSendService {
         if(value.expectedRevision!==operation.revision)conflict('The Send revision changed');
         const draftRow=this.store.db.prepare("SELECT data FROM records WHERE kind='draft' AND id=? AND json_extract(data,'$.accountId')=?").get(operation.draftId,operation.accountId);if(!draftRow)throw new HttpError(409,'The owned queued draft is unavailable','ai_draft_send_not_cancellable');const draft=JSON.parse(String(draftRow.data))as Draft;this.linked(draft,{artifactOperationId:operation.id});
         operation=this.save({...operation,state:'cancelled',cancelledAt:at,cancelledFromRevision:operation.revision,error:null});
-        this.store.restoreCancelledArtifactDraft(operation.draftId,operation.id,at);
+        const restored=this.store.restoreCancelledArtifactDraft(operation.draftId,operation.id,at);this.store.keyedDeliveryCancelled({source:'artifact',accountId:operation.accountId,operationId:operation.id,generation:operation.generation,draftId:operation.draftId,draftRevision:restored.revision??0,authoredHash:operation.payloadHash},restored);
       }
       const cancellation:AiDraftSendCancellation={id:randomUUID(),operationId,...scope,clientRequestId:key,createdAt:at};
       this.store.db.prepare('INSERT INTO ai_draft_send_cancellations VALUES(?,?,?,?,?,?,?,?)').run(cancellation.id,operationId,scope.accountId,scope.sessionId,scope.turnId,key,fingerprint,JSON.stringify(cancellation));
@@ -166,6 +169,9 @@ export class AiDraftSendService {
   }
   private claim(draft:Draft,attempt:DeliveryAttempt,context:DeliveryContext) { const {operation,owner}=this.linked(draft,context); if(owner!==this.owner||operation.state!=='queued'||operation.deliveryAttemptId)conflict('This Send operation cannot claim another attempt'); if(!atOrAfterDeliveryDeadline(operation.cancellableUntil,this.now()))throw new HttpError(409,'Delivery cannot claim an attempt before its Undo deadline','ai_draft_send_undo_window'); this.policy(draft); this.save({...operation,state:'sending',startedAt:attempt.startedAt,deliveryAttemptId:attempt.id,error:null}); }
   private complete(draft:Draft,attempt:DeliveryAttempt,context:DeliveryContext) { const {operation,owner}=this.linked(draft,context); if((!context.reconciliation&&(owner!==this.owner||operation.state!=='sending'))||(context.reconciliation&&!['sending','outcome_unknown'].includes(operation.state))||operation.deliveryAttemptId!==attempt.id||!draft.providerMessageId||draft.providerMessageId!==attempt.providerMessageId)conflict('Delivery proof does not belong to the accepted operation'); this.save({...operation,state:'sent',confirmedAt:draft.updatedAt,providerMessageId:draft.providerMessageId,error:null}); }
+  private native(draft:Draft,context:DeliveryContext){const {operation,owner}=this.linked(draft,context);if(this.closing||owner!==this.owner||operation.state!=='sending'||operation.deliveryAttemptId!==draft.deliveryAttemptId)conflict('The native claim no longer belongs to this live owner')}
+  private held(draft:Draft,context:DeliveryContext){const {operation}=this.linked(draft,context,false);if(!['queued','sending','held_before_provider'].includes(operation.state))conflict('This operation cannot become a never-issued hold');this.save({...operation,state:'held_before_provider',error:{code:'tracking_delivery_held',message:'Tracking requires review before Gmail issue; no native Send was issued.',retry:'none',providerOutcome:'not_dispatched'}});}
+  private resume(draft:Draft,context:DeliveryContext){const {operation,owner}=this.linked(draft,context),row=this.store.db.prepare('SELECT owner_pid FROM ai_draft_sends WHERE id=?').get(operation.id);if(this.closing||operation.state!=='held_before_provider'||owner!==this.owner&&(Number(row?.owner_pid)===process.pid?liveOwners.has(owner):alive(Number(row?.owner_pid))))conflict('Another live owner holds this operation');this.policy(draft);this.store.db.prepare('UPDATE ai_draft_sends SET owner=?,owner_pid=? WHERE id=?').run(this.owner,process.pid,operation.id);this.save({...operation,state:operation.deliveryAttemptId?'sending':'queued',error:null});}
   private unknown(draft:Draft,context:DeliveryContext) { const {operation}=this.linked(draft,context,false); if(operation.state==='sent')return; if(operation.deliveryAttemptId!==draft.deliveryAttemptId)conflict('Unknown delivery attempt identity changed'); this.save({...operation,state:'outcome_unknown',error:{code:'delivery_requires_reconciliation',message:'Delivery outcome is unknown. Check Sent; this message will not be retried.',retry:'none',providerOutcome:'unknown'}}); }
   accelerateWithinTransaction(id:string,expectedRevision:number,receipt:DeliveryAccelerationReceipt):void {
     if(!this.store.db.isTransaction)throw Error('Acceleration requires a receipt transaction');
@@ -183,7 +189,8 @@ export class AiDraftSendService {
     const row=this.store.db.prepare('SELECT owner,data FROM ai_draft_sends WHERE id=?').get(operationId);if(!row||row.owner!==this.owner||this.closing)return Promise.resolve();const operation=JSON.parse(String(row.data))as AiDraftSendOperation;if(operation.state!=='queued')return Promise.resolve();
     const controller=new AbortController();this.waiting.set(operationId,controller);
     const failed=(error:unknown)=>{
-      const current=this.raw(operationId);if(finalStates.has(current.state))return;
+      const current=this.raw(operationId);if(current.state==='held_before_provider'||finalStates.has(current.state))return;
+      if(this.store.holdTrackedDelivery(current.draftId,{artifactOperationId:current.id}))return;
       if(current.deliveryAttemptId){this.store.unknownDelivery(current.draftId,'The artifact delivery could not be confirmed.',{artifactOperationId:current.id});return;}
       this.drafts.chat.transaction(()=>{const latest=this.raw(operationId);if(finalStates.has(latest.state)||latest.deliveryAttemptId)return;this.save({...latest,state:'not_dispatched',error:{code:error instanceof HttpError?error.code:'ai_draft_send_not_dispatched',message:'The accepted action did not claim a delivery attempt. It will not be queued automatically.',retry:'none',providerOutcome:'not_dispatched'}})});
     };
