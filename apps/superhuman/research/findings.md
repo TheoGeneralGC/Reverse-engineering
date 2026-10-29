@@ -1,5 +1,13 @@
 # Finding ledger
 
+## Replica managed response
+
+| ID | Finding | Basis | Limits / next probe |
+| --- | --- | --- | --- |
+| GENERATED-CLOUD-001 | One real Claude request produced one managed unsent Gmail reply with confirmed CREATE/raw readback; authored text confirms the changed fictional day/time/room outside the quote | [Controlled record](generated-cloud-reply-checkpoint-20261029.md) GC-01–05; exact449 source, independent metadata review and fresh read-only persisted/MIME verification | Separate copy, zero new Sends/Main activations. Three same-question observations found no original draft; no paired output/timing equivalence. Earlier stops, one undispatched admitted job, strict row inequality and Main credential/Calendar/undo drift remain explicit. Full AI family stays open |
+
+## Initial setup
+
 | ID | Finding | Basis | Limits / next probe |
 | --- | --- | --- | --- |
 | SETUP-001 | Superhuman 1041.0.75 is installed as an Electron app with an ASAR | App plist, resource listing, app bundle ID, and native accessibility observation on 2026-10-27 | Does not establish the remotely loaded web-client version |

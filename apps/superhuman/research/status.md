@@ -1,5 +1,15 @@
 # Implementation checkpoint — 2026-10-27–29
 
+The later [controlled managed response](generated-cloud-reply-checkpoint-20261029.md)
+completed one real Claude request, one unsent Gmail CREATE/raw readback and fresh
+read-only persisted-content verification on the unchanged applied source. It ran
+in a separate consistent-copy database, with no new Send or Main activation.
+Three same-question observations found no original reply; earlier original
+positive evidence remains separate. All 22 families stay open. The isolated audit
+has zero unexpected rows and strict inequality; a separate Main snapshot preserves
+20 prior drafts/seven Draft attachments but retains 38 changed tables and unequal sealed
+ciphertexts rather than claiming all-state equality.
+
 Current applied source is **884 API/689 frontend/53 collector**, with separate
 Vercel 23 tests. The [combined checkpoint](final-combined-checkpoint-20261029.md)
 binds all 449 exact paths, the passing 79-action inline case and retained review/

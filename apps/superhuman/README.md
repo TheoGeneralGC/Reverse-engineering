@@ -14,6 +14,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Fresh Gmail snippet decoding checkpoint](research/gmail-snippet-checkpoint-20261029.md)
 - [Original response draft before conversation opening](research/original-auto-draft-response-observation-20261029.md)
 - [Original reminder submission and natural return](research/reminder-return-observation-20261029.md)
+- [Controlled managed Gmail response](research/generated-cloud-reply-checkpoint-20261029.md)
 - [Applied local Auto Drafts checkpoint](research/auto-drafts-local-checkpoint-20261029.md)
 - [Applied tracking and keyboard checkpoint](research/tracking-keyboard-checkpoint-20261029.md)
 - [Vercel setup and deployment checkpoint](research/vercel-deployment-checkpoint-20261029.md)
@@ -39,6 +40,13 @@ Layout: `web/` contains the browser client, `api/` the persistent backend, and
 `research/` the observed behavior, acceptance scenarios and comparisons.
 
 ## Applied combined checkpoint
+
+One later [controlled response](research/generated-cloud-reply-checkpoint-20261029.md)
+on this exact source completed one real Claude request and one managed unsent
+Gmail draft with raw readback and fresh persisted-state verification. It used a
+separate consistent-copy database; this check did not activate Main. Three observations
+found no original reply to that same question, so paired output/timing parity
+remains open. Prior failed attempts and qualified data differences are retained.
 
 The [combined checkpoint](research/final-combined-checkpoint-20261029.md) passed
 **884 API/689 frontend** tests, types/build and a 79-action synthetic inline case.

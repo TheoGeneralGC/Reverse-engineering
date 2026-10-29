@@ -1,5 +1,11 @@
 # Acceptance scenarios
 
+The later [controlled managed Gmail response](generated-cloud-reply-checkpoint-20261029.md)
+adds GC-01–05: one model/unsent cloud CREATE/readback, authored-only facts and
+exact quote/reply MIME, preserved failures and qualified protection, same-question
+original absence, and remaining browser/automation coverage. These bounded results
+do not mark a feature family verified or enable Responses on Main.
+
 The candidate matrix below contains proposed tests, not automatically passed
 checks. Separately recorded bounded results are explicitly labeled later.
 Replace candidate shortcuts, labels, defaults, and selectors with the original
