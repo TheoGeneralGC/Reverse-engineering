@@ -7,7 +7,8 @@ export function configuration(env: NodeJS.ProcessEnv): RuntimeConfiguration {
   requireValue(bounded(origin,1024) && bounded(db,2048) && bounded(token,4096) && bounded(signerText,16384) && bounded(cursor,128),500,'invalid_key_configuration');
   let u:URL,d:URL;try{u=new URL(origin);d=new URL(db)}catch{throw Error('Collector configuration invalid')}
   requireValue(u.protocol==='https:' && u.origin===origin && !u.username && !u.password && !u.port && !/^(?:localhost|127\.|\[)/.test(u.hostname),500,'invalid_key_configuration');
-  requireValue(['https:','libsql:'].includes(d.protocol) && db===`${d.protocol}//${d.hostname}` && /^[a-z0-9][a-z0-9-]*\.turso\.io$/.test(d.hostname) && !/[\s\p{Cc}\p{Cf}]/u.test(token),500,'invalid_key_configuration');
+  const databaseHost=d.hostname,labels=databaseHost.split('.');
+  requireValue(['https:','libsql:'].includes(d.protocol) && db===`${d.protocol}//${databaseHost}` && databaseHost.length<=253 && labels.length>=3 && labels.slice(-2).join('.')==='turso.io' && labels.every(label=>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) && !/[\s\p{Cc}\p{Cf}]/u.test(token),500,'invalid_key_configuration');
   requireValue(/^[a-f0-9]{64,128}$/.test(cursor) && cursor.length%2===0,500,'invalid_key_configuration');
   let raw:unknown;try{raw=JSON.parse(signerText)}catch{throw Error('Collector configuration invalid')}
   requireValue(Array.isArray(raw) && raw.length>0 && raw.length<=32,500,'invalid_key_configuration');
