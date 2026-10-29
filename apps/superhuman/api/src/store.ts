@@ -1,3 +1,4 @@
+import { initializeSplitHeaders, refreshSplitHeaders } from './split-inbox-headers.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -68,6 +69,7 @@ export class Store {
     initializeThreadSummaries(this.db);
     initializeRecipientContacts(this.db);
     initializeContactContext(this.db);
+    initializeSplitHeaders(this.db);
     if (seed && this.list<Account>('account').length === 0) this.seed();
   }
   list<T>(kind: string): T[] { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(String(r.data))); }
@@ -82,7 +84,7 @@ export class Store {
       if (draftHooked && !this.deliveryWriteDepth) for (const hook of this.draftLifecycleHooks) hook.beforeWrite?.(oldDraft, data as Draft);
       this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind, id, JSON.stringify(data));
       if (draftHooked) { for (const hook of this.draftLifecycleHooks) hook.written?.(oldDraft, data as Draft); this.db.exec('RELEASE provider_draft_record_write'); }
-      if (kind === 'thread') { refreshRecipientContacts(this.db, { threadId: id }); this.db.exec('RELEASE recipient_record_write'); }
+      if (kind === 'thread') { refreshRecipientContacts(this.db, { threadId: id }); refreshSplitHeaders(this.db, { threadId: id }); this.db.exec('RELEASE recipient_record_write'); }
       return data;
     } catch (error) { if (kind === 'thread') this.db.exec('ROLLBACK TO recipient_record_write; RELEASE recipient_record_write'); if (draftHooked) this.db.exec('ROLLBACK TO provider_draft_record_write; RELEASE provider_draft_record_write'); throw error; }
   }

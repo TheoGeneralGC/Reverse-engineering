@@ -368,3 +368,5 @@ private candidate. It never repeats ingestion to recover a lost acknowledgement.
 
 Saved account preferences and immutable AI-turn snapshots are described in [Personalization](PERSONALIZATION.md).
 Legacy cached Gmail scope adoption is documented in [Mail grant migration](MAIL-GRANT-MIGRATION.md).
+
+See [SPLIT-INBOX.md](SPLIT-INBOX.md) for the private configurable Split Inbox API, strict supported query subset, account CAS/recovery and metadata coverage limits.

@@ -16,26 +16,38 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Local search grammar and limits](research/search.md)
 - [Provider draft observations and acceptance](research/provider-drafts.md)
 - [Provider draft lifecycle and rollout](research/provider-draft-live-check-20261028.md)
+- [Controlled mapped Send and recipient difference](research/mapped-send-live-check-20261029.md)
+- [Local custom Split Inbox checkpoint](research/split-inbox-local-check-20261029.md)
 - [Combined delivery, Knowledge and personalization checkpoint](research/combined-checkpoint-20261028.md)
 - [Knowledge receipt recovery checkpoint](research/knowledge-recovery-check-20261028.md)
 
 Keep private source material in `evidence/private/` and `evidence/raw/` (ignored).
 Store sanitized specifications and synthetic fixtures under version control.
 
-Planned layout: `web/` for the browser client, `api/` for the backend, and
-`research/` for observed behavior and comparisons. Choose implementation details
-after the initial data-flow and interaction inventory.
+Layout: `web/` contains the browser client, `api/` the persistent backend, and
+`research/` the observed behavior, acceptance scenarios and comparisons.
 
 ## Run the current implementation
 
-The running version passed **531 API/495 frontend tests**, build and strict types,
-plus **16 cases/407 browser steps** and all eight persistence assertions.
-New replica-owned Gmail drafts now save automatically, retain a stable provider
-Draft identity through updates, and support keyed discard. A real recipient-free
-create/two-update/discard lifecycle and a separate fresh-process receipt check
-passed. A 35-action synthetic browser recovery/discard check passed after fixing
-the preceding browser flow failure. See the
-[provider draft checkpoint](research/provider-draft-live-check-20261028.md).
+The running version passed **561 API/536 frontend tests**, build and strict types,
+plus **16 cases/407 browser steps**, all eight persistence assertions and 165
+stable source entries. Custom Split Inboxes now support account-scoped saves,
+edit/off/on, overlap filtering, empty views, ordering and deletion. A separate
+synthetic continuation completed 256 actions and verified twelve exact settings
+receipts, including one lost-response recovery without PATCH replay. Its earlier
+empty-badge test failure remains retained. Original custom settings comparison,
+Library activation, Auto Labels and full query parity remain open. See the
+[Split Inbox checkpoint](research/split-inbox-local-check-20261029.md).
+
+The preceding **531 API/495 frontend** version added automatic saving, stable
+cloud Draft identity and keyed discard for newly owned Gmail drafts. A real
+recipient-free create/two-update/discard lifecycle and separate fresh-process
+receipt check passed. The subsequent controlled mapped Send completed Undo,
+future-schedule cancellation and one native delivery. The received attachment
+bytes match; the strict received plain-text assertion failed after the
+recipient copy changed formatting. No retry or resend followed. See the
+[provider lifecycle](research/provider-draft-live-check-20261028.md) and
+[mapped Send record](research/mapped-send-live-check-20261029.md).
 
 The preceding **480 API/429 frontend** version added manual Auto Archive/Auto
 Labels settings and explicit synthetic preview/apply. Real automatic

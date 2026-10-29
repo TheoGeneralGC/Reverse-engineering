@@ -404,3 +404,49 @@ the frozen490 failures and exercise direct acceptance, pending-to-terminal
 polling, initial scoped-status readiness and cross-account late acknowledgement. Four older actual-App scenarios
 remove only their now-obsolete second review click; their safety assertions
 remain. Live browser comparison for this successor is still pending.
+
+## Private Split Inbox candidate
+
+This candidate starts from the exact root API531/web495 122-file source baseline;
+`../web-baseline-531-495.json` preserves the before hashes. It has not been applied
+to root or exercised against the original/browser/provider. Use injected synthetic
+transports for tests; starting this private Vite configuration against a real API
+is outside this checkpoint.
+
+Account-scoped Split settings are staged in a mounted overlay. Opening the list,
+Library, or blank custom form and cancelling issue no settings writes. Name,
+Definition, separate Auto Labels join, leave-in-Important/Other and hide-empty
+fields are preserved until explicit Save; new false/false/OR values follow the
+bounded observed blank form. The replica deliberately does not copy the original
+implicit Calendar creation or hide-empty nudge side effect. Duplicate names,
+unsupported query families, unavailable bound labels and conflicts surface as
+errors. Template definitions and Auto Labels are unavailable in this slice;
+the Library is informational with a working Build Your Own flow. No invented
+preset, model classification or provider mutation is activated.
+
+Every explicit create/update/off/on/delete/reorder sends one durable keyed CAS
+intent. Browser journal storage is verified before PATCH. Accepted receipts bind
+the exact raw request, versioned hash, immutable settings hash and revision.
+Uncertain responses use by-key GET plus a current configuration GET; no automatic
+PATCH replay, re-create, or journal bypass occurs. Another window's changed
+request or receipt is retained. Dirty fields and conflicts stay visible; users
+can check status or close and return later. Explicit delete requires a scoped
+confirmation. Up/down order buttons are an accessibility choice; original pointer
+reorder and the complete Library remain comparison gaps.
+
+Configured Inbox tabs use typed builtin/custom view references and body-free
+pages/counts with settings/compiler/source-generation fences. Search and other
+folders keep their existing endpoint. Accounts with no persisted custom settings
+keep the legacy Inbox path. Overlap and logical Important/Other exclusion are
+server-owned views; no thread, Gmail label, draft or global preference is modified
+by the frontend. Unknown/partial counts are visibly unavailable, and hide-empty
+never hides the selected view or a definition error. A stale cursor keeps loaded
+rows and offers Refresh. Custom selection is fenced to its owning account.
+
+The same recipient and rich editor controllers stay mounted beneath settings.
+Actual-App controls cover both Undo histories, local typing during held settings
+Save, shortcut containment, and custom-view versus ordinary-search routing.
+Provider draft status/keyed discard, delivery/Undo/Instant Send, Knowledge,
+Personalization, Automation and independent Ask AI remain in the base tests.
+These synthetic checks do not establish original full parity or authorize any
+original account-wide setting change.

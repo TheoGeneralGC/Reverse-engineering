@@ -1,3 +1,4 @@
+import { SplitInboxService } from './split-inbox.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -62,6 +63,8 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   try { google.migrateLegacyMailGrants(); } catch (error) { store.close(); throw error; }
   let automation: AutomationService;
   try { automation = new AutomationService(store, { now: scheduler.now, fixture: options.automationFixture }); } catch (error) { store.close(); throw error; }
+  let splitInboxes: SplitInboxService;
+  try { splitInboxes = new SplitInboxService(store, { now: scheduler.now }); } catch (error) { store.close(); throw error; }
   const ai = new AiProvider(store, env, options.aiFetch);
   const personalization = new PersonalizationService(store, scheduler.now);
   const calendar = new GoogleCalendarProvider(store, google, env, google.fetcher, { now: scheduler.now });
@@ -259,6 +262,19 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname; const method = request.method;
+      if(path==='/api/split-inboxes'||path.startsWith('/api/split-inboxes/')){
+        const query=(allowed:string[])=>{if([...url.searchParams.keys()].some(key=>!allowed.includes(key)||url.searchParams.getAll(key).length!==1)||url.searchParams.getAll('accountId').length!==1)throw new HttpError(400,'Select one Split Inbox account','split_invalid_request');return Object.fromEntries(url.searchParams)};
+        const decode=(value:string)=>{try{return decodeURIComponent(value)}catch{throw new HttpError(400,'Invalid Split Inbox identity','split_invalid_request')}};
+        if(path==='/api/split-inboxes'&&method==='GET')return json(response,200,splitInboxes.settings(query(['accountId']).accountId));
+        if(path==='/api/split-inboxes'&&method==='PATCH'){if(url.search)throw new HttpError(400,'Unexpected Split Inbox query','split_invalid_request');return json(response,200,splitInboxes.save(await body(request)));}
+        if(path==='/api/split-inboxes/validate'&&method==='POST'){if(url.search)throw new HttpError(400,'Unexpected Split Inbox query','split_invalid_request');return json(response,200,splitInboxes.validate(await body(request,16000)));}
+        if(path==='/api/split-inboxes/views'&&method==='GET')return json(response,200,splitInboxes.views(query(['accountId']).accountId));
+        const recovered=path.match(/^\/api\/split-inboxes\/requests\/by-request\/([^/]+)$/);
+        if(recovered&&method==='GET')return json(response,200,splitInboxes.byRequest(query(['accountId']).accountId,decode(recovered[1])));
+        const view=path.match(/^\/api\/split-inboxes\/views\/([^/]+)\/threads$/);
+        if(view&&method==='GET'){const q=query(['accountId','limit','cursor']);return json(response,200,splitInboxes.page(q.accountId,decode(view[1]),{limit:q.limit,cursor:q.cursor}));}
+        throw new HttpError(404,'Split Inbox route not found','split_not_found');
+      }
       if(path.startsWith('/api/automation/')){
         const query=()=>{if([...url.searchParams.keys()].some(key=>key!=='accountId')||url.searchParams.getAll('accountId').length!==1)throw new HttpError(400,'Select one automation account','automation_invalid_request');return url.searchParams.get('accountId')!};
         const decode=(value:string)=>{try{const id=decodeURIComponent(value);if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw Error();return id}catch{throw new HttpError(400,'Invalid automation artifact identity','automation_invalid_request')}};
@@ -470,7 +486,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     closePromise = (async () => { syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close()), providerDrafts.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs]); await calendar.close(); store.close(); })();
     return closePromise;
   };
-  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, providerDrafts, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
+  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, providerDrafts, splitInboxes, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

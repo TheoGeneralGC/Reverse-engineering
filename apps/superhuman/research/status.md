@@ -1,6 +1,34 @@
 # Implementation checkpoint — 2026-10-27–29
 
-The current applied version passed **531 API/495 frontend tests**, build and
+The current applied version passed **561 API/536 frontend tests**, build and
+strict types, plus **16 cases/407 browser steps**, eight persistence assertions
+and 165 stable manifest entries. Account-scoped custom Split settings, shared
+count/list membership, metadata query validation, overlap exclusion, empty-view
+handling and exact keyed save recovery are applied. A separate synthetic
+continuation completed 256 actions with sixteen checkpoints, twelve accepted
+settings receipts and one deliberately lost response recovered without a
+mutation replay. Its earlier badge-visibility failure remains failed. All 22
+feature families remain open; full original parity is not complete. See the
+[local Split checkpoint](split-inbox-local-check-20261029.md).
+
+The rollout preserved all 19 existing Draft JSON records, seven attachment
+rows/bytes, three Calendar operations, six delivery records, protected model/
+action tables, four encrypted credential slots and grants, and global
+preferences. Account changes were only lastSyncedAt; no startup Split settings
+or legacy provider enrollment was created. Derived metadata had zero pending
+jobs. The first backend gate had sandbox-only local-listener failures; the
+unchanged full suite then passed with loopback access enabled.
+
+The separate API531/web495 [real mapped Send check](mapped-send-live-check-20261029.md)
+confirmed one native delivery after Undo and future Cancel, with exact received
+attachment bytes and matching actual message identity. Its strict received
+plain alternative comparison failed; that outcome is retained without resend.
+Tracking collector, private preference/client foundation and pure projection
+have separately passed bounded reviews but are not yet deployed or integrated
+into the running app's tracked delivery/Recent Opens UI. Typewise SDK access and
+original custom Split mutation approval remain pending.
+
+The preceding applied version passed **531 API/495 frontend tests**, build and
 strict types, plus **16 cases/407 browser steps** with all eight persistence
 assertions, 152 stable source entries and zero captured page errors. New
 replica-owned Gmail drafts save automatically through a durable provider ledger.

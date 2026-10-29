@@ -10,7 +10,25 @@ The subsequent [provider draft investigation](provider-drafts.md) adds PD-01–1
 for automatic Gmail save/update/discard, exact mapping, unknown writes, concurrent
 edits and delivery coordination. The controlled original-owned fixture observed
 Gmail draft content and removal from the scoped Drafts search. Replica automatic
-provider saving and imported-draft editing remain unverified.
+provider saving now has bounded [real lifecycle evidence](provider-draft-live-check-20261028.md),
+and a later [mapped Send check](mapped-send-live-check-20261029.md) preserves its
+strict recipient plain-text failure. Imported-draft editing and full PD-01–10
+equivalence remain unverified.
+
+## Later local Split acceptance — API561/web536
+
+The [Split record](split-inbox-local-check-20261029.md) supports the local cases
+below, with the failed initial B capture retained and a separately reviewed
+read-only tail/derivatives. Original counterparts remain pending; these are not
+parity-verified scenarios.
+
+| ID | Fixture/action | Required local result |
+| --- | --- | --- |
+| SI-L01 | Create/edit/off/on a custom subject split in demo account A | Exact account/key/revision receipt; same scoped IDs and expected rows/counts |
+| SI-L02 | Overlap two custom definitions; exclude matches from Important/Other | Union exclusion without physical folder/label writes; other account unchanged |
+| SI-L03 | Lose one accepted save response; reload the same browser profile | GET-only exact-key recovery; no new PATCH/key or duplicate definition |
+| SI-L04 | Select zero rows, hide empty after changing view, reorder one owned row | Settled zero is retained while selected; exact complete-zero hide/order behavior |
+| SI-L05 | Delete only the three owned definitions and restore A | Twelve immutable receipts, exact protected draft/history/account data and original builtin order |
 
 ## Evidence required for every verified scenario
 

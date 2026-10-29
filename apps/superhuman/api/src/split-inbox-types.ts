@@ -1,0 +1,21 @@
+// Browser-safe local Split Inbox contract. No original backend protocol is implied.
+import type { ThreadSummary } from './types.ts';
+export type SplitBuiltinId='important'|'other'|'calendar';
+export type SplitViewRef=`builtin:${SplitBuiltinId}`|`custom:${string}`;
+export type SplitDefinitionInput={name:string;query:string;autoLabelIds:string[];autoLabelJoin:'and'|'or';enabled:boolean;leaveThreadsInImportantOther:boolean;hideEmpty:boolean};
+export type CustomSplit=SplitDefinitionInput&{id:string;definitionRevision:number};
+export type SplitSettings={version:1;accountId:string;revision:number;updatedAt:string|null;persisted:boolean;effectiveBasis:{kind:'legacy-global'|'account';fingerprint:string};custom:CustomSplit[];order:SplitViewRef[]};
+export type SplitIssue={code:string;message:string;position?:number;field?:string};
+export type SplitLabelBinding={id:string;providerId:string|null;name:string;fingerprint:string};
+export type SplitDefinitionValidation={id:string;valid:boolean;issue:SplitIssue|null;policyVersion:string;queryHash:string;labelBindings:SplitLabelBinding[]};
+export type SplitCapabilities={implemented:true;policyVersion:string;scope:'local-imported-metadata';providerEffects:false;classification:false;autoLabels:false;supportedFields:string[];unsupportedFields:string[];limits:{custom:32;nameUnits:80;queryUnits:2048;queryBytes:4096;tokens:128;nodes:64;depth:8}};
+export type SplitConfigurationResponse={settings:SplitSettings;capabilities:SplitCapabilities;validation:SplitDefinitionValidation[]};
+export type SplitChange={type:'create';value:SplitDefinitionInput}|{type:'update';id:string;changes:Partial<SplitDefinitionInput>}|{type:'delete';id:string}|{type:'reorder';order:SplitViewRef[]};
+export type SplitSaveRequest={accountId:string;clientRequestId:string;expectedRevision:number;expectedBasisFingerprint:string;changes:SplitChange[]};
+export type SplitSaveReceipt={id:string;accountId:string;clientRequestId:string;createdAt:string;priorRevision:number;acceptedRevision:number;settingsFingerprint:string;requestProtocol:'split-save-v1';requestFingerprint:string;request:SplitSaveRequest;createdIds:string[]};
+export type SplitSaveResponse=SplitConfigurationResponse&{receipt:SplitSaveReceipt;historical:boolean};
+export type SplitCount={total:number|null;isComplete:boolean;isEstimate:boolean};
+export type SplitCoverage={scope:'local-imported-metadata';status:'complete'|'pending'|'unavailable';pendingHeaders:number;reason:string|null};
+export type SplitViewSummary={ref:SplitViewRef;name:string;enabled:boolean;hideEmpty:boolean;count:SplitCount;issue:SplitIssue|null};
+export type SplitViewsResponse={accountId:string;settingsRevision:number;sourceGeneration:number;policyVersion:string;rawCounts:{inbox:number;important:number;other:number;calendar:number};exclusionCount:number|null;coverage:SplitCoverage;views:SplitViewSummary[]};
+export type SplitThreadPage={accountId:string;viewRef:SplitViewRef;settingsRevision:number;sourceGeneration:number;policyVersion:string;threads:ThreadSummary[];total:number|null;count:SplitCount;coverage:SplitCoverage;nextCursor:string|null;hasMore:boolean};

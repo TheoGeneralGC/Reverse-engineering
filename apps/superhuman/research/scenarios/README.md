@@ -972,3 +972,34 @@ API531/frontend495 passed the full **16-case/407-step** demo run `20261029T00003
 | contact-context | 80 | `ev_53c8ef88e387e61362636564c8af3f78689a36b5ca7ffd24020545ee9ea50c60` |
 
 The separate corrected provider browser case passed 35 actions/36 states (`ev_6d5a771ae6d98072b969fc1218a7787a634449402d479e94b00d5520f8ac9e92`) with a mock Google transport, injected accepted-create acknowledgement loss, explicit read recovery, exact newer local/MIME content, direct terminal discard and a never-issued empty-draft tombstone. Its events are incomplete/equality false. The preceding490 browser flow remains failed. The real recipient-free API531 lifecycle, separate fresh-process receipt check and protected-main-data rollout audit have different scope; see [provider draft lifecycle](../provider-draft-live-check-20261028.md).
+
+## Current Split checkpoint — 20261029T012457Z
+
+API 561/web 536 passed all 16 cases/407 steps and eight persisted assertions. All
+165 run/case source entries were stable; App SHA256 is
+`c85c347d57012832a80c39d9a059f5c9c9ee984e9cacbe8a17a726c968bcf3c2`.
+All owned browsers terminated, with zero captured page errors. Fifteen captures
+have complete requested sections; reply-all retains missing events and
+`equality_eligible:false`, with both exact POST/201 request assertions passing.
+This is synthetic regression, not original or live delivery comparison. The
+[separate Split continuation](../split-inbox-local-check-20261029.md) retains its
+failed B capture and read-only tail rather than relabelling it.
+
+| Case | Steps | Evidence |
+| --- | ---: | --- |
+| draft-save-reopen | 26 | `ev_6b228377cbf2296d56a1176cc3b64026d7b5b79294710c5c0b2a8c796bdcee4c` |
+| search-jordan | 8 | `ev_0abede5cc5cc295de930e48caa21b765ca42709a46d17298ebede884c3b46aee` |
+| command-keyboard | 16 | `ev_0c9105e8318012687a609278c11b7f848590f59b4849ab8e57c2feb75aa07965` |
+| archive-undo-native-button | 12 | `ev_55d63d3223e0145baa18bb8064cb23269f439abfb3fd4c61726d801162e12554` |
+| narrow-viewport | 3 | `ev_685d2b72c34d17c51626e122042854e579c8840e93a652aa70d7dce6e933e101` |
+| attachment-draft | 8 | `ev_21175508fd1e5729472373bcc3dc31a7711e9b37ca6613093c02be450fc93318` |
+| reply-all | 8 | `ev_90b12e82f358a1ee8c113ab5773a7f339e6c1f6e1f3d59ad404d047dfedffd8b` |
+| reminder-undo | 11 | `ev_35acc15ed875ee39cd02c9c6db3c3e198ab5c86ae797bea75a2463450781d4c1` |
+| label-picker | 6 | `ev_0a6989a9aa3b71d2fb4232670dbe2bfaf4ff81c6cf8ad202bc2dc0da578d27ac` |
+| rich-compose | 45 | `ev_c10ed2ae0d4aa8ef6c7ed5edda75241619ed97f8e19e8d5af2f2f8d329b9bc83` |
+| inline-ai-unconfigured | 18 | `ev_d8fed054a586959d913c5c36ef5f15caac7c5f3baa2d71bbc30a23f18182ccef` |
+| side-ai-unconfigured | 42 | `ev_661f7f8f80b8cbf1ad1b42fa744147d45bd952d16c692cb28e36059c815a6dc9` |
+| calendar-week | 24 | `ev_f7abb065d684a3b748f95c41ef798ccf3f9551e42d09ffd88a8f3ad8bc9e8288` |
+| calendar-create-edit-delete | 34 | `ev_1b94686ca74503c25bc036021310c8a361a95cbc3b843159300383b70a65fdb0` |
+| recipient-editing | 66 | `ev_390b7c7dbf8b4b08252283fe79bb6e611c2c855769d02ab80bffe6ee04028e46` |
+| contact-context | 80 | `ev_e1dbda5246e8c88ee8d76bd10f10155a4da7088a24e28f4f633dd03c9ce9865b` |
