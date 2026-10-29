@@ -1,14 +1,24 @@
 # Implementation checkpoint — 2026-10-27–29
 
+Current applied source is **687 API/652 frontend/53 collector**. The narrow
+[fresh Gmail snippet fix](gmail-snippet-checkpoint-20261029.md) passed all 687 API
+tests on the exact-source hoisted layout, five public focused cases and strict
+checks. The earlier standalone gate remains 681 PASS/six Knowledge worker
+permission failures; no parser permission or source change was used to obtain
+the hoisted pass. It decodes fresh raw snippets once, leaves message bodies and
+React text escaping unchanged, and does not repair old cached strings blindly.
+No full browser regression or original snippet comparison was repeated.
+
 The separate [Vercel collector preparation](vercel-collector-checkpoint-20261029.md)
 is now applied. Root passed its 23 standalone package tests, strict source/test
 types and restricted import check after an offline nested-lock install. Its
 reviewed remote libSQL adapter has no main API/mail/model dependency. No project,
 database, real key, environment setting or deployment has been created; workspace
 access still returns 403. These tests do not establish hosted behavior or add to
-the existing collector53 count. Main remains 682 API/652 frontend/53 collector.
+the existing collector53 count. Its integration checkpoint used 682 API/652
+frontend/53 collector.
 
-Current applied source is **682 API/652 frontend/53 collector**. The narrow
+The preceding **682 API/652 frontend/53 collector** checkpoint’s narrow
 Split footer integration passed 11 focused checks, all 652 frontend tests,
 types/build and an HTTP serving check. It changed three UI paths, with no API
 restart, schema, environment or database change.

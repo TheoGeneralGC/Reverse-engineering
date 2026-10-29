@@ -9,6 +9,7 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Fresh Gmail snippet decoding checkpoint](research/gmail-snippet-checkpoint-20261029.md)
 - [Applied tracking and keyboard checkpoint](research/tracking-keyboard-checkpoint-20261029.md)
 - [Vercel collector preparation and limits](research/vercel-collector-checkpoint-20261029.md)
 - [Team/CRM discovery and access limits](research/team-crm.md)
@@ -30,6 +31,15 @@ Store sanitized specifications and synthetic fixtures under version control.
 
 Layout: `web/` contains the browser client, `api/` the persistent backend, and
 `research/` the observed behavior, acceptance scenarios and comparisons.
+
+The applied [fresh Gmail snippet correction](research/gmail-snippet-checkpoint-20261029.md)
+passed **687 API tests**, five focused import/codec cases and strict checks.
+Current totals are **687 API/652 frontend/53 collector**, with the separate
+Vercel package retaining 23 tests. It decodes references once on fresh Gmail
+imports, preserving MIME bodies and safe React text rendering. Older cached
+snippets are not bulk-decoded; guarded authoritative refresh remains pending.
+The standalone worker-layout failure is retained alongside the passing exact-source
+hoisted gate. No full browser regression or original snippet parity is claimed.
 
 ## Applied tracking and keyboard checkpoint
 
@@ -62,7 +72,7 @@ completed one authorized original create/name edit/off/on/delete and exact
 observable restoration. The corrected footer passed 101 synthetic browser
 actions, seven immutable receipts and strict stopped checks. Root applied its
 three UI paths and passed 11 focused checks, all 652 frontend tests, types/build
-and an HTTP serving check. Current source is **682 API/652 frontend/53 collector**;
+and an HTTP serving check. That Split checkpoint used **682 API/652 frontend/53 collector**;
 the earlier 407-step regression retains its 682/646 identity. Original ordering
 was skipped for tool binding, and original Other retention, negative matching,
 Library/template activation, original confirmation focus/geometry and full Split

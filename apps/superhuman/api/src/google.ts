@@ -3,6 +3,7 @@ import { Store } from './store.ts';
 import type { Account, Attachment, Draft, Label, Message, Person, Thread, DeliveryAttempt, DeliveryReconciliation } from './types.ts';
 import { HttpError } from './types.ts';
 import { buildMime } from './mime.ts';
+import { gmailSnippetToText } from './gmail-snippet.ts';
 import { parseOutgoingRecipientHeaders } from './outgoing-recipients.ts';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { calendarCapabilities, CALENDAR_REQUEST_SCOPES, GMAIL_SCOPE, type GoogleService, type GoogleServiceGrant, type GoogleAuthContext } from './google-scopes.ts';
@@ -347,7 +348,7 @@ export class GoogleProvider implements MailProvider {
     const latest = messages.at(-1)!; const lastRaw = raw.at(-1)!; const labels = [...new Set(raw.flatMap(message => message.labelIds ?? []))];
     const id = `${account.id}:${data.id}`; const existing = this.store.get<Thread>('thread', id);
     const folder = labels.includes('INBOX') ? 'inbox' : raw.every(message => message.labelIds?.includes('TRASH')) ? 'trash' : raw.every(message => message.labelIds?.includes('SPAM')) ? 'spam' : raw.every(message => message.labelIds?.includes('DRAFT')) ? 'drafts' : labels.includes('SENT') ? 'sent' : 'done';
-    this.store.put<Thread>('thread', id, { id, accountId: account.id, providerId: data.id, subject: header(lastRaw.payload, 'subject') || '(no subject)', snippet: lastRaw.snippet, sender: latest.sender, participants: [...new Map(messages.flatMap(message => [message.sender, ...message.to, ...(message.cc ?? [])]).map(p => [p.email, p])).values()], lastMessageAt: latest.date, unread: labels.includes('UNREAD'), starred: labels.includes('STARRED'), important: labels.includes('IMPORTANT'), folder, labels: labels.filter(label => !/^[A-Z_]+$/.test(label)).map(label => `${account.id}:${label}`), messages, snoozedUntil: existing?.snoozedUntil, snoozeRetryAt: existing?.snoozeRetryAt, snoozeError: existing?.snoozeError, muted: existing?.muted, syncGeneration: generation, providerLabels: labels });
+    this.store.put<Thread>('thread', id, { id, accountId: account.id, providerId: data.id, subject: header(lastRaw.payload, 'subject') || '(no subject)', snippet: gmailSnippetToText(lastRaw.snippet), sender: latest.sender, participants: [...new Map(messages.flatMap(message => [message.sender, ...message.to, ...(message.cc ?? [])]).map(p => [p.email, p])).values()], lastMessageAt: latest.date, unread: labels.includes('UNREAD'), starred: labels.includes('STARRED'), important: labels.includes('IMPORTANT'), folder, labels: labels.filter(label => !/^[A-Z_]+$/.test(label)).map(label => `${account.id}:${label}`), messages, snoozedUntil: existing?.snoozedUntil, snoozeRetryAt: existing?.snoozeRetryAt, snoozeError: existing?.snoozeError, muted: existing?.muted, syncGeneration: generation, providerLabels: labels });
   }
   normalizeMessage(raw: GmailMessage, accountId?: string): Message {
     const parsed = parts(raw.payload, raw.id);
