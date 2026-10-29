@@ -1,5 +1,10 @@
 # Local search grammar
 
+A later [controlled date comparison](search-date-comparison-20261029.md) found
+an original/replica mismatch for slash-form dates near midnight UTC. The
+original's ISO-form date behaved differently from its slash form. The applied
+UTC behavior below is unchanged; the timezone correction remains private work.
+
 The browser's advertised `before:` and `after:` filters previously fell through
 to literal body matching. On the seeded dataset, both `after:2026/06/01` and
 `before:2027/01/01` returned zero results although all 13 threads fall in that
