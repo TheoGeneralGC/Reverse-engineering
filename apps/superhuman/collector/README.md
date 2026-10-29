@@ -172,3 +172,12 @@ vendor protocol or a claim of resistance to an attacker who can rewrite all
 database records and integrity bindings together.
 Event reads check both sides of account bindings before filtering eligible
 events; a damaged confirmation field cannot silently remove retained history.
+
+## Proposed Render deployment
+
+A [concrete deployment proposal](deploy/PROPOSAL.md), [operator runbook](deploy/OPERATOR.md)
+and [official source references](deploy/SOURCES.md) are prepared for review. No
+paid resource is provisioned and no real tracking credentials are configured.
+The collector test command now runs 53 tests, including eight deployment and
+SQLite backup/restore controls. Docker/Render execution remains unverified; the
+local Docker daemon is unavailable.

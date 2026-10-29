@@ -1,0 +1,8 @@
+**
+!Dockerfile
+!package.json
+!src/
+!src/*.ts
+!ops/
+!ops/render-start.mjs
+!ops/storage.mjs

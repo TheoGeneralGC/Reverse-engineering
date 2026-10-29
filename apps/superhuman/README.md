@@ -46,6 +46,10 @@ normal-sync timestamps/counters rather than claiming all-row equality. See the
 source identities, retained failures and coverage. No collector credentials or
 real-account tracking activation is implied.
 
+A subsequent [Render deployment proposal](collector/deploy/PROPOSAL.md) adds source-only
+packaging and eight reproducible controls, bringing the collector suite to
+**53 passing tests**. It has not been deployed or provisioned.
+
 ## Run the current implementation
 
 The preceding serving version passed **561 API/536 frontend tests**, build and strict types,

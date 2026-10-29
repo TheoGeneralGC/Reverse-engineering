@@ -1,0 +1,35 @@
+# REVIEW PACKET ONLY. Applying a Blueprint creates paid resources/initial deploy.
+services:
+  - type: web
+    name: rea-superhuman-tracking
+    runtime: docker
+    repo: https://github.com/TheoGeneralGC/Reverse-engineering
+    branch: codex/superhuman-parity
+    dockerfilePath: ./apps/superhuman/collector/Dockerfile
+    dockerContext: ./apps/superhuman/collector
+    region: oregon
+    plan: 0.5c-512mb
+    numInstances: 1
+    autoDeployTrigger: "off"
+    healthCheckPath: /healthz
+    disk:
+      name: collector-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: TRACKING_PORT
+        value: "10000"
+      - key: TRACKING_LISTEN_HOST
+        value: "0.0.0.0"
+      - key: TRACKING_DATABASE_PATH
+        value: /var/data/collector/collector.sqlite
+      - key: TRACKING_CONFIG_REVISION
+        value: initial
+      - key: TRACKING_PUBLIC_ORIGIN
+        sync: false
+      - key: TRACKING_BOOTSTRAP_SIGNERS_JSON
+        sync: false
+      - key: TRACKING_BOOTSTRAP_CURSOR_KEY
+        sync: false

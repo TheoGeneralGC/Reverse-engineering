@@ -1,11 +1,16 @@
 # Implementation checkpoint — 2026-10-27–29
 
-The current applied source passed **682 API/646 frontend/45 collector tests**,
+The applied tracking/keyboard source passed **682 API/646 frontend/45 collector tests**,
 build and strict checks, with all 391 frozen source files matching the reviewed
 candidate. Root applied 111 source paths, made a fresh stopped backup and reviewed
 the intentional jobs-off migration with zero network calls. Fresh Root tests and
 build passed after preserved sandbox-only loopback failures. Main restarted and
 its Inbox rendered with Read Statuses and Recent Opens off.
+
+The subsequent source-only [Render proposal](../collector/deploy/PROPOSAL.md) adds
+deployment packaging and eight reproducible controls. All **53 collector tests**
+pass after that integration; the API/web runtime source is unchanged. Docker
+execution, hosting and paid provisioning remain unperformed.
 
 The actual final-source regression passed **16 cases/407 steps**, all eight
 persistence assertions and 436 stable source/runtime entries, with all 16 owned
