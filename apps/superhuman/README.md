@@ -13,6 +13,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Controlled tracked delivery and anonymous-fetch proof](research/tracked-delivery-checkpoint-20261029.md)
 - [Fresh Gmail snippet decoding checkpoint](research/gmail-snippet-checkpoint-20261029.md)
 - [Original response draft before conversation opening](research/original-auto-draft-response-observation-20261029.md)
+- [Original reminder submission and natural return](research/reminder-return-observation-20261029.md)
 - [Applied local Auto Drafts checkpoint](research/auto-drafts-local-checkpoint-20261029.md)
 - [Applied tracking and keyboard checkpoint](research/tracking-keyboard-checkpoint-20261029.md)
 - [Vercel setup and deployment checkpoint](research/vercel-deployment-checkpoint-20261029.md)

@@ -160,6 +160,13 @@ All scenarios below start **unverified**. `P` requires real provider access;
 | A39 / SH-020 T,P | Unsubscribe a controlled mailing-list fixture | Confirm observed mechanism and user feedback; do not unsubscribe real subscriptions during capture |
 | A40 / SH-021 E | Dictate/rewrite controlled text, enable/disable suggestions | Permission handling, streaming, insertion, caret, cancellation and persistence match observed behavior |
 
+The [original reminder record](reminder-return-observation-20261029.md) scopes
+RR-01–05 for A16/A18: menu/static findings, the retained typed-preview cleanup
+failure, one actual schedule/toast and natural return, and an exact system-marker
+source anchor. It does not complete A16's restart/exactly-once requirement or
+A18's reply-before-due comparison. Paired reminder/Follow-up behavior remains
+unverified.
+
 ## Calendar-specific extensions
 
 Calendar original layout, form and menu observations are in [calendar.md](calendar.md).
