@@ -1,3 +1,4 @@
+import {loadAutoDraftRuntimeConfiguration} from './auto-drafts-runtime-configuration.ts';
 import { loadTrackingRuntimeConfiguration } from './tracking-runtime-config.ts';
 import { TrackingReadService } from './tracking-read.ts';
 import { TrackingDeliveryService } from './tracking-delivery.ts';
@@ -21,6 +22,11 @@ import { ProviderDraftService } from './provider-drafts.ts';
 import { googleDraftTransport, type ProviderDraftTransport } from './provider-draft-transport.ts';
 import { PersonalizationService } from './personalization.ts';
 import { AutomationService } from './automation.ts';
+import { AutoDraftsService } from './auto-drafts.ts';
+import {AutoDraftsV2Authority,type AutoDraftsV2AuthorityOptions} from './auto-drafts-v2-authority.ts';
+import {autoDraftReplyTimeZone} from './auto-drafts-reply-policy.ts';
+import type {AutoDraftModelProfileInput} from './auto-drafts-readiness.ts';
+import {Readable} from 'node:stream';
 import type { AutomationFixtureClassifier } from './automation-engine.ts';
 import type { AutomationConfiguration } from './automation-types.ts';
 import { deliveryDeadline } from './delivery-delay.ts';
@@ -53,10 +59,15 @@ export function resolveApplicationDatabasePath(optionPath: unknown, environmentP
   return configured;
 }
 
-export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration } = {}) {
-  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector'].includes(key));
+export type AutoDraftGenerationOptions=Pick<AutoDraftsV2AuthorityOptions,'processing'|'replyTimeZone'|'model'|'cursorKey'|'maximumIdentityAgeMs'>&{googleFetch?:typeof fetch;modelProfile:(accountId:string)=>AutoDraftModelProfileInput};
+
+export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration; autoDraftGeneration?:AutoDraftGenerationOptions } = {}) {
+  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector', 'autoDraftGeneration'].includes(key));
   if (unknownOptions.length) throw new TypeError('Unknown application configuration option');
   if (options.providerDraftAutomatic !== undefined && typeof options.providerDraftAutomatic !== 'boolean') throw new TypeError('providerDraftAutomatic must be a boolean');
+  const autoOptions=options.autoDraftGeneration;
+  if(autoOptions!==undefined&&(!autoOptions||typeof autoOptions!=='object'||Array.isArray(autoOptions)||Object.keys(autoOptions).some(k=>!['processing','replyTimeZone','model','modelProfile','cursorKey','googleFetch','maximumIdentityAgeMs'].includes(k))||autoOptions.processing!==undefined&&typeof autoOptions.processing!=='boolean'||typeof autoOptions.model?.prepare!=='function'||typeof autoOptions.modelProfile!=='function'||!(autoOptions.cursorKey instanceof Uint8Array)||autoOptions.cursorKey.byteLength!==32||autoOptions.googleFetch!==undefined&&typeof autoOptions.googleFetch!=='function'))throw new TypeError('Invalid automatic draft generation configuration');
+  if(autoOptions?.replyTimeZone!==undefined)autoDraftReplyTimeZone(autoOptions.replyTimeZone);
   const env = options.env ?? process.env;
   const configuredDatabase = resolveApplicationDatabasePath(options.databasePath, env.DATABASE_PATH, !!process.env.NODE_TEST_CONTEXT);
   const scheduler = options.scheduler ?? systemScheduler;
@@ -67,10 +78,13 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const trackingCollector = options.trackingCollector === undefined ? undefined : new TrackingCollectorClient({ ...options.trackingCollector, now: options.trackingCollector.now ?? Date.now });
   let store: Store;
   try { store = new Store(configuredDatabase ?? resolve(rootPath, '.local/superhuman/mail.sqlite'), options.seed ?? true); } catch (error) { trackingCollector?.close(); throw error; }
-  const google = new GoogleProvider(store, env);
+  let autoDraftGeneration:AutoDraftsV2Authority|undefined;let google:GoogleProvider;
+  try{if(autoOptions){autoDraftGeneration=new AutoDraftsV2Authority(store,{...autoOptions,googleEnvironment:env,googleFetch:autoOptions.googleFetch??fetch,webOrigin:env.WEB_ORIGIN||'http://127.0.0.1:5173',now:scheduler.now});google=autoDraftGeneration.facade.runtime.google}else google=new GoogleProvider(store,env)}catch(error){store.close();trackingCollector?.close();throw error}
   try { google.migrateLegacyMailGrants(); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   let automation: AutomationService;
   try { automation = new AutomationService(store, { now: scheduler.now, fixture: options.automationFixture }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
+  let autoDrafts: AutoDraftsService;
+  try { autoDrafts = new AutoDraftsService(store, { now: scheduler.now }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   let splitInboxes: SplitInboxService;
   try { splitInboxes = new SplitInboxService(store, { now: scheduler.now }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   let tracking: TrackingPreferencesService;
@@ -96,6 +110,29 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const syncs = new Map<string, Promise<unknown>>();
   const operations = new OperationQueue();
   const providerDrafts = new ProviderDraftService(store, options.providerDraftTransport ?? googleDraftTransport(google), { clock: scheduler, queue: operations, automatic: options.providerDraftAutomatic ?? options.runJobs !== false, resume: options.providerDraftAutomatic ?? options.runJobs !== false });
+  const autoDraftInitializations=new Map<string,Promise<void>>(),autoDraftJobs=new Map<string,Promise<number>>();
+  const autoDraftAccounts=(accountId?:string)=>store.list<Account>('account').filter(a=>a.provider==='google'&&(accountId===undefined||a.id===accountId));
+  /** Explicit startup/background observation. HTTP GET never calls this. */
+  async function initializeAutoDrafts(accountId?:string){
+    if(!autoDraftGeneration)return;if(closing)throw new HttpError(503,'Automatic draft server stopped','auto_draft_generation_stopping');autoDraftGeneration.adoptAccounts();
+    await Promise.all(autoDraftAccounts(accountId).map(account=>{const old=autoDraftInitializations.get(account.id);if(old)return old;const generation=autoDraftGeneration!;
+      const work=(async()=>{await generation.install(account.id);await generation.observeModelProfile(account.id,autoOptions!.modelProfile(account.id));
+        if(autoOptions?.processing===true&&generation.authority.identity(account.id).state==='unavailable'&&generation.authority.binding(account.id).capable)await operations.run(account.id,()=>generation.refreshIdentity(account.id));
+        generation.facade.runtime.worker.foundation.recover((owner,pid)=>{if(owner===generation.facade.runtime.worker.foundation.owner)return true;if(!pid)return false;try{process.kill(pid,0);return true}catch{return false}});
+        await generation.settle(account.id);
+      })().finally(()=>{if(autoDraftInitializations.get(account.id)===work)autoDraftInitializations.delete(account.id)});autoDraftInitializations.set(account.id,work);return work;
+    }));
+  }
+  /** Models run after provider work releases the account queue, never inside it. */
+  async function runAutoDraftJobs(accountId?:string){
+    if(!autoDraftGeneration||autoOptions?.processing!==true||closing)return 0;
+    await initializeAutoDrafts(accountId);if(closing)return 0;
+    const jobs=autoDraftAccounts(accountId).map(account=>{const existing=autoDraftJobs.get(account.id);if(existing)return existing;if(operations.tails.has(account.id))return Promise.resolve(0);const generation=autoDraftGeneration!;
+      const work=(async()=>{if(closing||operations.tails.has(account.id))return 0;const row=store.db.prepare("SELECT id FROM auto_draft_jobs WHERE account_id=? AND json_extract(proof,'$.generation.state')='queued' ORDER BY CAST(json_extract(proof,'$.generation.ordinal') AS INTEGER) LIMIT 1").get(account.id);if(!row)return 0;await generation.run(account.id,String(row.id));return 1})().finally(()=>{if(autoDraftJobs.get(account.id)===work)autoDraftJobs.delete(account.id)});autoDraftJobs.set(account.id,work);return work;
+    });return(await Promise.all(jobs)).reduce((a,b)=>a+b,0);
+  }
+  /** Observe already-owned work only; no initialization, sync or dispatch. */
+  async function waitAutoDraftIdle(){while(autoDraftInitializations.size||autoDraftJobs.size||syncs.size){await Promise.allSettled([...autoDraftInitializations.values(),...autoDraftJobs.values(),...syncs.values()]);await Promise.resolve()}}
   let pendingWake: Promise<{ woken: number; failed: number }> | undefined;
 
   function wakeSnoozes(now = scheduler.now()) {
@@ -141,7 +178,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       try {
         // Never drain an import inside the account queue. Each short slice
         // releases it so queued sends and mailbox actions run before the next.
-        const result = await google.sync(accountId, { maxPages: 1, pageSize: 5, catchupDuringInitial: true });
+        const limits={maxPages:1,pageSize:5,catchupDuringInitial:true};const synced=autoDraftGeneration?await autoDraftGeneration.sync(accountId,limits):null;const result=synced?synced.sync:await google.sync(accountId,limits);
         const partial = result.partial === true; const now = scheduler.now();
         store.put<SyncHealth>('syncHealth', accountId, { status: 'ready', updatedAt: new Date(now).toISOString(), lastSuccessAt: new Date(now).toISOString(), failureCount: 0, nextSyncAt: new Date(now + (partial ? syncContinuationMs : syncPollMs)).toISOString() });
         return result;
@@ -158,7 +195,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
         throw error;
       }
     }).finally(() => syncs.delete(accountId));
-    syncs.set(accountId, promise); return promise;
+    syncs.set(accountId, promise);if(autoOptions?.processing===true)void promise.then(()=>runAutoDraftJobs(accountId)).catch(()=>{}); return promise;
   }
 
   function runSyncJobs(now = scheduler.now()) {
@@ -251,7 +288,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       draftSend.runScheduled(deliverComposer);
       const waking = wakeSnoozes(); const groups = new Map<string, string[]>();
       for (const draft of store.list<Draft>('draft').filter(draft => draft.status === 'scheduled' && !draft.composerSendId && !store.composerDeliveryId(draft.id))) groups.set(draft.accountId, [...(groups.get(draft.accountId) ?? []), draft.id]);
-      await Promise.all([waking, ...[...groups.values()].map(async ids => { for (const id of ids) {
+      await Promise.all([waking, runAutoDraftJobs(), ...[...groups.values()].map(async ids => { for (const id of ids) {
         const selected = store.get<Draft>('draft', id);
         if (selected?.status !== 'scheduled' || !selected.scheduledAt || Date.parse(selected.scheduledAt) > scheduler.now()) continue;
         try { await deliver(id); }
@@ -269,19 +306,32 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   function scheduleSyncTick(delayMs: number) { if (!closing) syncTimer = scheduler.schedule(() => { if (closing) return; runSyncJobs(); scheduleSyncTick(1000); }, delayMs); }
   function scheduleJobTick() { if (!closing) jobTimer = scheduler.schedule(() => { if (closing) return; void runJobs().catch(() => {}); scheduleJobTick(); }, 15_000); }
   function scheduleCalendarTick(delayMs: number) { if (!closing) calendarTimer = scheduler.schedule(() => { if (closing) return; calendar.runJobs(scheduler.now()); scheduleCalendarTick(1500); }, delayMs); }
+  if(autoOptions&&options.runJobs!==false)void initializeAutoDrafts().catch(()=>{});
   if (options.runJobs !== false) { scheduleSyncTick(0); scheduleJobTick(); if (calendar.status().configured) scheduleCalendarTick(0); }
   const frontendOrigin = env.WEB_ORIGIN || 'http://127.0.0.1:5173';
   const allowedOrigins = new Set([frontendOrigin, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000', 'http://127.0.0.1:3000']);
   const server = createServer(async (request, response) => {
     const origin = request.headers.origin;
     if (origin && !allowedOrigins.has(origin) && origin !== `http://${request.headers.host}`) return json(response, 403, { error: { code: 'origin_not_allowed', message: 'Origin is not allowed' } });
-    if (origin) { response.setHeader('access-control-allow-origin', origin); response.setHeader('vary', 'Origin'); response.setHeader('access-control-allow-headers', 'Content-Type'); response.setHeader('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS'); }
+    if (origin) { response.setHeader('access-control-allow-origin', origin); response.setHeader('vary', 'Origin'); response.setHeader('access-control-allow-headers', 'Content-Type'); response.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS'); }
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
     // Loopback-only development service; reject DNS-rebinding Host names.
     if (!/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(request.headers.host ?? '')) return json(response, 403, { error: { code: 'invalid_host', message: 'Loopback Host required' } });
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname; const method = request.method;
+      if(path.startsWith('/api/auto-drafts/v2/')){if(!autoDraftGeneration)throw new HttpError(404,'Automatic draft generation is not configured','auto_draft_generation_not_found');const init:RequestInit&{duplex?:'half'}={method,headers:request.headers as HeadersInit};if(method!=='GET'&&method!=='HEAD'){init.body=Readable.toWeb(request) as ReadableStream<Uint8Array>;init.duplex='half'}const result=await autoDraftGeneration.handle(new Request(new URL(request.url??'/', 'http://127.0.0.1'),init));response.writeHead(result.status,Object.fromEntries(result.headers));response.end(Buffer.from(await result.arrayBuffer()));return}
+      if(path.startsWith('/api/auto-drafts/')){
+        const invalid=():never=>{throw new HttpError(400,'Invalid Auto Drafts request','auto_drafts_invalid_request')};
+        const query=(allowed:string[])=>{if([...url.searchParams.keys()].some(k=>!allowed.includes(k)||url.searchParams.getAll(k).length!==1)||url.searchParams.getAll('accountId').length!==1||allowed.includes('section')&&url.searchParams.getAll('section').length!==1)return invalid();return Object.fromEntries(url.searchParams)};
+        const input=async()=>{if(url.search)return invalid();try{return await body(request,16384)}catch(error){if(error instanceof HttpError&&[400,413,415].includes(error.status))return invalid();throw error}};
+        if(path==='/api/auto-drafts/settings'&&method==='GET')return json(response,200,autoDrafts.get(query(['accountId']).accountId));
+        if(path==='/api/auto-drafts/preferences'&&method==='PATCH')return json(response,200,await autoDrafts.savePreferences(await input()));
+        if(path==='/api/auto-drafts/teammate-scheduling'&&method==='PUT')return json(response,200,await autoDrafts.saveScheduling(await input()));
+        const recovered=path.match(/^\/api\/auto-drafts\/requests\/by-request\/([^/]+)$/);
+        if(recovered&&method==='GET'){const q=query(['accountId','section']);let key:string;try{key=decodeURIComponent(recovered[1])}catch{return invalid()}return json(response,200,await autoDrafts.byRequest(q.accountId,q.section,key));}
+        throw new HttpError(404,'Auto Drafts request receipt not found','auto_drafts_request_not_found');
+      }
       if(path==='/api/tracking/reads'||path.startsWith('/api/tracking/reads/')){
         const query=(allowed:string[])=>{if([...url.searchParams.keys()].some(k=>!allowed.includes(k)||url.searchParams.getAll(k).length!==1)||url.searchParams.getAll('accountId').length!==1)throw new HttpError(400,'Select one read account','tracking_read_invalid_request');return Object.fromEntries(url.searchParams)};
         const decode=(v:string)=>{try{return decodeURIComponent(v)}catch{throw new HttpError(400,'Invalid read identity','tracking_read_invalid_request')}};
@@ -536,18 +586,18 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   let closePromise: Promise<void> | undefined;
   const close = () => {
     if (closePromise) return closePromise;
-    closing = true;trackingReads.close();trackingDelivery.close();
-    closePromise = (async () => { trackingCollector?.close(); syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close()), providerDrafts.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs,...trackingConfirmationJobs]);await trackingDelivery.waitForIdle();await trackingReads.waitForIdle();trackingReads.dispose(); await calendar.close(); store.close(); })();
+    closing = true;autoDraftGeneration?.close();trackingReads.close();trackingDelivery.close();
+    closePromise = (async () => { trackingCollector?.close(); syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close()), providerDrafts.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await waitAutoDraftIdle();await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs,...trackingConfirmationJobs]);await trackingDelivery.waitForIdle();await trackingReads.waitForIdle();trackingReads.dispose(); await calendar.close(); store.close(); })();
     return closePromise;
   };
-  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, providerDrafts, splitInboxes, tracking, trackingCollector,trackingDelivery,trackingReads, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
+  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, autoDrafts, autoDraftGeneration, initializeAutoDrafts, runAutoDraftJobs, waitAutoDraftIdle, providerDrafts, splitInboxes, tracking, trackingCollector,trackingDelivery,trackingReads, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const collectorConfiguration = loadTrackingRuntimeConfiguration(process.env);
-  let app: ReturnType<typeof createApp>;
-  try { app = createApp({ trackingCollector: collectorConfiguration }); }
-  finally { collectorConfiguration?.key.fill(0); }
+  let app: ReturnType<typeof createApp>;let automaticConfiguration:ReturnType<typeof loadAutoDraftRuntimeConfiguration>|undefined;
+  try { automaticConfiguration=loadAutoDraftRuntimeConfiguration(process.env);app = createApp({ trackingCollector: collectorConfiguration,autoDraftGeneration:automaticConfiguration.generation }); }
+  finally { collectorConfiguration?.key.fill(0);automaticConfiguration?.clear(); }
   const port = Number(process.env.PORT || 3001);
   app.server.listen(port, '127.0.0.1', () => console.log(`Superhuman reconstruction API: http://127.0.0.1:${port}`));
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { void app.close().then(() => process.exit(0)); });

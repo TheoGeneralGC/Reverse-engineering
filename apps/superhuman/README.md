@@ -11,6 +11,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Current implementation checkpoint](research/status.md)
 - [Fresh Gmail snippet decoding checkpoint](research/gmail-snippet-checkpoint-20261029.md)
 - [Original response draft before conversation opening](research/original-auto-draft-response-observation-20261029.md)
+- [Applied local Auto Drafts checkpoint](research/auto-drafts-local-checkpoint-20261029.md)
 - [Applied tracking and keyboard checkpoint](research/tracking-keyboard-checkpoint-20261029.md)
 - [Vercel collector preparation and limits](research/vercel-collector-checkpoint-20261029.md)
 - [Team/CRM discovery and access limits](research/team-crm.md)
@@ -35,7 +36,7 @@ Layout: `web/` contains the browser client, `api/` the persistent backend, and
 
 The applied [fresh Gmail snippet correction](research/gmail-snippet-checkpoint-20261029.md)
 passed **687 API tests**, five focused import/codec cases and strict checks.
-Current totals are **687 API/652 frontend/53 collector**, with the separate
+Current applied source totals are **855 API/680 frontend/53 collector**, with the separate
 Vercel package retaining 23 tests. It decodes references once on fresh Gmail
 imports, preserving MIME bodies and safe React text rendering. Older cached
 snippets are not bulk-decoded; guarded authoritative refresh remains pending.
@@ -46,9 +47,22 @@ One separately authorized [original response observation](research/original-auto
 found a new unsent, same-thread Gmail reply draft before any original conversation
 open, following one fictional approved-pair Send. Six snapshots preserved all 34
 prior draft metadata tuples. Late observation times, the retained reader failure,
-qualified Main audit and unknown model causality are explicit. This adds original
-evidence; private Auto Drafts candidates are not applied and current totals above
-are unchanged.
+qualified Main audit and unknown model causality are explicit. That original
+observation predates the local-response rollout below and does not
+establish paired response parity.
+
+The [local Auto Drafts source](research/auto-drafts-local-checkpoint-20261029.md)
+is now applied. Its reviewed **855 API/680 frontend** tests, strict checks/build
+and one **57-action** synthetic Inbox/quote/recovery/Undo case passed. Root matched
+all 438 files, passed the exact stopped jobs-off migration/data comparison, then
+restarted Main and passed status/serving reads plus a separate read-only
+10-action settings smoke. Native postrestart comparison preserved all 20 prior
+drafts and seven attachments, with qualified sync/credential/index differences;
+strict postrestart equality is false. Responses remain off on both connected
+Google accounts; generated replies are local only. Cloud saving, follow-ups, response
+updates, subject-aware context and full parity remain open. Original pre-open
+cloud output and later inline opening are separate evidence. Run02/run05 failures
+and intermediate editor/untouched-save corrections remain retained.
 
 ## Applied tracking and keyboard checkpoint
 

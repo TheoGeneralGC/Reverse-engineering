@@ -15,12 +15,13 @@ import { initializeContactContext, contactContext } from './contact-context.ts';
 
 export type DeliveryContext = { artifactOperationId?: string; composerOperationId?: string; reconciliation?: boolean; recovery?: boolean; trackingContinuation?: boolean };
 export type DeliveryHooks = { claim: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; complete: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; unknown: (draft: Draft, context: DeliveryContext) => void; held?: (draft:Draft,context:DeliveryContext)=>void; resume?: (draft:Draft,context:DeliveryContext)=>void; native?: (draft:Draft,context:DeliveryContext)=>void };
-export type DraftLifecycleOrigin = 'composer' | 'reply' | 'forward' | 'ai-created' | 'ai-send';
+export type DraftLifecycleOrigin = 'composer' | 'reply' | 'forward' | 'ai-created' | 'ai-send' | 'auto-generated-local';
 export type DraftLifecycleHooks = {
   beforeWrite?: (before: Draft | undefined, next: Draft) => void;
   written?: (before: Draft | undefined, next: Draft) => void;
   created?: (draft: Draft, origin: DraftLifecycleOrigin) => void;
   beforeRemove?: (draft: Draft, context?: { providerDiscardId?: string }) => void;
+  acceptedIntent?: (draft: Draft, intent: 'discard') => void;
   deliveryReadiness?: (draft: Draft) => void;
   beforeDelivery?: (draft: Draft) => void;
   beforeNativeSend?: (draft: Draft) => void;
@@ -53,6 +54,7 @@ export class Store {
   assertProviderDraftNativeSend(draft: Draft) { for (const hook of this.draftLifecycleHooks) hook.beforeNativeSend?.(draft); }
   hasProviderDraftLink(draftId: string): boolean { return !!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_draft_links'").get() && !!this.db.prepare('SELECT 1 FROM provider_draft_links WHERE draft_id=?').get(draftId); }
   registerDraftLifecycleHooks(hooks: DraftLifecycleHooks) { this.draftLifecycleHooks.add(hooks); return () => { this.draftLifecycleHooks.delete(hooks); }; }
+  noteDraftIntent(draft: Draft, intent: 'discard') { if (!this.db.isTransaction) throw new Error('Draft intent observation requires its acceptance transaction'); for (const hook of this.draftLifecycleHooks) hook.acceptedIntent?.(draft, intent); }
   deliveryHooks?: DeliveryHooks;
   composerDeliveryHooks?: DeliveryHooks;
   private deliveryWriteDepth = 0;
@@ -226,6 +228,12 @@ export class Store {
       catch (error) { this.db.exec('ROLLBACK TO provider_draft_creation; RELEASE provider_draft_creation'); throw error; }
     }
     return this.put('draft', draft.id, draft);
+  }
+  /** Trusted internal creation only. HTTP draft JSON cannot select this origin.
+   * Publication/provenance caller must already own the enclosing transaction. */
+  createGeneratedLocalDraft(input: Pick<Draft,'accountId'|'threadId'|'to'|'subject'|'body'|'html'|'deliveryReplyContext'>): Draft {
+    if (!this.db.isTransaction) throw new Error('Generated draft requires atomic publication');
+    return this.saveDraft({ accountId: input.accountId, threadId: input.threadId, to: input.to, cc: '', bcc: '', subject: input.subject, body: input.body, html: input.html, attachments: [], deliveryReplyContext: input.deliveryReplyContext }, 'auto-generated-local');
   }
   restoreCancelledArtifactDraft(id: string, operationId: string, at: string): Draft {
     if (!this.db.isTransaction) throw new Error('Cancelled restoration requires its operation transaction');

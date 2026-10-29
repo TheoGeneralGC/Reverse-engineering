@@ -36,7 +36,7 @@ export class ProviderDraftService {
     store.registerDraftLifecycleHooks({
       beforeWrite:(before,next)=>this.beforeWrite(before,next),
       written:(_before,next)=>{if(!this.metadataDepth)this.note(next)},
-      created:(draft,origin)=>{if(this.repository.account(draft.accountId).provider==='google'){if(!this.repository.link(draft.accountId,draft.id))this.repository.enroll(draft,origin);this.note(draft)}},
+      created:(draft,origin)=>{if(origin!=='auto-generated-local'&&this.repository.account(draft.accountId).provider==='google'){if(!this.repository.link(draft.accountId,draft.id))this.repository.enroll(draft,origin);this.note(draft)}},
       beforeRemove:(draft,context)=>this.beforeRemove(draft,context),
       deliveryReadiness:draft=>this.deliveryReady(draft),
       beforeDelivery:draft=>this.suspendForDelivery(draft),
@@ -215,6 +215,7 @@ export class ProviderDraftService {
       const receipt=this.repository.createDiscardReceipt(link,input),active=link.activeOperationId?this.repository.operation(input.accountId,draftId,link.activeOperationId):null;
       const waiting=!!active&&['dispatching','unknown'].includes(active.state);
       const next=this.repository.saveLink({...link,discardId:receipt.id,state:waiting?link.state:'discard_queued'});
+      this.store.noteDraftIntent(draft,'discard');
       this.timers.get(draftId)?.cancel();this.timers.delete(draftId);
       if(!waiting&&!next.providerDraftId){this.repository.insertDeleteOperation(next,receipt,null,this.owner,false);this.removeDiscardedLocal(next.accountId,next.draftId,receipt.id);this.repository.pruneSnapshots(next.accountId,next.draftId,null)}
       else if(!waiting)this.schedule(input.accountId,draftId);

@@ -9,12 +9,13 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { calendarCapabilities, CALENDAR_REQUEST_SCOPES, GMAIL_SCOPE, type GoogleService, type GoogleServiceGrant, type GoogleAuthContext } from './google-scopes.ts';
 
 import { migrateLegacyMailGrantMetadata } from './legacy-mail-grants.ts';
+import type { GoogleIngressAdapter, GoogleReadLease, GooglePageProof, GoogleReplyMetadata } from './google-ingress.ts';
 
 type Tokens = { access_token: string; refresh_token?: string; expires_at: number; grantedScopes?: string[] };
 type TokenResponse = { access_token: string; refresh_token?: string; expires_in: number; scope?: string };
 type GmailPart = { partId?: string; mimeType?: string; filename?: string; body?: { data?: string; attachmentId?: string; size?: number }; parts?: GmailPart[]; headers?: { name: string; value: string }[] };
 type GmailMessage = { id: string; threadId: string; snippet: string; labelIds?: string[]; internalDate: string; payload: GmailPart };
-type PendingSyncPage = { ids: string[]; nextPageToken?: string; historyId?: string; resultSizeEstimate?: number };
+type PendingSyncPage = { ids: string[]; provenance?: GooglePageProof; nextPageToken?: string; historyId?: string; resultSizeEstimate?: number };
 type InitialCatchup = { historyId: string; pageToken?: string; pending?: PendingSyncPage; lastCompletedAt?: string };
 type SyncState = { phase: 'initial' | 'history'; pageToken?: string; historyId: string; generation: string; partial: boolean; resultSizeEstimate?: number; lastCompletedAt?: string; pending?: PendingSyncPage; catchup?: InitialCatchup; lastResetReason?: 'history_expired' };
 export type SyncLimits = { maxPages?: number; pageSize?: number; maxThreadReads?: number; catchupDuringInitial?: boolean };
@@ -28,6 +29,8 @@ function header(payload: GmailPart, name: string) { return payload.headers?.find
 function parseRecipients(raw: string): Person[] { return raw.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).filter(Boolean).map(p => person(p.trim())); }
 type AttachmentRecord = { accountId: string; messageId: string; attachment: Attachment; data?: string };
 export type GoogleTiming = { now: () => number; sleep: (milliseconds: number) => Promise<void>; random: () => number };
+/** Trusted read-only identity lease fence; not the mapped-Send native permit. */
+export type GoogleReadGuard = { signal: AbortSignal; beforeIssue: () => void };
 export type GoogleFailureDiagnostic = { pathFamily: string; httpStatus: number; status?: string; reasons: string[]; retryAfterSeconds?: number };
 export class GoogleRequestError extends HttpError {
   diagnostic: GoogleFailureDiagnostic;
@@ -95,7 +98,8 @@ export class GoogleProvider implements MailProvider {
   readStarts = new Map<string, number>();
   readTails = new Map<string, Promise<void>>();
   refreshes = new Map<string, Promise<Tokens>>();
-  constructor(store: Store, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch, timing: Partial<GoogleTiming> = {}) { this.store = store; this.env = env; this.fetcher = fetcher; this.timing = { now: Date.now, sleep, random: Math.random, ...timing }; }
+  readonly ingress?:GoogleIngressAdapter;
+  constructor(store: Store, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch, timing: Partial<GoogleTiming> = {}, ingress?:GoogleIngressAdapter) { this.ingress=ingress;this.store = store; this.env = env; this.fetcher = fetcher; this.timing = { now: Date.now, sleep, random: Math.random, ...timing }; }
   get redirectUri() { return this.env.GOOGLE_REDIRECT_URI || 'http://127.0.0.1:3001/api/auth/google/callback'; }
   status(): ProviderStatus {
     const missing = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'TOKEN_ENCRYPTION_KEY'].filter(k => !this.env[k]);
@@ -201,7 +205,11 @@ export class GoogleProvider implements MailProvider {
       this.store.updatePreferences({ activeAccountId: accountId }); this.store.db.exec('COMMIT'); return accountId;
     } catch (error) { this.store.db.exec('ROLLBACK'); throw error; }
   }
-  async request(accountId: string, path: string, options: RequestInit = {}, nativeGate?:()=>void) {
+  async request(accountId: string, path: string, options: RequestInit = {}, nativeGate?:()=>void, readGuard?:GoogleReadGuard, syncLease?:GoogleReadLease) {
+    // Internal producer capability: preserve request DI and default reads while
+    // leased sync rechecks ownership immediately before each native issue.
+    if(syncLease!==undefined){if(!this.ingress||syncLease.accountId!==accountId||nativeGate!==undefined||readGuard!==undefined||(options.method??'GET').toUpperCase()!=='GET'||options.body!=null||!(/^(?:labels|profile)$/.test(path)||/^threads(?:\?|\/)/.test(path)||/^history\?/.test(path)))throw new HttpError(400,'Invalid owned sync read','invalid_google_read_guard');return this.guardedRead(accountId,path,options,{signal:AbortSignal.timeout(this.ingress.leaseMs),beforeIssue:()=>{this.ingress!.assert(syncLease)}})}
+    if (readGuard !== undefined) return this.guardedSendAsRead(accountId,path,options,nativeGate,readGuard);
     const token = await this.tokens(accountId);
     const method = (options.method ?? 'GET').toUpperCase(); const isRead = method === 'GET';
     const attempts = isRead ? 4 : 1;
@@ -222,6 +230,36 @@ export class GoogleProvider implements MailProvider {
       throw failure;
     }
     throw new HttpError(502, 'Google read attempts exhausted');
+  }
+  private async guardedSendAsRead(accountId:string,path:string,options:RequestInit,nativeGate:(()=>void)|undefined,readGuard:GoogleReadGuard) {
+    if (nativeGate !== undefined || (options.method??'GET').toUpperCase()!=='GET' || path!=='settings/sendAs?fields=sendAs(sendAsEmail,isPrimary,verificationStatus)' || options.body!=null || !readGuard || !(readGuard.signal instanceof AbortSignal) || typeof readGuard.beforeIssue!=='function') throw new HttpError(400,'Identity read guard requires the fixed SendAs GET','invalid_google_read_guard');
+    return this.guardedRead(accountId,path,options,readGuard);
+  }
+  /** Internal read path shared by fixed SendAs and a producer-owned sync lease.
+   * Public fifth-argument guard remains restricted to the fixed SendAs GET. */
+  private async guardedRead(accountId:string,path:string,options:RequestInit,readGuard:GoogleReadGuard) {
+    // Capture the trusted guard before any await. Default request families and
+    // the fourth-argument tracked Send permit keep their existing path above.
+    const caller=readGuard.signal,beforeIssue=readGuard.beforeIssue;
+    // Cache DI may forward its beforeIssue property with RequestInit. It is a
+    // local capability, never a fetch option. Capture caller options once.
+    const {beforeIssue:_localGuard,...requestOptions}=options as RequestInit&{beforeIssue?:unknown};
+    const optionSignal=requestOptions.signal;
+    const check=()=>{caller.throwIfAborted();optionSignal?.throwIfAborted();beforeIssue()};
+    check();const token=await this.tokens(accountId);check();
+    for(let attempt=0;attempt<4;attempt++) {
+      await this.paceRead(accountId,readCost(path).units);check();
+      const signal=AbortSignal.any([caller,...(optionSignal?[optionSignal]:[]),AbortSignal.timeout(25_000)]);
+      let response:Response;
+      try { check();signal.throwIfAborted();response=await this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`,{...requestOptions,method:'GET',signal,headers:{'content-type':'application/json',...requestOptions.headers,authorization:`Bearer ${token.access_token}`}}); }
+      catch { check();signal.throwIfAborted();if(attempt<3){await this.timing.sleep(1000*2**attempt+Math.floor(this.timing.random()*1000));check();continue}throw new GoogleRequestError(502,'Google transport failed; the operation could not be confirmed','google_request_failed',{pathFamily:pathFamily(path,'GET'),httpStatus:0,reasons:[]}) }
+      check();signal.throwIfAborted();
+      if(response.ok){const value=response.status===204?{}:await response.json();check();signal.throwIfAborted();return value}
+      const failure=await this.failure(response,path,'GET');check();signal.throwIfAborted();
+      const retryable=failure.code==='google_rate_limited'||[500,502,503,504].includes(response.status),delay=Math.max(1000*2**attempt+Math.floor(this.timing.random()*1000),(failure.diagnostic.retryAfterSeconds??0)*1000);
+      if(retryable&&attempt<3&&delay<=30_000){await this.timing.sleep(delay);check();continue}throw failure;
+    }
+    throw new HttpError(502,'Google read attempts exhausted');
   }
   private paceRead(accountId: string, units: number) {
     const previous = this.readTails.get(accountId) ?? Promise.resolve();
@@ -246,12 +284,18 @@ export class GoogleProvider implements MailProvider {
     if (response.status === 403) return new GoogleRequestError(403, 'Google denied this operation; check granted permissions and API policy', 'google_permission_denied', diagnostic);
     return new GoogleRequestError(502, 'Google request failed; retry sync later', 'google_request_failed', diagnostic);
   }
-  async sync(accountId: string, limits: SyncLimits = {}) {
+  private syncUnit<T>(lease:GoogleReadLease|undefined,work:()=>T):T {
+    if(lease)return this.ingress!.unit(lease,work);
+    this.store.db.exec('SAVEPOINT google_sync_publication');try{const result=work();this.store.db.exec('RELEASE google_sync_publication');return result}catch(e){this.store.db.exec('ROLLBACK TO google_sync_publication;RELEASE google_sync_publication');throw e}
+  }
+  private async syncRead(accountId:string,path:string,lease?:GoogleReadLease){if(lease)this.ingress!.assert(lease);const result=await this.request(accountId,path,{},undefined,undefined,lease);if(lease)this.ingress!.assert(lease);return result}
+  async sync(accountId:string,limits:SyncLimits={}){const lease=this.ingress?.begin(accountId);let success=false;try{const result=await this.syncOwned(accountId,limits,lease);success=true;return result}finally{if(lease)this.ingress!.finish(lease,success)}}
+  private async syncOwned(accountId:string,limits:SyncLimits,lease?:GoogleReadLease){
     const account = this.store.required<Account>('account', accountId);
     if (account.provider !== 'google') throw new HttpError(400, 'This account is a demo account');
-    const labelsResponse = await this.request(accountId, 'labels') as { labels?: { id: string; name: string; type: string; color?: { backgroundColor: string } }[] };
-    for (const label of labelsResponse.labels ?? []) if (label.type === 'user') this.store.put<Label>('label', `${accountId}:${label.id}`, { id: `${accountId}:${label.id}`, accountId, name: label.name, color: label.color?.backgroundColor, providerId: label.id });
-    let state = this.store.get<SyncState>('sync', accountId) ?? await this.beginInitialSync(accountId);
+    const labelsResponse = await this.syncRead(accountId,'labels',lease) as { labels?: { id: string; name: string; type: string; color?: { backgroundColor: string } }[] };
+    for (const label of labelsResponse.labels ?? []) if (label.type === 'user') this.syncUnit(lease,()=>this.store.put<Label>('label', `${accountId}:${label.id}`, { id: `${accountId}:${label.id}`, accountId, name: label.name, color: label.color?.backgroundColor, providerId: label.id }));
+    let state = this.store.get<SyncState>('sync', accountId) ?? await this.beginInitialSync(accountId,lease);
     let imported = 0; let pages = 0; let threadReads = 0;
     const configuredPages = Number(this.env.GMAIL_SYNC_PAGES_PER_RUN ?? 2);
     const selectedPages = limits.maxPages ?? configuredPages;
@@ -260,31 +304,31 @@ export class GoogleProvider implements MailProvider {
     const selectedReads = limits.maxThreadReads ?? limits.pageSize ?? 1000;
     const maxThreadReads = Number.isInteger(selectedReads) && selectedReads >= 1 && selectedReads <= 1000 ? selectedReads : 1000;
     if (state.phase === 'initial' && limits.catchupDuringInitial) {
-      const caughtUp = await this.catchupInitial(account, state, pageSize, maxThreadReads);
+      const caughtUp = await this.catchupInitial(account, state, pageSize, maxThreadReads,lease);
       state = caughtUp.state; imported += caughtUp.threadReads; threadReads += caughtUp.threadReads;
     }
     for (; pages < maxPages; pages++) {
       if (!state.pending) {
         if (state.phase === 'initial') {
           const query = new URLSearchParams({ maxResults: String(pageSize), includeSpamTrash: 'true', ...(state.pageToken ? { pageToken: state.pageToken } : {}) });
-          const listing = await this.request(accountId, `threads?${query}`) as { threads?: { id: string }[]; nextPageToken?: string; resultSizeEstimate?: number };
+          const listing = await this.syncRead(accountId, `threads?${query}`,lease) as { threads?: { id: string }[]; nextPageToken?: string; resultSizeEstimate?: number };
           state = { ...state, partial: true, pending: { ids: [...new Set((listing.threads ?? []).map(item => item.id))], nextPageToken: listing.nextPageToken, resultSizeEstimate: listing.resultSizeEstimate } };
         } else {
           let page: HistoryPage;
-          try { page = await this.request(accountId, `history?${new URLSearchParams({ startHistoryId: state.historyId, maxResults: String(pageSize), ...(state.pageToken ? { pageToken: state.pageToken } : {}) })}`) as HistoryPage; }
-          catch (error) { if (error instanceof HttpError && error.code === 'google_not_found') { state = await this.beginInitialSync(accountId); continue; } throw error; }
+          try { page = await this.syncRead(accountId, `history?${new URLSearchParams({ startHistoryId: state.historyId, maxResults: String(pageSize), ...(state.pageToken ? { pageToken: state.pageToken } : {}) })}`,lease) as HistoryPage; }
+          catch (error) { if (error instanceof HttpError && error.code === 'google_not_found') { state = await this.beginInitialSync(accountId,lease); continue; } throw error; }
           if (!page.historyId) throw new HttpError(502, 'Google history response omitted its cursor', 'invalid_google_history');
-          state = { ...state, partial: true, pending: { ids: changedThreadIds(page), nextPageToken: page.nextPageToken, historyId: page.historyId } };
+          state = { ...state, partial: true, pending: { ids: changedThreadIds(page), nextPageToken: page.nextPageToken, historyId: page.historyId,...(lease?{provenance:this.ingress!.page(lease,state.historyId,page,'live')}:{}) } };
         }
-        this.store.put('sync', accountId, state);
+        this.syncUnit(lease,()=>this.store.put('sync', accountId, state));
       }
       // Each completed thread is checkpointed before the next read. Initial
       // retry skips already imported generation members; history does not skip
       // them, because those records specifically represent subsequent changes.
       for (const id of [...state.pending!.ids]) {
         const alreadyImported = state.phase === 'initial' && this.store.get<Thread>('thread', `${accountId}:${id}`)?.syncGeneration === state.generation;
-        if (!alreadyImported) { if (threadReads >= maxThreadReads) break; await this.syncThread(account, id, state.generation); imported++; threadReads++; }
-        state = { ...state, pending: { ...state.pending!, ids: state.pending!.ids.filter(item => item !== id) } }; this.store.put('sync', accountId, state);
+        if (!alreadyImported) { if (threadReads >= maxThreadReads) break; await this.syncThread(account,id,state.generation,lease,state.pending!.provenance,state.phase==='initial'?'initial':'repair'); imported++; threadReads++; }
+        state = { ...state, pending: { ...state.pending!, ids: state.pending!.ids.filter(item => item !== id) } }; this.syncUnit(lease,()=>this.store.put('sync', accountId, state));
       }
       if (state.pending!.ids.length) { pages++; break; }
       const completed = state.pending!;
@@ -293,66 +337,75 @@ export class GoogleProvider implements MailProvider {
         else {
           // Reconcile deletions only after every initial page completed. A failed
           // or interrupted page never advances the durable cursor.
-          for (const thread of this.store.list<Thread>('thread')) if (thread.accountId === accountId && thread.syncGeneration !== state.generation) this.store.remove('thread', thread.id);
+          this.syncUnit(lease,()=>{for (const thread of this.store.list<Thread>('thread')) if (thread.accountId === accountId && thread.syncGeneration !== state.generation) this.store.remove('thread', thread.id)});
           state = { ...state, phase: 'history', pending: state.catchup?.pending, pageToken: state.catchup?.pageToken, historyId: state.catchup?.historyId ?? state.historyId, catchup: undefined, resultSizeEstimate: completed.resultSizeEstimate, partial: true };
         }
       } else {
         state = { ...state, pending: undefined, pageToken: completed.nextPageToken, historyId: completed.nextPageToken ? state.historyId : completed.historyId!, partial: !!completed.nextPageToken, ...(!completed.nextPageToken ? { lastCompletedAt: new Date().toISOString() } : {}) };
       }
-      this.store.put('sync', accountId, state);
+      this.syncUnit(lease,()=>this.store.put('sync', accountId, state));
       if (!state.partial) { pages++; break; }
       if (threadReads >= maxThreadReads) { pages++; break; }
     }
-    if (!state.partial) this.store.put('account', accountId, { ...account, lastSyncedAt: state.lastCompletedAt });
+    if (!state.partial) this.syncUnit(lease,()=>this.store.put('account', accountId, { ...account, lastSyncedAt: state.lastCompletedAt }));
     return { imported, pages, partial: state.partial, phase: state.phase, resultSizeEstimate: state.resultSizeEstimate, scope: 'durable paginated all-folder thread scan followed by history changes; call again while partial is true' };
   }
-  private async catchupInitial(account: Account, state: SyncState, pageSize: number, maxThreadReads: number) {
+  private async catchupInitial(account: Account, state: SyncState, pageSize: number, maxThreadReads: number,lease?:GoogleReadLease) {
     let catchup: InitialCatchup = state.catchup ?? { historyId: state.historyId };
     if (!catchup.pending) {
       let page: HistoryPage;
-      try { page = await this.request(account.id, `history?${new URLSearchParams({ startHistoryId: catchup.historyId, maxResults: String(pageSize), ...(catchup.pageToken ? { pageToken: catchup.pageToken } : {}) })}`) as HistoryPage; }
+      try { page = await this.syncRead(account.id, `history?${new URLSearchParams({ startHistoryId: catchup.historyId, maxResults: String(pageSize), ...(catchup.pageToken ? { pageToken: catchup.pageToken } : {}) })}`,lease) as HistoryPage; }
       catch (error) {
         if (error instanceof HttpError && error.code === 'google_not_found') {
           // An expired change log cannot prove deletions. Restart the full scan
           // under a new generation, retaining old rows until that scan completes.
-          const fresh = { ...await this.beginInitialSync(account.id), lastResetReason: 'history_expired' as const };
-          this.store.put('sync', account.id, fresh); return { state: fresh, threadReads: 0 };
+          const fresh = { ...await this.beginInitialSync(account.id,lease), lastResetReason: 'history_expired' as const };
+          this.syncUnit(lease,()=>this.store.put('sync', account.id, fresh)); return { state: fresh, threadReads: 0 };
         }
         throw error;
       }
       if (!page.historyId) throw new HttpError(502, 'Google history response omitted its cursor', 'invalid_google_history');
-      catchup = { ...catchup, pending: { ids: changedThreadIds(page), nextPageToken: page.nextPageToken, historyId: page.historyId } };
-      state = { ...state, catchup }; this.store.put('sync', account.id, state);
+      catchup = { ...catchup, pending: { ids: changedThreadIds(page), nextPageToken: page.nextPageToken, historyId: page.historyId,...(lease?{provenance:this.ingress!.page(lease,catchup.historyId,page,'catchup')}:{}) } };
+      state = { ...state, catchup }; this.syncUnit(lease,()=>this.store.put('sync', account.id, state));
     }
     let threadReads = 0;
     for (const id of [...catchup.pending!.ids]) {
       if (threadReads >= maxThreadReads) break;
-      await this.syncThread(account, id, state.generation); threadReads++;
-      catchup = { ...catchup, pending: { ...catchup.pending!, ids: catchup.pending!.ids.filter(item => item !== id) } }; state = { ...state, catchup }; this.store.put('sync', account.id, state);
+      await this.syncThread(account,id,state.generation,lease,catchup.pending!.provenance); threadReads++;
+      catchup = { ...catchup, pending: { ...catchup.pending!, ids: catchup.pending!.ids.filter(item => item !== id) } }; state = { ...state, catchup }; this.syncUnit(lease,()=>this.store.put('sync', account.id, state));
     }
     if (!catchup.pending!.ids.length) {
       const completed = catchup.pending!;
       catchup = { ...catchup, pending: undefined, pageToken: completed.nextPageToken, historyId: completed.nextPageToken ? catchup.historyId : completed.historyId!, ...(!completed.nextPageToken ? { lastCompletedAt: new Date().toISOString() } : {}) };
-      state = { ...state, catchup }; this.store.put('sync', account.id, state);
+      state = { ...state, catchup }; this.syncUnit(lease,()=>this.store.put('sync', account.id, state));
     }
     return { state, threadReads };
   }
-  private async beginInitialSync(accountId: string): Promise<SyncState> { const profile = await this.request(accountId, 'profile') as { historyId: string }; if (!profile.historyId) throw new HttpError(502, 'Google profile omitted history cursor'); const state: SyncState = { phase: 'initial', historyId: profile.historyId, generation: randomBytes(16).toString('hex'), partial: true }; return this.store.put('sync', accountId, state); }
+  private async beginInitialSync(accountId:string,lease?:GoogleReadLease):Promise<SyncState>{if(lease)this.ingress!.invalidate(lease);const profile=await this.syncRead(accountId,'profile',lease) as {historyId:string};if(!profile.historyId)throw new HttpError(502,'Google profile omitted history cursor');const state:SyncState={phase:'initial',historyId:profile.historyId,generation:randomBytes(16).toString('hex'),partial:true};return this.syncUnit(lease,()=>this.store.put('sync',accountId,state))}
   syncStatus(accountId: string) { this.store.required<Account>('account', accountId); const state = this.store.get<SyncState>('sync', accountId); const health = this.store.get<{ status: 'queued' | 'running' | 'ready' | 'error'; error?: string; code?: string; updatedAt?: string }>('syncHealth', accountId); return { ...(state ? { phase: state.phase, partial: state.partial, lastCompletedAt: state.lastCompletedAt, resultSizeEstimate: state.resultSizeEstimate } : { phase: 'not-started', partial: true }), catchupAt: state?.catchup?.lastCompletedAt, catchupPending: state?.catchup?.pending?.ids.length, lastResetReason: state?.lastResetReason, status: health?.status ?? 'idle', error: health?.error, code: health?.code, updatedAt: health?.updatedAt }; }
-  private async syncThread(account: Account, threadId: string, generation: string) {
+  private async syncThread(account: Account, threadId: string, generation: string,lease?:GoogleReadLease,provenance?:GooglePageProof,origin:'initial'|'repair'='repair') {
     let data: { id: string; messages?: GmailMessage[] };
-    try { data = await this.request(account.id, `threads/${encodeURIComponent(threadId)}?format=full`) as typeof data; }
-    catch (error) { if (error instanceof HttpError && error.code === 'google_not_found') { this.store.remove('thread', `${account.id}:${threadId}`); return; } throw error; }
+    try { data = await this.syncRead(account.id, `threads/${encodeURIComponent(threadId)}?format=full`,lease) as typeof data; }
+    catch (error) { if (error instanceof HttpError && error.code === 'google_not_found') { this.syncUnit(lease,()=>this.store.remove('thread', `${account.id}:${threadId}`)); return; } throw error; }
+    if(data.id!==threadId||(data.messages??[]).some(message=>message.threadId!==threadId))throw new HttpError(502,'Google returned another thread','invalid_google_thread');
+    const staged:{id:string;record:AttachmentRecord}[]=[];
     const raw = [...(data.messages ?? [])].sort((a, b) => Number(a.internalDate) - Number(b.internalDate));
-    const messages = raw.map(message => this.normalizeMessage(message, account.id)); if (!messages.length) { this.store.remove('thread', `${account.id}:${threadId}`); return; }
+    const messages = raw.map(message => this.normalizeMessage(message,account.id,staged)); if (!messages.length) { this.syncUnit(lease,()=>this.store.remove('thread', `${account.id}:${threadId}`)); return; }
     const latest = messages.at(-1)!; const lastRaw = raw.at(-1)!; const labels = [...new Set(raw.flatMap(message => message.labelIds ?? []))];
     const id = `${account.id}:${data.id}`; const existing = this.store.get<Thread>('thread', id);
     const folder = labels.includes('INBOX') ? 'inbox' : raw.every(message => message.labelIds?.includes('TRASH')) ? 'trash' : raw.every(message => message.labelIds?.includes('SPAM')) ? 'spam' : raw.every(message => message.labelIds?.includes('DRAFT')) ? 'drafts' : labels.includes('SENT') ? 'sent' : 'done';
-    this.store.put<Thread>('thread', id, { id, accountId: account.id, providerId: data.id, subject: header(lastRaw.payload, 'subject') || '(no subject)', snippet: gmailSnippetToText(lastRaw.snippet), sender: latest.sender, participants: [...new Map(messages.flatMap(message => [message.sender, ...message.to, ...(message.cc ?? [])]).map(p => [p.email, p])).values()], lastMessageAt: latest.date, unread: labels.includes('UNREAD'), starred: labels.includes('STARRED'), important: labels.includes('IMPORTANT'), folder, labels: labels.filter(label => !/^[A-Z_]+$/.test(label)).map(label => `${account.id}:${label}`), messages, snoozedUntil: existing?.snoozedUntil, snoozeRetryAt: existing?.snoozeRetryAt, snoozeError: existing?.snoozeError, muted: existing?.muted, syncGeneration: generation, providerLabels: labels });
+    const thread:Thread={ id, accountId: account.id, providerId: data.id, subject: header(lastRaw.payload, 'subject') || '(no subject)', snippet: gmailSnippetToText(lastRaw.snippet), sender: latest.sender, participants: [...new Map(messages.flatMap(message => [message.sender, ...message.to, ...(message.cc ?? [])]).map(p => [p.email, p])).values()], lastMessageAt: latest.date, unread: labels.includes('UNREAD'), starred: labels.includes('STARRED'), important: labels.includes('IMPORTANT'), folder, labels: labels.filter(label => !/^[A-Z_]+$/.test(label)).map(label => `${account.id}:${label}`), messages, snoozedUntil: existing?.snoozedUntil, snoozeRetryAt: existing?.snoozeRetryAt, snoozeError: existing?.snoozeError, muted: existing?.muted, syncGeneration: generation, providerLabels: labels };
+    this.syncUnit(lease,()=>{for(const entry of staged)this.store.put('messageAttachment',entry.id,entry.record);this.store.put('thread',id,thread);if(lease)this.ingress!.publish(lease,thread,provenance,origin,new Map(raw.map(m=>[m.id,this.replyMetadata(m.payload)])))});
   }
-  normalizeMessage(raw: GmailMessage, accountId?: string): Message {
+  private replyMetadata(payload:GmailPart):GoogleReplyMetadata{
+    const headers=payload.headers;if(!Array.isArray(headers)||headers.length>1000||headers.some(h=>typeof h.name!=='string'||typeof h.value!=='string'||h.name.length>256||Buffer.byteLength(h.value)>16384||/[\r\n\0]/.test(h.name+h.value)))return{headersComplete:false,replyTo:null};
+    const relevant=headers.filter(h=>['from','to','cc','reply-to','message-id','references'].includes(h.name.toLowerCase()));
+    if(new Set(relevant.map(h=>h.name.toLowerCase())).size!==relevant.length)return{headersComplete:false,replyTo:null};
+    return{headersComplete:true,replyTo:headers.find(h=>h.name.toLowerCase()==='reply-to')?.value??null};
+  }
+  normalizeMessage(raw: GmailMessage, accountId?: string,staged?:{id:string;record:AttachmentRecord}[]): Message {
     const parsed = parts(raw.payload, raw.id);
-    if (accountId) for (const part of parsed.attachmentParts) this.store.put<AttachmentRecord>('messageAttachment', attachmentRecordId(accountId, raw.id, part.attachment.id), { accountId, messageId: raw.id, attachment: part.attachment, ...(part.data !== undefined ? { data: part.data } : {}) });
+    if(accountId)for(const part of parsed.attachmentParts){const entry={id:attachmentRecordId(accountId,raw.id,part.attachment.id),record:{accountId,messageId:raw.id,attachment:part.attachment,...(part.data!==undefined?{data:part.data}:{})}};if(staged)staged.push(entry);else this.store.put<AttachmentRecord>('messageAttachment',entry.id,entry.record)}
     return { id: raw.id, sender: person(header(raw.payload, 'from')), to: parseRecipients(header(raw.payload, 'to')), cc: parseRecipients(header(raw.payload, 'cc')), date: new Date(Number(raw.internalDate)).toISOString(), internetMessageId: header(raw.payload, 'message-id') || undefined, references: header(raw.payload, 'references') || undefined, providerLabels: raw.labelIds ?? [], text: parsed.text, html: parsed.html, attachments: parsed.attachmentParts.map(part => part.attachment) };
   }
   async updateThread(before: Thread, after: Thread) {

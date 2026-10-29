@@ -1,6 +1,31 @@
 # Implementation checkpoint — 2026-10-27–29
 
-Current applied source is **687 API/652 frontend/53 collector**. The narrow
+Current applied source is **855 API/680 frontend/53 collector**. The
+[local Auto Drafts checkpoint](auto-drafts-local-checkpoint-20261029.md) binds the
+reviewed API/UI gates, strict checks/build and a passed 57-action synthetic case:
+exact quoted inline text, one fake model reply, same-key preference recovery,
+both bounded editor histories, zero untouched generated PATCH and a surviving
+source/draft binding. Captured events remain incomplete. Root applied 63 paths
+matching all 438 reviewed files; the stopped jobs-off migration preserved all
+11,927 existing rows, 88 old tables/schema, seven attachments and four sealed
+slots/credential invariants exactly, with no normalization. Main restarted and
+status/serving reads passed; both Google Responses values are off with zero
+attempts and no activation. The separate read-only Main settings smoke passed
+10 actions: Responses off, Follow-ups disabled, diagnostics hidden and close,
+without editor/toggle/Send actions. Its capture is complete/equality-eligible.
+Native read-only postrestart comparison found 11,928 records versus 11,927
+stopped: one added and one changed Thread, with all 20 prior drafts, seven
+attachments and protected delivery/Calendar/Knowledge/action state exact.
+Strict equality is false for 18 old tables, including sync, derived indexes and
+credentials. Responses/jobs/attempts/activations remained off/zero; readiness and
+one provenance/bridge pending row are separately recorded. Root's 17:41 credential
+comparison preserved normalized refresh/scope/other identities while all four
+ciphertexts/access credentials/expiries changed. QA's separate 17:57 scope-only
+snapshot found all four membership sets equal, three raw arrays exact and one
+ordering-only. These distinct boundaries do not establish full postrestart equality. Cloud saving,
+follow-ups, response updates, authoritative subject context and full original parity remain open; all 22 statuses are unchanged.
+
+The preceding applied source passed **687 API/652 frontend/53 collector**. The narrow
 [fresh Gmail snippet fix](gmail-snippet-checkpoint-20261029.md) passed all 687 API
 tests on the exact-source hoisted layout, five public focused cases and strict
 checks. The earlier standalone gate remains 681 PASS/six Knowledge worker

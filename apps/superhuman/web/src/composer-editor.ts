@@ -10,6 +10,7 @@ export function createComposerEditor(root:HTMLElement,initial:{body:string;html?
  const document=root.ownerDocument;
  const editor=new Squire(root,{blockTag:'DIV',sanitizeToDOMFragment:html=>sanitizeComposerFragment(html,document),undo:{documentSizeThreshold:200_000,undoLimit:100},didError:error=>{console.error('Composer editing operation failed',error instanceof Error?error.name:'EditorError')}});
  editor.setHTML(initial.html??plainTextToComposerHTML(initial.body));
+ let lastSupplied={body:initial.body,html:initial.html};
  let lastPublished=composerValueFromHTML(editor.getHTML(),document);
  const getValue=()=>composerValueFromHTML(editor.getHTML(),document);
  const publish=()=>{const value=getValue();if(value.html!==lastPublished.html||value.body!==lastPublished.body){lastPublished=value;onChange(value)}};
@@ -58,6 +59,8 @@ export function createComposerEditor(root:HTMLElement,initial:{body:string;html?
   makeLink(href:string,range?:Range){if(root.contentEditable==='false')return;const selected=range||editor.getSelection().cloneRange();editor.focus().setSelection(selected).makeLink(href,{target:'_blank',rel:'noopener noreferrer'});publish()},
   setTextColor(color:string|null){if(root.contentEditable==='false')return;editor.setTextColor(color);publish()},
   update(value:{body:string;html?:string}){
+   if(value.body===lastSupplied.body&&value.html===lastSupplied.html)return;
+   lastSupplied={body:value.body,html:value.html};
    if(value.body===lastPublished.body&&(value.html===undefined||value.html===lastPublished.html))return;
    const html=value.html===lastPublished.html&&value.body!==lastPublished.body?plainTextToComposerHTML(value.body):value.html??plainTextToComposerHTML(value.body);
    const next=composerValueFromHTML(html,document);const current=getValue();if(next.html===current.html&&next.body===current.body)return;

@@ -1,0 +1,41 @@
+import{createHash}from'node:crypto';import{Store}from'./store.ts';import{HttpError,type Thread}from'./types.ts';import{AutoDraftWorker}from'./auto-drafts-worker.ts';import{GoogleIngressAdapter,type GooglePublication,type GoogleSourceVersion}from'./google-ingress.ts';import type{IngressVersion}from'./auto-drafts-generation-contract.ts';
+const hash=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+const corrupt=():never=>{throw new HttpError(500,'Automatic draft ingress bridge unavailable','auto_draft_generation_corrupt')};
+type Pending={accountId:string;threadId:string;occurrence:IngressVersion;source:GoogleSourceVersion};
+type Disposition={accountId:string;occurrenceId:string;state:'admitted'|'suppressed';generationId:string|null;reason:'admitted'|'source-stale'|'obsolete-baseline'|'ineligible';at:string};
+/** Synchronous producer callback stores canonical ingress only. Explicit drain
+ * runs after sync finishes; model dispatch is never invoked here or in SQL. */
+export class AutoDraftIngressBridge{
+ readonly store:Store;readonly worker:AutoDraftWorker;readonly producer:GoogleIngressAdapter;readonly now:()=>number;private serial=0;
+ constructor(store:Store,worker:AutoDraftWorker,producer:GoogleIngressAdapter,now:()=>number){this.store=store;this.worker=worker;this.producer=producer;this.now=now;store.db.exec(`
+ CREATE TABLE IF NOT EXISTS auto_draft_bridge_pending(id TEXT PRIMARY KEY,account_id TEXT NOT NULL,sequence INTEGER NOT NULL,data TEXT NOT NULL,integrity TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS auto_draft_bridge_commits(id TEXT PRIMARY KEY,account_id TEXT NOT NULL,integrity TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS auto_draft_bridge_results(id TEXT PRIMARY KEY,account_id TEXT NOT NULL,data TEXT NOT NULL,integrity TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS auto_draft_bridge_result_proofs(id TEXT PRIMARY KEY,integrity TEXT NOT NULL,data TEXT NOT NULL);`);if(!store.db.prepare('PRAGMA table_info(auto_draft_bridge_result_proofs)').all().some(row=>row.name==='data'))return corrupt()}
+ observe(publication:GooglePublication){
+  if(!this.store.db.isTransaction)throw Error('Producer observation must share publication transaction');
+  for(const occurrence of publication.occurrences){const source=this.producer.sourceVersion(publication.accountId,occurrence.sourceRef,occurrence.inputVersion);
+   if(source.providerThreadId!==publication.thread.providerId||source.accountVersion!==publication.accountVersion||source.immutableFactsHash!==occurrence.immutableFactsHash)return corrupt();
+   const accepted=this.worker.foundation.acceptCommittedIngress(publication.thread,occurrence),pending:Pending={accountId:publication.accountId,threadId:publication.thread.id,occurrence:accepted,source},data=JSON.stringify(pending),integrity=hash(pending),row=this.store.db.prepare('SELECT data,integrity FROM auto_draft_bridge_pending WHERE id=?').get(occurrence.id);
+   if(row){if(row.data!==data||row.integrity!==integrity)return corrupt();this.read(publication.accountId,occurrence.id);continue}
+   this.store.db.prepare('INSERT INTO auto_draft_bridge_pending VALUES(?,?,?,?,?)').run(occurrence.id,publication.accountId,occurrence.sequence,data,integrity);this.store.db.prepare('INSERT INTO auto_draft_bridge_commits VALUES(?,?,?)').run(occurrence.id,publication.accountId,integrity);
+  }
+ }
+ private read(accountId:string,id:string):Pending{const row=this.store.db.prepare('SELECT * FROM auto_draft_bridge_pending WHERE account_id=? AND id=?').get(accountId,id),commit=this.store.db.prepare('SELECT * FROM auto_draft_bridge_commits WHERE id=?').get(id);try{if(!row||!commit)throw Error();const value=JSON.parse(String(row.data))as Pending;if(hash(value)!==row.integrity||commit.integrity!==row.integrity||commit.account_id!==accountId||value.accountId!==accountId||value.occurrence.id!==id||value.occurrence.accountId!==accountId||value.occurrence.sequence!==row.sequence)throw Error();return value}catch{return corrupt()}}
+ disposition(accountId:string,id:string):Disposition|null{const row=this.store.db.prepare('SELECT account_id,data,integrity FROM auto_draft_bridge_results WHERE id=?').get(id),proof=this.store.db.prepare('SELECT integrity,data FROM auto_draft_bridge_result_proofs WHERE id=?').get(id);if(!row){if(proof)return corrupt();return null}if(row.account_id!==accountId)return corrupt();try{const p=JSON.parse(String(row.data))as Disposition;if(hash(p)!==row.integrity||proof?.integrity!==row.integrity||proof.data!==row.data||p.accountId!==accountId||p.occurrenceId!==id||!['admitted','suppressed'].includes(p.state))throw Error();if(p.state==='admitted'){const pending=this.read(accountId,id),job=this.worker.foundation.job(accountId,p.generationId!);if(job.sourceRef!==pending.occurrence.sourceRef||job.inputVersion!==pending.occurrence.inputVersion)throw Error()}return p}catch{return corrupt()}}
+ private finish(p:Pending,state:Disposition['state'],reason:Disposition['reason'],generationId:string|null){const value:Disposition={accountId:p.accountId,occurrenceId:p.occurrence.id,state,reason,generationId,at:new Date(this.now()).toISOString()},data=JSON.stringify(value),integrity=hash(value);this.store.db.prepare('INSERT INTO auto_draft_bridge_results VALUES(?,?,?,?)').run(p.occurrence.id,p.accountId,data,integrity);this.store.db.prepare('INSERT INTO auto_draft_bridge_result_proofs VALUES(?,?,?)').run(p.occurrence.id,integrity,data);return value}
+ /** Returns admitted job IDs only. Caller releases its account provider queue
+  * before passing them to worker.run(). Ineligible occurrences stay historical. */
+ drain(accountId:string,limit=32):string[]{if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw Error('Invalid drain limit');if(this.store.db.isTransaction)throw Error('Drain must begin after provider transaction');const ready=this.producer.readiness(accountId);if(!ready.ready||ready.pendingRead)return[];
+  const jobs:string[]=[];for(const row of this.store.db.prepare('SELECT p.id FROM auto_draft_bridge_pending p LEFT JOIN auto_draft_bridge_results r ON r.id=p.id LEFT JOIN auto_draft_bridge_result_proofs v ON v.id=p.id WHERE p.account_id=? AND (r.id IS NULL OR r.account_id<>p.account_id OR v.id IS NULL OR v.integrity<>r.integrity OR v.data<>r.data) ORDER BY p.sequence LIMIT ?').all(accountId,limit)){
+   const point=`auto_draft_drain_${++this.serial}`;this.store.db.exec(`SAVEPOINT ${point}`);try{if(this.disposition(accountId,String(row.id))){this.store.db.exec(`RELEASE ${point}`);continue}const p=this.read(accountId,String(row.id)),current=this.producer.readiness(accountId);if(!current.ready||current.pendingRead){this.store.db.exec(`RELEASE ${point}`);break}
+    if(current.accountVersion!==p.occurrence.accountVersion||current.baselineVersion!==p.occurrence.baselineVersion){this.finish(p,'suppressed','obsolete-baseline',null);this.store.db.exec(`RELEASE ${point}`);continue}
+    const source=this.producer.sourceVersion(accountId,p.occurrence.sourceRef,p.occurrence.inputVersion),thread=this.store.get<Thread>('thread',p.threadId),latest=thread?.messages.at(-1);if(!thread||thread.accountId!==accountId||thread.id!==p.threadId||thread.providerId!==source.providerThreadId||latest?.id!==source.providerMessageId){this.finish(p,'suppressed','source-stale',null);this.store.db.exec(`RELEASE ${point}`);continue}
+    const{providerLabels:_labels,trackingRead:_tracking,...content}=latest;if(hash(source)!==hash(p.source))return corrupt();if(hash(content)!==hash(source.message)){this.finish(p,'suppressed','source-stale',null);this.store.db.exec(`RELEASE ${point}`);continue}
+    if(source.replyMetadata.headersComplete!==true){this.finish(p,'suppressed','ineligible',null);this.store.db.exec(`RELEASE ${point}`);continue}
+    try{const job=this.worker.admit(p.threadId,p.occurrence,{messageId:source.providerMessageId,headersComplete:true,replyTo:source.replyMetadata.replyTo});this.finish(p,'admitted','admitted',job.id);jobs.push(job.id)}catch(error){if(!(error instanceof HttpError)||![404,409,503].includes(error.status))throw error;if(error.status===503){this.store.db.exec(`RELEASE ${point}`);break}this.finish(p,'suppressed','ineligible',null)}
+    this.store.db.exec(`RELEASE ${point}`);
+   }catch(error){this.store.db.exec(`ROLLBACK TO ${point};RELEASE ${point}`);throw error}
+  }return jobs;
+ }
+}
