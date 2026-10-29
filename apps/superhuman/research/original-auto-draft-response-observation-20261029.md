@@ -146,6 +146,50 @@ and completed pre-open record
 These are local audit hashes, not invented REA evidence IDs. No real address,
 provider ID, raw HTML, capture or vendor code is committed.
 
+## Later controlled quote expansion
+
+These later observations are separate from the pre-open interval. The original
+first-open capture
+`ev_988581538f66e45b3074b57eb1184cd82441427d61c73cd89c23028fa335af9d`
+already showed the owned reply in an ordinary inline composer beneath its source,
+with normal Send controls. Its separate post-open read found 818 HTML bytes
+versus the earlier 814; visible text matched only after whitespace normalization.
+No no-effect-opening or exact-HTML claim follows. The later runtime did not
+refresh the retained script digest, so the old build identity is historical.
+
+A read-only signature scenario completed 18 actions:
+`ev_6dbd08a0edd3865df62c455d1c9a82805a6785ea48230ddfbc43f245886c8517`.
+It selected the exact personal From identity and observed an explicitly empty
+signature, then restored Inbox. No setting, checkbox or Gmail link was changed.
+The first CLI invocation rejected an unsupported argument before connecting;
+that failure remains retained separately from the corrected capture.
+
+The new fictional reply was outside the 34 historical user drafts. Root then
+authorized one quote-expansion click on only that owned reply. Scenario
+`ev_4d018fd09c60dfb34ed9e9d4279cd32020ee6383b4800eb6fb2622d0a6190364`
+completed all 24 actions: open the exact fixture, expand once, observe the full
+quoted source inside the editor, and restore Important Inbox. The expansion
+control disappeared. There was no declared typing, Send, Delete or upload.
+DOM/accessibility observations were retained at each step, but the screenshot
+was taken only after restoration; this is not a quote-geometry measurement.
+
+Separate GET-only Gmail reads immediately before and after found 35 drafts.
+All 34 historical metadata tuples and every fresh non-target tuple stayed exact.
+The owned reply kept its draft/thread identity and remained unsent; its provider
+message identity changed and decoded HTML grew from 818 to 1,623 bytes. Neither
+MIME contained a plain alternative. The result had one blockquote and one full
+fictional source marker, without quote duplication or image elements. The
+reader's zero writes describe the reader alone: the UI expansion edited the
+draft. Visible expansion followed by later persisted change is observed; exact
+save latency, request count and causal network attribution remain unknown.
+
+Retained static handlers separately trace quote insertion, user-edit marking,
+Undo clearing and a throttled save. This agrees with editable/persisted quote
+expansion rather than a reversible display disclosure. It does not establish
+the full focus, Undo, keyboard, AI-acceptance or cloud-concurrency contract.
+Both later scenarios retain incomplete event coverage and are not equality
+eligible. No further message was sent for this comparison.
+
 ## Bounded acceptance and remaining comparison
 
 | Case | Result and limit |
@@ -153,10 +197,12 @@ provider ID, raw HTML, capture or vendor code is committed.
 | ADR-01: known account/form, exact new subject absent, one approved fixture | Observed with the settings/cleanup caveat and one known Sent attempt; no new-account-default claim. |
 | ADR-02: exact recipient receipt before any original conversation open | Observed; six new same-thread unsent-draft reads and exact In-Reply-To. Model identity/count and causal trigger remain unknown. |
 | ADR-03: preserve existing drafts and timing evidence | All 34 original metadata tuples preserved; no old-body equality claim. Late slots and later Main protected-audit refusal remain explicit. |
-| ADR-04: paired response engine, quote and cloud behavior | Pending. Applied source remains **687 API/652 frontend/53 collector**; private settings/UI/worker candidates are not applied. No automatic-response engine parity is verified. |
+| ADR-04: paired response engine, quote and cloud behavior | Pending. The separate applied local checkpoint is **855 API/680 frontend/53 collector**; generated replies are local and Responses remains off. No automatic-response engine parity is verified. |
+| ADR-05: owned quote expansion and persisted draft | One click revealed the full source; later Gmail HTML changed while the owned draft stayed unsent and all historical/non-target metadata stayed exact. The replica composer correction is a separate unfinished comparison. |
 
 This one fixture does not establish follow-up/reminder generation, emailed-before
 restriction enforcement, teammate scheduling, changing-facts updates, voice or
 semantic quality across messages, paid gates, universal availability or full AI
-family parity. Later owned-message opening, editing, sending or cleanup requires
-its own clearly separated evidence; none is inferred from these pre-open reads.
+family parity. The later owned opening and quote edit above have separate
+evidence; neither is inferred from the pre-open reads. Sending or cleanup of
+that original reply was not performed.

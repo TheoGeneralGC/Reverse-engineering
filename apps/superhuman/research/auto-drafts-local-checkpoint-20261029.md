@@ -185,6 +185,13 @@ opening guarantee, or full inline interaction/geometry parity. Event coverage
 remains incomplete. The replica's explicit Open draft interaction is local design;
 original acceptance, cloud editing and Send behavior need separate comparison.
 
+The subsequent [owned quote-expansion observation](original-auto-draft-response-observation-20261029.md#later-controlled-quote-expansion)
+completed 24 actions and found a later persisted HTML change in the still-unsent
+original reply, with all historical/non-target draft metadata preserved. That
+comparison establishes a correction needed in the replica: ordinary inline
+editing and one-way quote expansion. It does not change this applied source's
+historical 855/680 or browser evidence, and the correction is not applied here.
+
 ## Retained failures and corrections
 
 | Record | Outcome and scope |

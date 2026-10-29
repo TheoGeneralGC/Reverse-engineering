@@ -46,6 +46,7 @@ collector fixtures, not mail delivery or evidence that a person opened email.
 | Fresh nonce across logical deployments | New seed 200 → same signed replay 401 on replacement; no lifecycle writes |
 | Concurrent hosted requests | Ten requests passed: same-key equality, one nonce winner and one CAS winner |
 | Remote 100-event page | All 144 requests passed;100 unique events, exact bindings,16/16/16/16/16/16/4 distribution |
+| Consistent logical export and isolated restore | All eight tables and 210 rows exported after confirmed rollback; separate memory restore matched exact table data/FK/clock checks |
 | Main activation or real tracked delivery | Not performed; tracking off |
 
 The earlier 403 grant failure, rejected regional host and first failed build stay
@@ -68,8 +69,16 @@ Actual per-SQL network round trips were not measured. These later writes
 intentionally advance the tenant revision beyond the original saved cursor.
 
 The resource view shows one Node 24 function in IAD1, 649 kB and a 10s maximum.
-A complete deployed file inventory, observed cold start, managed backup/isolated
-restore and real tracked delivery remain open. Git remains disconnected; a
+A consistent logical snapshot subsequently read all eight tables in one primary
+transaction and explicitly rolled back before publishing the private export.
+The 210 rows restored successfully into an isolated in-memory SQLite database;
+a separate process repeated the restore against the independently retained
+whole-file digest. Table data, schema, foreign keys, registration bindings and
+clock watermark checks passed. No remote DML or production restore occurred.
+This is an application logical round-trip, not managed backup/PITR recovery.
+
+A complete deployed file inventory, observed cold start, managed backup/restore
+and real tracked delivery remain open. Git remains disconnected; a
 repository push does not automatically publish production. `hostingVerified`, effective read statuses and effective feed
 remain false. Image fetch evidence is anonymous; it establishes neither a named
 recipient nor a human read. All 22 feature statuses and full-parity gaps remain
