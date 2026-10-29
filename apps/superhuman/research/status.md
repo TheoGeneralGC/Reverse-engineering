@@ -1,6 +1,11 @@
 # Implementation checkpoint — 2026-10-27–29
 
-The applied tracking/keyboard source passed **682 API/646 frontend/45 collector tests**,
+Current applied source is **682 API/652 frontend/53 collector**. The narrow
+Split footer integration passed 11 focused checks, all 652 frontend tests,
+types/build and an HTTP serving check. It changed three UI paths, with no API
+restart, schema, environment or database change.
+
+The preceding tracking/keyboard source passed **682 API/646 frontend/45 collector tests**,
 build and strict checks, with all 391 frozen source files matching the reviewed
 candidate. Root applied 111 source paths, made a fresh stopped backup and reviewed
 the intentional jobs-off migration with zero network calls. Fresh Root tests and
@@ -10,9 +15,22 @@ its Inbox rendered with Read Statuses and Recent Opens off.
 The subsequent source-only [Render proposal](../collector/deploy/PROPOSAL.md) adds
 deployment packaging and eight reproducible controls. All **53 collector tests**
 pass after that integration; the API/web runtime source is unchanged. Docker
-execution, hosting and paid provisioning remain unperformed.
+execution, hosting and paid provisioning remain unperformed. The user subsequently
+selected **Vercel**; the Render option is retained as history. A serverless
+collector and remote durable database adapter have been reviewed locally.
+Vercel account access remains pending after a 403 response; no service has been
+deployed.
+The historical Render option has not been approved.
 
-The actual final-source regression passed **16 cases/407 steps**, all eight
+A later [paired custom Split checkpoint](split-inbox-paired-checkpoint-20261029.md)
+completed one approved original create/name-only edit/off/on/delete, positive
+custom/Important membership and exact restoration of captured settings. The
+corrected footer passed 101 local browser actions with seven immutable receipts,
+eight checkpoints and five protected records. Its three UI paths are now applied.
+Original reordering was skipped for tool binding. Full-family, original Other/negative matching, Alert copy/layout
+and hidden-backend parity remain open. The earlier failed Create/Delete guards remain failed.
+
+The applied 682/646 source regression passed **16 cases/407 steps**, all eight
 persistence assertions and 436 stable source/runtime entries, with all 16 owned
 browser cleanups. Fifteen captures are complete; reply-all retains missing events
 while exact body/POST201 checks passed. Separate RI04 and KB02 checks passed 75

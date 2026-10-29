@@ -20,6 +20,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Provider draft lifecycle and rollout](research/provider-draft-live-check-20261028.md)
 - [Controlled mapped Send and recipient difference](research/mapped-send-live-check-20261029.md)
 - [Local custom Split Inbox checkpoint](research/split-inbox-local-check-20261029.md)
+- [Paired custom Split case and applied footer correction](research/split-inbox-paired-checkpoint-20261029.md)
 - [Combined delivery, Knowledge and personalization checkpoint](research/combined-checkpoint-20261028.md)
 - [Knowledge receipt recovery checkpoint](research/knowledge-recovery-check-20261028.md)
 
@@ -31,7 +32,7 @@ Layout: `web/` contains the browser client, `api/` the persistent backend, and
 
 ## Applied tracking and keyboard checkpoint
 
-The applied **682 API/646 frontend/45 collector** source passed the existing
+The preceding tracking/keyboard **682 API/646 frontend/45 collector** source passed the existing
 **16 cases/407 browser steps**, all eight persistence assertions and 436 stable
 source/runtime entries. Separate synthetic read-import and keyboard checks passed
 75 and 50 actions respectively. It adds guarded tracking preferences/delivery,
@@ -48,7 +49,21 @@ real-account tracking activation is implied.
 
 A subsequent [Render deployment proposal](collector/deploy/PROPOSAL.md) adds source-only
 packaging and eight reproducible controls, bringing the collector suite to
-**53 passing tests**. It has not been deployed or provisioned.
+**53 passing tests**. It has not been deployed or provisioned. The user has since
+selected Vercel; the Render option is unapproved history. The Vercel durable
+adapter has been reviewed locally; account access remains pending after a 403 response.
+No service has been deployed.
+
+A separate [paired custom Split case](research/split-inbox-paired-checkpoint-20261029.md)
+completed one authorized original create/name edit/off/on/delete and exact
+observable restoration. The corrected footer passed 101 synthetic browser
+actions, seven immutable receipts and strict stopped checks. Root applied its
+three UI paths and passed 11 focused checks, all 652 frontend tests, types/build
+and an HTTP serving check. Current source is **682 API/652 frontend/53 collector**;
+the earlier 407-step regression retains its 682/646 identity. Original ordering
+was skipped for tool binding, and original Other retention, negative matching,
+Library/template activation, confirmation copy/layout and full Split parity
+remain open.
 
 ## Run the current implementation
 
@@ -58,8 +73,9 @@ stable source entries. Custom Split Inboxes now support account-scoped saves,
 edit/off/on, overlap filtering, empty views, ordering and deletion. A separate
 synthetic continuation completed 256 actions and verified twelve exact settings
 receipts, including one lost-response recovery without PATCH replay. Its earlier
-empty-badge test failure remains retained. Original custom settings comparison,
-Library activation, Auto Labels and full query parity remain open. See the
+empty-badge test failure remains retained. At that checkpoint, original custom
+settings comparison, Library activation, Auto Labels and full query parity
+remained open; the later paired case is separate. See the
 [Split Inbox checkpoint](research/split-inbox-local-check-20261029.md).
 
 The preceding **531 API/495 frontend** version added automatic saving, stable

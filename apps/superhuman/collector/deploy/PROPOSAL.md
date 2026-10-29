@@ -1,4 +1,8 @@
-# Render deployment proposed for review
+# Historical Render option — Vercel selected
+
+The user selected Vercel on 2026-10-29. This retained Render option was not
+approved or deployed; the Vercel adapter and durable database plan are being
+prepared separately. The following is the historical reviewed proposal.
 
 Choose **Render**, Oregon, one paid **`0.5c-512mb`** web service and a **1 GB
 persistent disk**. Proposed service name: **`rea-superhuman-tracking`**. Requested
