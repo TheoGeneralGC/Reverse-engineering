@@ -1,8 +1,16 @@
-import type { Label, Person, Thread } from './types.ts';
+import { Temporal } from '@js-temporal/polyfill';
+import { HttpError, type Label, type Person, type Thread } from './types.ts';
 
 type Node = { kind: 'term'; field?: string; value: string } | { kind: 'not'; child: Node } | { kind: 'and' | 'or'; children: Node[] };
 type Token = { value: string; kind: 'word' | 'open' | 'close'; quoted?: boolean };
-export type SearchContext = { labels?: readonly Label[]; accountEmail?: (accountId: string) => string | undefined };
+export type SearchContext = { labels?: readonly Label[]; accountEmail?: (accountId: string) => string | undefined; timeZone?: string };
+
+export function normalizeSearchTimeZone(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !value || value.length > 128 || !/^[A-Za-z][A-Za-z0-9_+./-]*$/.test(value)) throw new HttpError(400, 'A valid IANA search time zone is required', 'invalid_search_time_zone');
+  try { return new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone; }
+  catch { throw new HttpError(400, 'A valid IANA search time zone is required', 'invalid_search_time_zone'); }
+}
 
 // Parse only query text. Target contents and quoted strings are never executed.
 function tokenize(input: string): Token[] {
@@ -70,15 +78,21 @@ export function parseSearchQuery(input: string): Node {
   return expression('and');
 }
 
-// Local date-only boundaries are UTC, inclusive for after/newer and exclusive
-// for before/older. Exact original provider/time-zone semantics remain unverified.
-function dateBoundary(value: string): number | undefined {
+// The observed client parses slash dates in its browser zone and ISO dates in
+// UTC. Missing context retains legacy UTC; after is inclusive, before exclusive.
+// Invalid calendar dates still match nothing; original overflow is unverified.
+function dateBoundary(value: string, timeZone?: string): number | undefined {
   if (/^\d{9,10}$/.test(value)) return Number(value) * 1000;
   const match = value.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (!match) return undefined;
   const [, year, month, day] = match.map(Number);
   const date = new Date(0); date.setUTCFullYear(year, month - 1, day); date.setUTCHours(0, 0, 0, 0);
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? date.getTime() : undefined;
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return undefined;
+  if (value.includes('/') && timeZone) {
+    try { return Temporal.PlainDate.from({ year, month, day }, { overflow: 'reject' }).toZonedDateTime(timeZone).epochMilliseconds; }
+    catch { return undefined; }
+  }
+  return date.getTime();
 }
 
 export function threadHasFolder(thread: Thread, name: string): boolean {
@@ -94,6 +108,7 @@ export function threadHasFolder(thread: Thread, name: string): boolean {
 }
 
 export function createSearchMatcher(query: string, context: SearchContext = {}): (thread: Thread) => boolean {
+  const timeZone = normalizeSearchTimeZone(context.timeZone);
   const root = parseSearchQuery(query);
   return (thread: Thread) => {
     const own = context.accountEmail?.(thread.accountId)?.toLowerCase();
@@ -116,7 +131,7 @@ export function createSearchMatcher(query: string, context: SearchContext = {}):
         if (value in flags) return flags[value];
       }
       if (['before', 'after', 'older', 'newer'].includes(field)) {
-        const boundary = dateBoundary(value); const timestamp = Date.parse(thread.lastMessageAt);
+        const boundary = dateBoundary(value, timeZone); const timestamp = Date.parse(thread.lastMessageAt);
         return boundary !== undefined && Number.isFinite(timestamp) && (field === 'before' || field === 'older' ? timestamp < boundary : timestamp >= boundary);
       }
       // Unknown operators retain the old literal-search behavior. The replica

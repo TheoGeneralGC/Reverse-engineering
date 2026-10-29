@@ -4,20 +4,22 @@ import { createComposerEditor } from './composer-editor.ts';
 import type { ComposerController,FormatCommand,FormatState,RewriteTarget } from './composer-editor.ts';
 import { normalizeComposerLink } from './composer-html.ts';
 import type { ComposerValue } from './composer-html.ts';
+import type { ComposerQuotedBody } from './auto-drafts/v2/composer-quote.ts';
 import Icon from './Icon.tsx';
 import { requestComposerRewrite,rewriteCommands } from './composer-ai.ts';
 import type { ComposerRewriteRequest } from './composer-ai.ts';
 
-export type RichComposerHandle={getValue:()=>ComposerValue&{draftId:string};insertText:(text:string)=>void;replaceText:(text:string)=>void;focus:()=>void;openAI:()=>void};
-type Props={accountId:string;draftId:string;body:string;html?:string;readOnly?:boolean;onChange:(value:ComposerValue)=>void;onFiles?:(files:File[])=>void;generateAI?:(request:ComposerRewriteRequest,signal:AbortSignal)=>Promise<string>};
+export type RichComposerHandle={getValue:()=>ComposerValue&{draftId:string};insertText:(text:string)=>void;replaceText:(text:string)=>void;focus:()=>void;openAI:()=>void;expandQuotedBody:()=>boolean};
+type Props={accountId:string;draftId:string;body:string;html?:string;readOnly?:boolean;quotedBody?:ComposerQuotedBody|null;onExpandQuotedBody?:()=>void;onChange:(value:ComposerValue)=>void;onFiles?:(files:File[])=>void;generateAI?:(request:ComposerRewriteRequest,signal:AbortSignal)=>Promise<string>};
 type InlineAI={target:RewriteTarget;phase:'ready'|'working'|'done'|'error';prompt:string;error:string;lastRequest?:ComposerRewriteRequest;top:number};
 const palette=[{name:'No color',value:null,swatch:'rgb(34, 34, 34)'},{name:'Lava Red',value:'rgb(222, 84, 84)',swatch:'rgb(222, 84, 84)'},{name:'Irascible Orange',value:'rgb(233, 150, 56)',swatch:'rgb(233, 150, 56)'},{name:'Seafoam Green',value:'rgb(92, 186, 135)',swatch:'rgb(92, 186, 135)'},{name:'Conscientious Blue',value:'rgb(74, 143, 225)',swatch:'rgb(74, 143, 225)'},{name:'Pretty In Pink',value:'rgb(201, 118, 209)',swatch:'rgb(201, 118, 209)'}];
 const emptyFormat:FormatState={bold:false,italic:false,underline:false,strike:false,bullets:false,numbers:false,quote:false};
 const ListIcon=({numbered=false}:{numbered?:boolean})=><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.25"><path d="M8 4h10M8 10h10M8 16h10"/>{numbered?<><path d="M2 3h1v4M1 7h4M1 10c3-2 5 0 2 2l-2 2h4M1 16h3l-2 1 2 1-3 1"/></>:<><circle cx="3" cy="4" r="1" fill="currentColor"/><circle cx="3" cy="10" r="1" fill="currentColor"/><circle cx="3" cy="16" r="1" fill="currentColor"/></>}</svg>;
 const LinkIcon=()=><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 6H5a4 4 0 0 0 0 8h3m4-8h3a4 4 0 0 1 0 8h-3M5 10h10"/></svg>;
 const ColorIcon=()=><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="4" fill="#3284a4"/><circle cx="7" cy="12" r="4" fill="#448d6e"/><circle cx="13" cy="12" r="4" fill="#a9525c"/></svg>;
-export default forwardRef<RichComposerHandle,Props>(function RichComposer({accountId,draftId,body,html,readOnly=false,onChange,onFiles,generateAI=requestComposerRewrite},ref){
+export default forwardRef<RichComposerHandle,Props>(function RichComposer({accountId,draftId,body,html,readOnly=false,quotedBody,onExpandQuotedBody,onChange,onFiles,generateAI=requestComposerRewrite},ref){
  const identity=useRef({accountId,draftId});identity.current={accountId,draftId};
+ const [quoteCollapsed,setQuoteCollapsed]=useState(false);
  const root=useRef<HTMLDivElement>(null),controller=useRef<ComposerController|null>(null),change=useRef(onChange),files=useRef(onFiles),disabled=useRef(readOnly),linkRange=useRef<Range|null>(null),urlField=useRef<HTMLInputElement>(null);
  const [format,setFormat]=useState(emptyFormat),[selection,setSelection]=useState(false),[toolbar,setToolbar]=useState({left:0,top:0}),[link,setLink]=useState(false),[url,setURL]=useState(''),[linkError,setLinkError]=useState(''),[colors,setColors]=useState(false),[selectedColor,setSelectedColor]=useState<string|null>(null);
  const [ai,setAI]=useState<InlineAI|null>(null),aiState=useRef<InlineAI|null>(null),aiInput=useRef<HTMLInputElement>(null),aiRequest=useRef<AbortController|null>(null),aiRevision=useRef(0);
@@ -57,7 +59,7 @@ export default forwardRef<RichComposerHandle,Props>(function RichComposer({accou
  useLayoutEffect(()=>{
   if(!root.current)return;
   aiRevision.current++;aiRequest.current?.abort();aiRequest.current=null;showAI(null);setLink(false);setColors(false);setSelection(false);linkRange.current=null;
-  const current=createComposerEditor(root.current,{body,html},value=>{if(!disabled.current)change.current(value)});controller.current=current;root.current.contentEditable=String(!readOnly);
+  const current=createComposerEditor(root.current,{body,html},value=>{if(!disabled.current)change.current(value)},setQuoteCollapsed);controller.current=current;setQuoteCollapsed(!!quotedBody&&current.collapseQuotedBody(quotedBody));root.current.contentEditable=String(!readOnly);
   const refresh=()=>updateFormat();
   for(const type of ['pathChange','select','cursor','focus','input'])current.editor.addEventListener(type,refresh);
   current.editor.addEventListener('blur',()=>setSelection(false));
@@ -70,7 +72,7 @@ export default forwardRef<RichComposerHandle,Props>(function RichComposer({accou
  useEffect(()=>{if(ai?.phase==='ready')aiInput.current?.focus()},[ai?.phase]);
  useEffect(()=>{if(link)urlField.current?.focus()},[link]);
  useEffect(()=>{if(!link&&!colors)return;const close=(event:PointerEvent)=>{if(root.current?.parentElement&&!root.current.parentElement.contains(event.target as Node)){setLink(false);setColors(false)}};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close)},[link,colors]);
- useImperativeHandle(ref,()=>({getValue:()=>({...(controller.current?.getValue()||{body,html:html||''}),draftId}),insertText:text=>controller.current?.insertText(text),replaceText:text=>controller.current?.replaceText(text),focus:()=>controller.current?.editor.focus(),openAI}),[accountId,draftId,body,html]);
+ useImperativeHandle(ref,()=>({getValue:()=>({...(controller.current?.getValue()||{body,html:html||''}),draftId}),insertText:text=>controller.current?.insertText(text),replaceText:text=>controller.current?.replaceText(text),focus:()=>controller.current?.editor.focus(),openAI,expandQuotedBody:()=>{const expanded=controller.current?.expandQuotedBody()??false;if(expanded)setQuoteCollapsed(false);return expanded}}),[accountId,draftId,body,html]);
  const run=(command:FormatCommand)=>{controller.current?.run(command);updateFormat()};
  const openLink=()=>{if(readOnly||!controller.current)return;const range=controller.current.editor.getSelection();linkRange.current=range.cloneRange();const node=range.startContainer.nodeType===1?range.startContainer as Element:range.startContainer.parentElement;setURL(node?.closest('a')?.getAttribute('href')||'');position(range,214);setColors(false);setLinkError('');setLink(true)};
  const openColors=()=>{if(readOnly||!controller.current)return;const range=controller.current.editor.getSelection();position(range,221);setSelectedColor(controller.current.editor.getFontInfo(range).color||null);setColors(!colors)};
@@ -97,6 +99,7 @@ export default forwardRef<RichComposerHandle,Props>(function RichComposer({accou
  const tool=(label:string,command:FormatCommand,content:ReactNode,active=false)=><button key={command} type="button" className={`format-${command}`} aria-label={label} title={label} aria-pressed={active} onMouseDown={event=>event.preventDefault()} onClick={()=>run(command)}>{content}</button>;
  return <div className="rich-composer" onKeyDownCapture={keydown}>
   <div ref={root} role="textbox" aria-label="Message body" aria-multiline="true" aria-readonly={readOnly} contentEditable={!readOnly} suppressContentEditableWarning tabIndex={0} data-placeholder="Tip: Hit ⌘J for AI" className={`body-input rich-editor ${body?'':'is-empty'}`}/>
+  {quoteCollapsed&&<button type="button" className="composer-expand-quote" aria-label="Show quoted message" disabled={readOnly} onClick={onExpandQuotedBody}>···</button>}
   {selection&&!link&&!colors&&!ai&&!readOnly&&<div className="rich-format-toolbar" role="toolbar" aria-label="Text formatting" style={toolbar}>
    {tool('Bold (⌘B)','bold','B',format.bold)}{tool('Italic (⌘I)','italic','I',format.italic)}{tool('Underline (⌘U)','underline','U',format.underline)}{tool('Strikethrough (⌘⇧X)','strike','S',format.strike)}
    <button type="button" aria-label="Insert link (⌘K)" title="Insert link (⌘K)" onMouseDown={event=>event.preventDefault()} onClick={openLink}><LinkIcon/></button>

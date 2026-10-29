@@ -9,7 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Store } from './store.ts';
+import { Store, type DraftWriteCondition } from './store.ts';
 import { GoogleProvider } from './google.ts';
 import { AiProvider } from './ai.ts';
 import { AiChatService } from './ai-chat.ts';
@@ -36,6 +36,7 @@ import { GoogleCalendarProvider } from './calendar.ts';
 import type { GoogleService } from './google-scopes.ts';
 import { HttpError } from './types.ts';
 import type { Account, Draft, Label, Thread, ThreadListOptions } from './types.ts';
+import { normalizeSearchTimeZone } from './search.ts';
 
 const rootPath = fileURLToPath(new URL('../../../../', import.meta.url));
 function json(response: ServerResponse, status: number, body: unknown) { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); response.end(JSON.stringify(body)); }
@@ -59,14 +60,15 @@ export function resolveApplicationDatabasePath(optionPath: unknown, environmentP
   return configured;
 }
 
-export type AutoDraftGenerationOptions=Pick<AutoDraftsV2AuthorityOptions,'processing'|'replyTimeZone'|'model'|'cursorKey'|'maximumIdentityAgeMs'>&{googleFetch?:typeof fetch;modelProfile:(accountId:string)=>AutoDraftModelProfileInput};
+export type AutoDraftGenerationOptions=Pick<AutoDraftsV2AuthorityOptions,'processing'|'replyTimeZone'|'generatedPersistence'|'model'|'cursorKey'|'maximumIdentityAgeMs'>&{googleFetch?:typeof fetch;modelProfile:(accountId:string)=>AutoDraftModelProfileInput};
 
 export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration; autoDraftGeneration?:AutoDraftGenerationOptions } = {}) {
   const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector', 'autoDraftGeneration'].includes(key));
   if (unknownOptions.length) throw new TypeError('Unknown application configuration option');
   if (options.providerDraftAutomatic !== undefined && typeof options.providerDraftAutomatic !== 'boolean') throw new TypeError('providerDraftAutomatic must be a boolean');
+  const providerDraftAutomaticEffective=options.providerDraftAutomatic??(options.runJobs!==false);
   const autoOptions=options.autoDraftGeneration;
-  if(autoOptions!==undefined&&(!autoOptions||typeof autoOptions!=='object'||Array.isArray(autoOptions)||Object.keys(autoOptions).some(k=>!['processing','replyTimeZone','model','modelProfile','cursorKey','googleFetch','maximumIdentityAgeMs'].includes(k))||autoOptions.processing!==undefined&&typeof autoOptions.processing!=='boolean'||typeof autoOptions.model?.prepare!=='function'||typeof autoOptions.modelProfile!=='function'||!(autoOptions.cursorKey instanceof Uint8Array)||autoOptions.cursorKey.byteLength!==32||autoOptions.googleFetch!==undefined&&typeof autoOptions.googleFetch!=='function'))throw new TypeError('Invalid automatic draft generation configuration');
+  if(autoOptions!==undefined&&(!autoOptions||typeof autoOptions!=='object'||Array.isArray(autoOptions)||Object.keys(autoOptions).some(k=>!['processing','replyTimeZone','generatedPersistence','model','modelProfile','cursorKey','googleFetch','maximumIdentityAgeMs'].includes(k))||autoOptions.processing!==undefined&&typeof autoOptions.processing!=='boolean'||autoOptions.generatedPersistence!==undefined&&!['local','managed'].includes(autoOptions.generatedPersistence)||typeof autoOptions.model?.prepare!=='function'||typeof autoOptions.modelProfile!=='function'||!(autoOptions.cursorKey instanceof Uint8Array)||autoOptions.cursorKey.byteLength!==32||autoOptions.googleFetch!==undefined&&typeof autoOptions.googleFetch!=='function'))throw new TypeError('Invalid automatic draft generation configuration');
   if(autoOptions?.replyTimeZone!==undefined)autoDraftReplyTimeZone(autoOptions.replyTimeZone);
   const env = options.env ?? process.env;
   const configuredDatabase = resolveApplicationDatabasePath(options.databasePath, env.DATABASE_PATH, !!process.env.NODE_TEST_CONTEXT);
@@ -79,7 +81,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   let store: Store;
   try { store = new Store(configuredDatabase ?? resolve(rootPath, '.local/superhuman/mail.sqlite'), options.seed ?? true); } catch (error) { trackingCollector?.close(); throw error; }
   let autoDraftGeneration:AutoDraftsV2Authority|undefined;let google:GoogleProvider;
-  try{if(autoOptions){autoDraftGeneration=new AutoDraftsV2Authority(store,{...autoOptions,googleEnvironment:env,googleFetch:autoOptions.googleFetch??fetch,webOrigin:env.WEB_ORIGIN||'http://127.0.0.1:5173',now:scheduler.now});google=autoDraftGeneration.facade.runtime.google}else google=new GoogleProvider(store,env)}catch(error){store.close();trackingCollector?.close();throw error}
+  try{if(autoOptions){autoDraftGeneration=new AutoDraftsV2Authority(store,{...autoOptions,automaticCloudSaveAvailable:autoOptions.generatedPersistence==='managed'&&autoOptions.processing===true&&providerDraftAutomaticEffective,googleEnvironment:env,googleFetch:autoOptions.googleFetch??fetch,webOrigin:env.WEB_ORIGIN||'http://127.0.0.1:5173',now:scheduler.now});google=autoDraftGeneration.facade.runtime.google}else google=new GoogleProvider(store,env)}catch(error){store.close();trackingCollector?.close();throw error}
   try { google.migrateLegacyMailGrants(); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   let automation: AutomationService;
   try { automation = new AutomationService(store, { now: scheduler.now, fixture: options.automationFixture }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
@@ -87,11 +89,13 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   try { autoDrafts = new AutoDraftsService(store, { now: scheduler.now }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   let splitInboxes: SplitInboxService;
   try { splitInboxes = new SplitInboxService(store, { now: scheduler.now }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
+  let trackingRuntimeIntegrated=false;
   let tracking: TrackingPreferencesService;
-  try { tracking = new TrackingPreferencesService(store, { now: scheduler.now, configuration: () => trackingCollector?.capability() ?? { configured: false, configurationFingerprint: null } }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
+  try { tracking = new TrackingPreferencesService(store, { now: scheduler.now, configuration: () => ({...(trackingCollector?.capability()??{configured:false,configurationFingerprint:null}),hostingVerified:trackingCollector?.hostingVerified()??false,deliveryIntegrated:trackingRuntimeIntegrated&&!closing,readIntegrated:trackingRuntimeIntegrated&&!closing}) }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   const trackingBasis=options.trackingCollector&&trackingCollector?{origin:options.trackingCollector.origin,keyId:options.trackingCollector.keyId,tenant:options.trackingCollector.tenant,configurationFingerprint:trackingCollector.capability().configurationFingerprint}:null;
   const trackingDelivery=new TrackingDeliveryService(store,google,tracking,trackingCollector,{configuration:()=>trackingBasis,wallNow:options.trackingCollector?.now??Date.now,isClosing:()=>closing});
   const trackingReads=new TrackingReadService(store,tracking,trackingDelivery,trackingCollector,{now:options.trackingCollector?.now??Date.now});
+  trackingRuntimeIntegrated=true;
   const ai = new AiProvider(store, env, options.aiFetch);
   const personalization = new PersonalizationService(store, scheduler.now);
   const calendar = new GoogleCalendarProvider(store, google, env, google.fetcher, { now: scheduler.now });
@@ -109,7 +113,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   function confirmTracking(draft:Draft){const operationId=draft.composerSendId??draft.artifactSendId;if(!operationId||!trackingDelivery.isTracked(draft))return;const work=trackingDelivery.confirm({accountId:draft.accountId,source:draft.composerSendId?'composer':'artifact',operationId}).catch(()=>{});trackingConfirmationJobs.add(work);void work.finally(()=>trackingConfirmationJobs.delete(work));}
   const syncs = new Map<string, Promise<unknown>>();
   const operations = new OperationQueue();
-  const providerDrafts = new ProviderDraftService(store, options.providerDraftTransport ?? googleDraftTransport(google), { clock: scheduler, queue: operations, automatic: options.providerDraftAutomatic ?? options.runJobs !== false, resume: options.providerDraftAutomatic ?? options.runJobs !== false });
+  const providerDrafts = new ProviderDraftService(store, options.providerDraftTransport ?? googleDraftTransport(google), { clock: scheduler, queue: operations, automatic: providerDraftAutomaticEffective, resume: providerDraftAutomaticEffective });
   const autoDraftInitializations=new Map<string,Promise<void>>(),autoDraftJobs=new Map<string,Promise<number>>();
   const autoDraftAccounts=(accountId?:string)=>store.list<Account>('account').filter(a=>a.provider==='google'&&(accountId===undefined||a.id===accountId));
   /** Explicit startup/background observation. HTTP GET never calls this. */
@@ -490,10 +494,16 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
         if (['accountId', 'email', 'excludeThreadId'].some(key => url.searchParams.getAll(key).length > 1)) throw new HttpError(400, 'Invalid contact context query', 'invalid_contact_context');
         return json(response, 200, store.contactContext({ accountId: url.searchParams.get('accountId') ?? store.preferences().activeAccountId, email: url.searchParams.get('email') ?? '', excludeThreadId: url.searchParams.get('excludeThreadId') ?? undefined }));
       }
-      if (path === '/api/threads' && method === 'GET') { void wakeSnoozes().catch(() => {}); return json(response, 200, { threads: store.threads(url.searchParams.get('accountId') ?? store.preferences().activeAccountId, url.searchParams.get('folder') ?? 'inbox', url.searchParams.get('q') ?? '') }); }
+      const searchTimeZone = () => {
+        const values = url.searchParams.getAll('timeZone');
+        if (values.length > 1) throw new HttpError(400, 'Select one search time zone', 'invalid_search_time_zone');
+        return normalizeSearchTimeZone(values[0]);
+      };
+      if (path === '/api/threads' && method === 'GET') { const timeZone = searchTimeZone(); void wakeSnoozes().catch(() => {}); return json(response, 200, { threads: store.threads(url.searchParams.get('accountId') ?? store.preferences().activeAccountId, url.searchParams.get('folder') ?? 'inbox', url.searchParams.get('q') ?? '', timeZone) }); }
       if (path === '/api/thread-summaries' && method === 'GET') {
+        const timeZone = searchTimeZone();
         void wakeSnoozes().catch(() => {});
-        return json(response, 200, store.threadSummaries({ accountId: url.searchParams.get('accountId') ?? store.preferences().activeAccountId, folder: url.searchParams.get('folder') ?? 'inbox', q: url.searchParams.get('q') ?? '', split: (url.searchParams.get('split') ?? 'all') as ThreadListOptions['split'], limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined, cursor: url.searchParams.get('cursor') }));
+        return json(response, 200, store.threadSummaries({ accountId: url.searchParams.get('accountId') ?? store.preferences().activeAccountId, folder: url.searchParams.get('folder') ?? 'inbox', q: url.searchParams.get('q') ?? '', split: (url.searchParams.get('split') ?? 'all') as ThreadListOptions['split'], limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined, cursor: url.searchParams.get('cursor'), timeZone }));
       }
       const actionMatch = path.match(/^\/api\/threads\/([^/]+)\/actions$/);
       if (actionMatch && method === 'POST') {
@@ -540,14 +550,21 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       if (draftMatch && !draftMatch[2] && method === 'GET') { const id = decodeURIComponent(draftMatch[1]); return json(response, 200, { draft: store.required<Draft>('draft', id), deliveryPending: inFlightSends.has(id), providerDraft: providerDrafts.status(store.required<Draft>('draft',id).accountId,id) }); }
       if ((path === '/api/drafts' && method === 'POST') || (draftMatch && !draftMatch[2] && method === 'PATCH')) {
         const input = await body(request); const values: Partial<Draft> = {};
-        for (const key of ['accountId', 'threadId', 'to', 'cc', 'bcc', 'subject', 'body', 'html'] as const) if (input[key] !== undefined) values[key] = string(input[key]);
         const id = draftMatch ? decodeURIComponent(draftMatch[1]) : undefined;
-        if (id && inFlightSends.has(id)) throw new HttpError(409, 'Delivery is already in progress');
-        if (id) store.required<Draft>('draft', id);
+        let condition: DraftWriteCondition | undefined;
+        if (input.expectedRevision !== undefined || input.action !== undefined) {
+          const scopeId=(value:unknown):value is string=>typeof value==='string'&&value.length>0&&Buffer.byteLength(value)<=1024&&!/[\s\p{Cc}\p{Cf}]/u.test(value);
+          const allowed=['accountId','threadId','expectedRevision','action','to','cc','bcc','subject','body','html'];
+          if (!id || Object.keys(input).some(key=>!allowed.includes(key)) || !scopeId(input.accountId) || !scopeId(input.threadId) || !Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number)<0 || input.action!==undefined&&input.action!=='claim' || input.action==='claim'&&Object.keys(input).sort().join(',')!=='accountId,action,expectedRevision,threadId') throw new HttpError(400,'Invalid conditional draft request','draft_invalid_request');
+          condition={accountId:input.accountId,threadId:input.threadId,expectedRevision:input.expectedRevision as number};
+        }
+        for (const key of ['accountId', 'threadId', 'to', 'cc', 'bcc', 'subject', 'body', 'html'] as const) if (input[key] !== undefined) values[key] = string(input[key]);
+        if (id && inFlightSends.has(id)) throw new HttpError(409, 'Delivery is already in progress', condition?'draft_locked':'request_failed');
+        if (id && !condition) store.required<Draft>('draft', id);
         const existing = id ? store.get<Draft>('draft', id) : undefined;
         const threadId = values.threadId ?? existing?.threadId;
-        if (threadId && store.required<Thread>('thread', threadId).accountId !== (values.accountId ?? existing?.accountId ?? store.preferences().activeAccountId)) throw new HttpError(400, 'Reply thread belongs to a different account');
-        const saved = store.saveDraft({ ...values, ...(id ? { id } : {}) }, id ? undefined : 'composer'); return json(response, id ? 200 : 201, { draft: saved, providerDraft: providerDrafts.status(saved.accountId,saved.id) });
+        if (!condition && threadId && store.required<Thread>('thread', threadId).accountId !== (values.accountId ?? existing?.accountId ?? store.preferences().activeAccountId)) throw new HttpError(400, 'Reply thread belongs to a different account');
+        const saved = store.saveDraft({ ...values, ...(id ? { id } : {}) }, id ? undefined : 'composer', condition); return json(response, id ? 200 : 201, { draft: saved, providerDraft: providerDrafts.status(saved.accountId,saved.id) });
       }
       if (draftMatch && !draftMatch[2] && method === 'DELETE') { const id = decodeURIComponent(draftMatch[1]); const draft = store.required<Draft>('draft', id); if (['sent', 'sending', 'delivery_unknown'].includes(draft.status) || inFlightSends.has(id)) throw new HttpError(409, 'Cannot delete a sent, sending, or unresolved delivery'); if (store.hasProviderDraftLink(id)) throw new HttpError(409, 'Use the keyed managed draft discard action', 'provider_draft_deletion_requires_action'); if (draft.providerDraftId) throw new HttpError(409, 'Provider-synced drafts must be managed in Gmail; local deletion will not silently delete a provider draft', 'provider_draft_deletion_requires_action'); store.deleteDraft(id); return json(response, 200, { deleted: true }); }
       if (draftMatch && draftMatch[2] === 'send' && method === 'POST') return json(response, 200, await deliver(decodeURIComponent(draftMatch[1])));

@@ -2,10 +2,11 @@ import { useCallback,useLayoutEffect,useRef,useState } from 'react';
 import { api } from './api.ts';
 import type { Thread,ThreadListPage } from './api.ts';
 import {checkedSplitPage} from './split-inbox-client.ts';
-import { createMailboxList,emptyMailbox,mailboxKey,summaryPath } from './mailbox-list.ts';
+import { browserMailboxContext,createMailboxList,emptyMailbox,mailboxKey,summaryPath } from './mailbox-list.ts';
 import type { MailboxContext,MailboxList,MailboxSnapshot } from './mailbox-list.ts';
 
-export default function useMailbox(context:MailboxContext|null){
+export default function useMailbox(input:MailboxContext|null){
+ const context=browserMailboxContext(input);
  const key=context?mailboxKey(context):'',list=useRef<MailboxList|null>(null);
  const [snapshot,setSnapshot]=useState<{key:string;state:MailboxSnapshot}>({key:'',state:emptyMailbox()});
  useLayoutEffect(()=>{

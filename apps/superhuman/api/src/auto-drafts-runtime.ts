@@ -6,15 +6,15 @@ const hash=(v:unknown)=>createHash('sha256').update(stable(v)).digest('hex');
  * trusted DI. This module cannot read environment files or fetch identities.
  * Default processing is OFF; sync never invokes the model or awaits a model. */
 export class AutoDraftRuntime{
- readonly store:Store;readonly worker:AutoDraftWorker;readonly settings:AutoDraftsService;readonly producer:GoogleIngressAdapter;readonly bridge:AutoDraftIngressBridge;readonly google:GoogleProvider;
+ readonly automaticCloudSaveAvailable:boolean;readonly store:Store;readonly worker:AutoDraftWorker;readonly settings:AutoDraftsService;readonly producer:GoogleIngressAdapter;readonly bridge:AutoDraftIngressBridge;readonly google:GoogleProvider;
  private readonly readinessObservers=new Set<(accountId:string)=>void>();
  registerReadinessObserver(observer:(accountId:string)=>void){this.readinessObservers.add(observer);return()=>this.readinessObservers.delete(observer)}
  private readonly now:()=>number;private readonly options:AutoDraftRuntimeOptions;private closed=false;
- constructor(store:Store,settings:AutoDraftsService,options:AutoDraftRuntimeOptions){this.store=store;this.settings=settings;this.options=options;this.now=options.now??Date.now;
+ constructor(store:Store,settings:AutoDraftsService,options:AutoDraftRuntimeOptions){if(options.automaticCloudSaveAvailable!==undefined&&typeof options.automaticCloudSaveAvailable!=='boolean'||options.automaticCloudSaveAvailable===true&&(options.generatedPersistence!=='managed'||options.processing!==true))throw new TypeError('Invalid automatic cloud capability composition');this.automaticCloudSaveAvailable=options.automaticCloudSaveAvailable===true;this.store=store;this.settings=settings;this.options=options;this.now=options.now??Date.now;
   store.db.exec('CREATE TABLE IF NOT EXISTS auto_draft_runtime_epochs(account_id TEXT PRIMARY KEY,data TEXT NOT NULL,integrity TEXT NOT NULL)');
   let bridge:AutoDraftIngressBridge|undefined;
   this.producer=new GoogleIngressAdapter(store,{accountVersion:options.accountVersion,now:this.now,onPublication:p=>{if(!bridge)throw Error('Bridge not initialized');bridge.observe(p)}});
-  this.worker=new AutoDraftWorker(store,settings,{model:options.model,replyTimeZone:options.replyTimeZone,readiness:id=>this.readiness(id),now:this.now,schedule:options.schedule,settledRead:(id,signal)=>this.waitForSettled(id,signal)});
+  this.worker=new AutoDraftWorker(store,settings,{model:options.model,replyTimeZone:options.replyTimeZone,generatedPersistence:options.generatedPersistence,readiness:id=>this.readiness(id),now:this.now,schedule:options.schedule,settledRead:(id,signal)=>this.waitForSettled(id,signal)});
   this.bridge=bridge=new AutoDraftIngressBridge(store,this.worker,this.producer,this.now);
   this.google=new GoogleProvider(store,options.googleEnvironment,options.googleFetch, {now:this.now},this.producer);
  }
@@ -33,4 +33,4 @@ export class AutoDraftRuntime{
  private async waitForSettled(accountId:string,signal:AbortSignal){while(this.producer.readiness(accountId).pendingRead){this.open();if(this.store.db.isTransaction)throw Error('Cannot wait for Mail inside SQL');if(signal.aborted)throw Error('Settled read timed out');await(this.options.settledPause??((ms,abort)=>sleep(ms,undefined,{signal:abort})))(25,signal)}this.open()}
  close(){if(this.closed)return;this.closed=true;this.producer.close();this.worker.close()}
 }
-export type AutoDraftRuntimeOptions={processing?:boolean;replyTimeZone?:string;readinessAuthority?:(accountId:string)=>AutoDraftReadiness;/** Trusted synchronous, network-free observation inside the readiness SQL unit. */observeReadinessAuthority?:(accountId:string)=>void;accountVersion:(account:Account)=>string;configuration:(accountId:string)=>AutoDraftModelConfiguration|null;identity:(accountId:string)=>GoogleSendAsObservation;model:AutoDraftModelAdapter;googleEnvironment:NodeJS.ProcessEnv;googleFetch:typeof fetch;now?:()=>number;schedule?:(ms:number,fn:()=>void)=>{cancel:()=>void};settledPause?:(ms:number,signal:AbortSignal)=>Promise<unknown>};
+export type AutoDraftRuntimeOptions={processing?:boolean;replyTimeZone?:string;generatedPersistence?:'local'|'managed';/** Trusted factory result, never a JSON override. */automaticCloudSaveAvailable?:boolean;readinessAuthority?:(accountId:string)=>AutoDraftReadiness;/** Trusted synchronous, network-free observation inside the readiness SQL unit. */observeReadinessAuthority?:(accountId:string)=>void;accountVersion:(account:Account)=>string;configuration:(accountId:string)=>AutoDraftModelConfiguration|null;identity:(accountId:string)=>GoogleSendAsObservation;model:AutoDraftModelAdapter;googleEnvironment:NodeJS.ProcessEnv;googleFetch:typeof fetch;now?:()=>number;schedule?:(ms:number,fn:()=>void)=>{cancel:()=>void};settledPause?:(ms:number,signal:AbortSignal)=>Promise<unknown>};

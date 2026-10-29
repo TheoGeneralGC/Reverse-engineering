@@ -6,7 +6,7 @@ import { createReadActivity, readRefreshJournalKey } from '../src/tracking/reads
 import { server, memory, digest, view, feed, messageStatus, accepted, deferred, ref, context, targetVersion } from './read-fixtures.ts';
 test('bare read DTOs reject foreign accounts, private refs/URLs, named viewers and malformed high revisions', () => {
  assert.equal(checkedReadView(view(), 'a').revision, 0); assert.equal(checkedReadFeed(feed(), 'a').events[0]!.viewer, null); assert.equal(checkedReadMessageStatus(messageStatus(), 'a', ref(5)).message.messageRef, ref(5));
- for (const patch of [{ accountId: 'b' }, { collectorUrl: 'https://private.invalid' }, { hostingVerified: true }, { snapshot: { ...view('a', 2).snapshot, snapshotRef: 'gmail-raw-id' } }]) assert.throws(() => checkedReadView({ ...view('a', 2), ...patch }, 'a'));
+ for (const patch of [{ accountId: 'b' }, { collectorUrl: 'https://private.invalid' }, { hostingVerified: 'true' }, { snapshot: { ...view('a', 2).snapshot, snapshotRef: 'gmail-raw-id' } }]) assert.throws(() => checkedReadView({ ...view('a', 2), ...patch }, 'a'));
  for (const change of [(f: ReturnType<typeof feed>) => { (f.events[0] as any).registrationId = 'private'; }, (f: ReturnType<typeof feed>) => { (f.events[0] as any).viewer = { name: 'Claimed person' }; }, (f: ReturnType<typeof feed>) => { f.events[0]!.messageRef = ref(9); }, (f: ReturnType<typeof feed>) => { f.events[0]!.generation++; }, (f: ReturnType<typeof feed>) => { f.nextCursor = 'https://remote.invalid'; }, (f: ReturnType<typeof feed>) => { f.coverage = null; }]) { const f = feed(); change(f); assert.throws(() => checkedReadFeed(f, 'a')); }
 });
 test('refresh parser clones request/response before digest and keeps acceptance separate from terminal proof', async () => {

@@ -1,3 +1,4 @@
+import {generatedHash,type DraftWriteContext,type ProviderMetadataWriter} from './generated-draft-policy.ts';
 import { addressParser } from 'postal-mime';
 import { randomUUID } from 'node:crypto';
 import type { Store, DraftLifecycleOrigin } from './store.ts';
@@ -25,18 +26,24 @@ export class ProviderDraftService {
   readonly owner=randomUUID();readonly active=new Map<string,Promise<void>>();
   private readonly timers=new Map<string,{cancel:()=>void}>();private readonly aborts=new Map<string,AbortController>();
   private readonly pendingReads=new Set<Promise<unknown>>();
-  private closing=false;private metadataDepth=0;private readonly automatic:boolean;
+  private closing=false;private readonly metadataWriter:ProviderMetadataWriter;private readonly automatic:boolean;
   private readonly queue:{run<T>(accountId:string,fn:()=>Promise<T>):Promise<T>};
   private readonly debounceMs:number;
   constructor(store:Store,transport:ProviderDraftTransport,options:{clock?:ProviderDraftClock;queue?:{run<T>(accountId:string,fn:()=>Promise<T>):Promise<T>};automatic?:boolean;resume?:boolean;debounceMs?:number;ownerAlive?:(pid:number)=>boolean}={}){
     this.store=store;this.transport=transport;this.clock=options.clock??systemClock;this.repository=new ProviderDraftRepository(store,this.clock.now);this.automatic=options.automatic??true;this.debounceMs=options.debounceMs??1000;
     if(!Number.isFinite(this.debounceMs)||this.debounceMs<0||this.debounceMs>60000)throw new TypeError('Invalid cloud draft debounce');
     this.queue=options.queue??new OperationQueue();
+    this.metadataWriter=store.createProviderMetadataWriter((request,before)=>{
+      if(this.closing)throw new HttpError(503,'Cloud draft service stopped','provider_draft_stopping');
+      const op=this.repository.operation(request.accountId,request.draftId,request.operationId),link=this.repository.link(request.accountId,request.draftId),owner=store.db.prepare('SELECT owner FROM provider_draft_operations WHERE id=?').get(op.id);
+      if(link?.generated)this.store.assertGeneratedEnrollment(before,link.generated.scope,link.generated.ownerFingerprint);
+      if(!link||link.activeOperationId!==op.id||link.revision!==request.expectedLinkRevision||link.discardId||['consumed','discarded'].includes(link.state)||op.state!=='confirmed'||!['create','update'].includes(op.kind)||op.resolution!=='matching-snapshot'||!op.result||owner?.owner!==this.owner||op.result.providerDraftId!==request.patch.providerDraftId||op.completedAt!==request.patch.providerDraftSyncedAt||before.accountId!==op.accountId||before.id!==op.draftId)throw new HttpError(409,'Cloud metadata authority changed','provider_draft_revision_conflict');
+    });
     this.recover(options.ownerAlive??alive);
     store.registerDraftLifecycleHooks({
-      beforeWrite:(before,next)=>this.beforeWrite(before,next),
-      written:(_before,next)=>{if(!this.metadataDepth)this.note(next)},
-      created:(draft,origin)=>{if(origin!=='auto-generated-local'&&this.repository.account(draft.accountId).provider==='google'){if(!this.repository.link(draft.accountId,draft.id))this.repository.enroll(draft,origin);this.note(draft)}},
+      beforeWrite:(before,next,context)=>this.beforeWrite(before,next,context),
+      written:(_before,next,context)=>{if(!store.isProviderMetadataContext(context))this.note(next)},
+      created:(draft,origin,scope)=>{if(origin!=='auto-generated-local'&&this.repository.account(draft.accountId).provider==='google'){if(!this.repository.link(draft.accountId,draft.id))this.repository.enroll(draft,origin,scope);this.note(draft)}},
       beforeRemove:(draft,context)=>this.beforeRemove(draft,context),
       deliveryReadiness:draft=>this.deliveryReady(draft),
       beforeDelivery:draft=>this.suspendForDelivery(draft),
@@ -67,17 +74,18 @@ export class ProviderDraftService {
     if(draft.threadId){const row=this.store.db.prepare("SELECT r.data FROM thread_summaries s JOIN records r ON r.kind='thread' AND r.id=s.id WHERE s.account_id=? AND s.id=?").get(draft.accountId,draft.threadId);if(!row)throw new HttpError(409,'The reply context changed account','provider_draft_scope_changed');thread=JSON.parse(String(row.data));}
     return{account,previous:draft.deliveryReplyContext??thread?.messages.at(-1),providerThreadId:draft.deliveryReplyContext?.providerThreadId??thread?.providerId};
   }
-  private beforeWrite(before:Draft|undefined,next:Draft){
+  private beforeWrite(before:Draft|undefined,next:Draft,context:DraftWriteContext){
+    const metadata=this.store.isProviderMetadataContext(context);
     const row=this.store.db.prepare('SELECT account_id FROM provider_draft_links WHERE draft_id=?').get(next.id);if(!row)return;
     if(row.account_id!==next.accountId||before&&before.accountId!==next.accountId)throw new HttpError(409,'An owned cloud draft cannot change account','provider_draft_scope_changed');
     const link=this.repository.link(next.accountId,next.id)!;
-    if(!this.metadataDepth&&(link.discardId||['discarded','consumed'].includes(link.state)))throw new HttpError(409,'The owned draft has a terminal intent','provider_draft_locked');
-    if(before&&!this.metadataDepth){
+    if(!metadata&&(link.discardId||['discarded','consumed'].includes(link.state)))throw new HttpError(409,'The owned draft has a terminal intent','provider_draft_locked');
+    if(before&&!metadata){
       const authored=(value:Draft)=>({accountId:value.accountId,threadId:value.threadId??null,to:value.to,cc:value.cc,bcc:value.bcc,subject:value.subject,body:value.body,html:value.html??null,attachments:value.attachments??[]});
       if(before.threadId!==next.threadId)throw new HttpError(409,'Create a new draft to change the owned reply target','provider_draft_scope_changed');
       if((next.revision??0)<(before.revision??0)||(next.revision??0)===(before.revision??0)&&providerDraftHash(authored(before))!==providerDraftHash(authored(next)))throw new HttpError(409,'An authored draft revision cannot regress or change identity','provider_draft_revision_conflict');
     }
-    if(!this.metadataDepth&&before&&before.providerDraftId!==next.providerDraftId)throw new HttpError(409,'Cloud mapping metadata requires its owned ledger','provider_draft_locked');
+    if(!metadata&&before&&before.providerDraftId!==next.providerDraftId)throw new HttpError(409,'Cloud mapping metadata requires its owned ledger','provider_draft_locked');
   }
   private beforeRemove(draft:Draft,context?:{providerDiscardId?:string}){
     let link=this.repository.link(draft.accountId,draft.id);if(!link)return;
@@ -112,7 +120,7 @@ export class ProviderDraftService {
   }
   private schedule(accountId:string,draftId:string){
     this.timers.get(draftId)?.cancel();this.timers.delete(draftId);if(this.closing||!this.automatic)return;
-    this.timers.set(draftId,this.clock.schedule(()=>{this.timers.delete(draftId);void this.flush(accountId,draftId).catch(()=>{})},this.debounceMs));
+    this.timers.set(draftId,this.clock.schedule(()=>{this.timers.delete(draftId);const run=()=>{void this.flush(accountId,draftId).catch(()=>{})};if(this.store.db.isTransaction)queueMicrotask(run);else run()},this.debounceMs));
   }
   status(accountId:string,draftId:string):ProviderDraftSnapshot{return this.repository.snapshot(accountId,draftId)}
   private deliveryReady(draft:Draft){
@@ -139,6 +147,7 @@ export class ProviderDraftService {
     if(!link.providerDraftId)return;
     const account=this.repository.account(draft.accountId),controller=new AbortController(),deadline=this.clock.schedule(()=>controller.abort(),20000);this.aborts.set(draft.id,controller);
     try{
+      if(link.generated)this.store.assertGeneratedEnrollment(draft,link.generated.scope,link.generated.ownerFingerprint);
       this.transport.ready(account);
       if((await this.io(this.transport.profile(account,controller.signal),controller.signal)).toLowerCase()!==account.email.toLowerCase())throw new HttpError(409,'Gmail identity changed','provider_draft_identity_unverified');
       const current=await this.io(this.transport.get(account,link.providerDraftId,false,controller.signal),controller.signal);
@@ -162,6 +171,7 @@ export class ProviderDraftService {
     const deadline=this.clock.schedule(()=>controller.abort(),20000);
     let operation:ProviderDraftOperation|undefined;
     try{
+      if(link.generated)this.store.assertGeneratedEnrollment(draft,link.generated.scope,link.generated.ownerFingerprint);
       this.transport.ready(account);
       if((await this.io(this.transport.profile(account,controller.signal),controller.signal)).toLowerCase()!==account.email.toLowerCase())throw new HttpError(409,'Gmail account identity changed','provider_draft_identity_unverified');
       if(link.providerDraftId){const remote=await this.io(this.transport.get(account,link.providerDraftId,false,controller.signal),controller.signal);if(!validGmailDraft(remote)||remote.id!==link.providerDraftId||remote.message.id!==link.providerMessageId){this.setFailure(link,'remote_conflict','provider_draft_remote_changed','The remote draft changed. Local edits are retained.');return}}
@@ -171,6 +181,7 @@ export class ProviderDraftService {
         if(this.closing)throw new HttpError(503,'Cloud draft service is stopping','provider_draft_stopping');
         const current=this.repository.link(accountId,draftId),local=this.repository.draft(accountId,draftId);
         if(!current||!local||current.state!=='queued'||current.revision!==link.revision||local.revision!==draft.revision||!['draft','failed'].includes(local.status)||local.artifactSendId||local.composerSendId)throw new HttpError(409,'The pending snapshot changed before claim','provider_draft_revision_conflict');
+        if(current.generated)this.store.assertGeneratedEnrollment(local,current.generated.scope,current.generated.ownerFingerprint);
         return this.repository.insertOperation(current,snapshot,current.providerDraftId?'update':'create',this.owner);
       });
       const value=operation.kind==='create'?await this.io(this.transport.create(account,{raw:snapshot.raw.toString('base64url'),...(snapshot.threadId?{threadId:snapshot.threadId}:{})},controller.signal),controller.signal):await this.io(this.transport.update(account,operation.providerDraftId!,{raw:snapshot.raw.toString('base64url'),...(snapshot.threadId?{threadId:snapshot.threadId}:{})},controller.signal),controller.signal);
@@ -187,12 +198,16 @@ export class ProviderDraftService {
     this.repository.transaction(()=>{
       const owner=this.store.db.prepare('SELECT owner FROM provider_draft_operations WHERE id=?').get(operation.id),op=this.repository.operation(operation.accountId,operation.draftId,operation.id),link=this.repository.link(operation.accountId,operation.draftId);
       if((reconciled?op.state!=='unknown':owner?.owner!==this.owner||op.state!=='dispatching')||!link||link.activeOperationId!==op.id)return;
-      const result={providerDraftId:value.id,providerMessageId:value.message.id,providerThreadId:value.message.threadId};
-      this.repository.saveOperation({...op,state:'confirmed',result,completedAt:new Date(this.clock.now()).toISOString(),resolution:'matching-snapshot',error:null});
-      const local=this.repository.draft(op.accountId,op.draftId),editable=!!local&&['draft','failed'].includes(local.status)&&!local.artifactSendId&&!local.composerSendId;
-      if(local&&editable){this.metadataDepth++;try{this.store.put('draft',local.id,{...local,providerDraftId:value.id,providerDraftSyncedAt:new Date(this.clock.now()).toISOString()})}finally{this.metadataDepth--}}
-      const same=link.desiredHash===op.contentHash;
-      this.repository.saveLink({...link,providerDraftId:value.id,providerMessageId:value.message.id,providerThreadId:value.message.threadId,syncedRevision:same?link.desiredRevision:op.draftRevision,syncedHash:op.contentHash,state:link.discardId?'discard_queued':!local?'remote_conflict':!editable?'suspended':same?'synced':'queued',error:local?null:{code:'provider_draft_local_unavailable',message:'The owned local draft is unavailable; its cloud result is retained.',retry:'explicit-check'}});
+      if(this.closing)return;
+      // A reconciled proof is now owned by this reader; it never repeats a write.
+      if(reconciled)this.store.db.prepare('UPDATE provider_draft_operations SET owner=?,owner_pid=? WHERE id=?').run(this.owner,process.pid,op.id);
+      const result={providerDraftId:value.id,providerMessageId:value.message.id,providerThreadId:value.message.threadId},completedAt=new Date(this.clock.now()).toISOString();
+      this.repository.saveOperation({...op,state:'confirmed',result,completedAt,resolution:'matching-snapshot',error:null});
+      const local=this.repository.draft(op.accountId,op.draftId),editable=!!local&&!link.discardId&&['draft','failed'].includes(local.status)&&!local.artifactSendId&&!local.composerSendId;
+      let applied=!editable,metadataFailure=false;
+      if(local&&editable){try{applied=this.metadataWriter.write({accountId:op.accountId,draftId:op.draftId,operationId:op.id,expectedLinkRevision:link.revision,expectedCurrentRecordFingerprint:generatedHash(local),patch:{providerDraftId:value.id,providerDraftSyncedAt:completedAt}}).applied}catch{metadataFailure=true}}
+      const same=link.desiredHash===op.contentHash,failed=metadataFailure||!applied;
+      this.repository.saveLink({...link,providerDraftId:value.id,providerMessageId:value.message.id,providerThreadId:value.message.threadId,syncedRevision:same?link.desiredRevision:op.draftRevision,syncedHash:op.contentHash,state:link.discardId?'discard_queued':!local?'remote_conflict':!editable||failed?'suspended':same?'synced':'queued',error:failed?{code:'provider_draft_local_metadata_conflict',message:'The cloud result is confirmed; local mapping requires explicit review.',retry:'explicit-check'}:local?null:{code:'provider_draft_local_unavailable',message:'The owned local draft is unavailable; its cloud result is retained.',retry:'explicit-check'}});
       this.repository.pruneSnapshots(op.accountId,op.draftId,op.id);
     });
     const next=this.repository.link(operation.accountId,operation.draftId);if(next&&['queued','discard_queued'].includes(next.state))this.schedule(operation.accountId,operation.draftId);
@@ -329,7 +344,7 @@ export class ProviderDraftService {
     });
   }
   async close(){
-    if(this.closing){await Promise.allSettled([...this.active.values(),...this.pendingReads]);return}this.closing=true;
+    if(this.closing){await Promise.allSettled([...this.active.values(),...this.pendingReads]);return}this.closing=true;this.metadataWriter.close();
     for(const timer of this.timers.values())timer.cancel();this.timers.clear();for(const controller of this.aborts.values())controller.abort();
     await Promise.allSettled([...this.active.values(),...this.pendingReads]);owners.delete(this.owner);
   }

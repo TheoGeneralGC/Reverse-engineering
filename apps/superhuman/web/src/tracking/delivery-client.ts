@@ -1,6 +1,6 @@
 import { trackingDigest, trackingStable } from './client.ts';
 import type { TrackingDigest } from './client.ts';
-import type { TrackingDeliveryIdentity, TrackingDeliverySnapshot, TrackingDeliveryControlRequest, TrackingDeliveryControlReceipt, TrackingDeliveryControlResponse } from '../../../api/src/tracking-delivery-types.ts';
+import type { TrackingDeliveryIdentity, TrackingDeliverySnapshot, TrackingDeliveryControlRequest, TrackingDeliveryControlReceipt, TrackingDeliveryControlResponse, TrackingDeliveryCapabilities } from '../../../api/src/tracking-delivery-types.ts';
 export type { TrackingDeliveryIdentity, TrackingDeliverySnapshot, TrackingDeliveryControlRequest, TrackingDeliveryControlReceipt, TrackingDeliveryControlResponse };
 export type TrackingControlAction = 'reconcile' | 'continue';
 export class TrackingDeliveryValidationError extends Error { constructor() { super('Tracking delivery status could not be verified.'); this.name = 'TrackingDeliveryValidationError'; } }
@@ -57,3 +57,5 @@ export function assertTrackingDeliveryProgress(old: TrackingDeliverySnapshot, ne
   if (['confirmed', 'cancelled'].includes(old.phase) && next.phase !== old.phase || old.mailOutcome === 'sent' && next.mailOutcome !== 'sent') return fail();
   return true;
 }
+
+export function checkedTrackingDeliveryCapabilities(raw:unknown,accountId:string):TrackingDeliveryCapabilities{const v=structuredClone(raw);if(!exact(v,['accountId','policyVersion','nativeKind','sources','effectiveReadStatuses','effectiveRecentOpens','hostingVerified','provenance'])||v.accountId!==accountId||v.policyVersion!=='local-tracking-delivery-v1'||v.nativeKind!=='mapped-draft'||v.provenance!=='local-design'||![v.effectiveReadStatuses,v.effectiveRecentOpens,v.hostingVerified].every(x=>typeof x==='boolean')||v.effectiveReadStatuses&&!v.hostingVerified||v.effectiveRecentOpens&&!v.effectiveReadStatuses||trackingStable(v.sources)!==trackingStable({composer:{tracking:'mapped-rich-only'},artifact:{tracking:'unsupported',reason:'mapped-draft-required',action:'create-draft-then-cloud-saved-composer-send'},keyless:{tracking:'unsupported',reason:'keyed-intent-required'}}))return fail();return v as TrackingDeliveryCapabilities}

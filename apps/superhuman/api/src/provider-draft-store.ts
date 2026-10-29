@@ -1,3 +1,4 @@
+import {generatedHash,generatedScopeValid,type GeneratedPublicationScope} from './generated-draft-policy.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { Store } from './store.ts';
 import { HttpError, type Account, type Draft } from './types.ts';
@@ -5,8 +6,8 @@ import type { ProviderDraftError, ProviderDraftOperation, ProviderDraftSnapshot,
 import type { ProviderDraftMimeSnapshot } from './provider-draft-mime.ts';
 import { PROVIDER_DRAFT_MAX_RAW_BYTES, providerDraftHash } from './provider-draft-mime.ts';
 import { createHash } from 'node:crypto';
-export type ProviderDraftOrigin = 'composer' | 'reply' | 'forward' | 'ai-created' | 'ai-send';
-export type ProviderDraftLink = Omit<ProviderDraftSnapshot, 'ownership' | 'operation' | 'deliveryBlocked'> & { ownerMarker: string; origin: ProviderDraftOrigin; createdAt: string; replyContext: { internetMessageId: string | null; references: string | null; providerThreadId: string | null }; activeOperationId: string | null; discardId: string | null };
+export type ProviderDraftOrigin = 'composer' | 'reply' | 'forward' | 'ai-created' | 'ai-send' | 'auto-generated-managed';
+export type ProviderDraftLink = Omit<ProviderDraftSnapshot, 'ownership' | 'operation' | 'deliveryBlocked'> & { ownerMarker: string; origin: ProviderDraftOrigin; createdAt: string; replyContext: { internetMessageId: string | null; references: string | null; providerThreadId: string | null }; activeOperationId: string | null; discardId: string | null; generated?:{policy:'generated-enrollment-v1';scope:GeneratedPublicationScope;ownerFingerprint:string} };
 const keys = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const sha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const revision = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -49,7 +50,8 @@ export class ProviderDraftRepository {
     this.account(accountId); if (!keys(draftId)) providerDraftInvalid();
     const row = this.store.db.prepare('SELECT revision,data FROM provider_draft_links WHERE account_id=? AND draft_id=?').get(accountId, draftId); if (!row) return;
     let value: ProviderDraftLink; try { value = JSON.parse(String(row.data)); } catch { return providerDraftCorrupt(); }
-    if (!value || value.accountId !== accountId || value.draftId !== draftId || !revision(value.revision) || value.revision !== row.revision || !states.has(value.state) || value.state === 'unmanaged' || !/^[A-Za-z0-9_-]{32}$/.test(value.ownerMarker) || !['composer','reply','forward','ai-created','ai-send'].includes(value.origin) || !timestamp(value.createdAt) || !value.replyContext || ![value.replyContext.internetMessageId,value.replyContext.references,value.replyContext.providerThreadId].every(v=>v===null||typeof v==='string'&&v.length<=16384) || (value.desiredRevision===null)!==(value.desiredHash===null) || (value.syncedRevision===null)!==(value.syncedHash===null) || ![value.desiredRevision,value.syncedRevision].every(v => v === null || revision(v)) || ![value.desiredHash,value.syncedHash].every(v => v === null || sha(v)) || ![value.providerDraftId,value.providerMessageId,value.providerThreadId].every(providerId) || ![value.activeOperationId,value.discardId].every(v => v === null || keys(v)) || !errorValid(value.error)) providerDraftCorrupt();
+    if (!value || value.accountId !== accountId || value.draftId !== draftId || !revision(value.revision) || value.revision !== row.revision || !states.has(value.state) || value.state === 'unmanaged' || !/^[A-Za-z0-9_-]{32}$/.test(value.ownerMarker) || !['composer','reply','forward','ai-created','ai-send','auto-generated-managed'].includes(value.origin) || !timestamp(value.createdAt) || !value.replyContext || ![value.replyContext.internetMessageId,value.replyContext.references,value.replyContext.providerThreadId].every(v=>v===null||typeof v==='string'&&v.length<=16384) || (value.desiredRevision===null)!==(value.desiredHash===null) || (value.syncedRevision===null)!==(value.syncedHash===null) || ![value.desiredRevision,value.syncedRevision].every(v => v === null || revision(v)) || ![value.desiredHash,value.syncedHash].every(v => v === null || sha(v)) || ![value.providerDraftId,value.providerMessageId,value.providerThreadId].every(providerId) || ![value.activeOperationId,value.discardId].every(v => v === null || keys(v)) || !errorValid(value.error)) providerDraftCorrupt();
+    if(value.origin==='auto-generated-managed'){if(!value.generated||value.generated.policy!=='generated-enrollment-v1'||!generatedScopeValid(value.generated.scope)||value.generated.scope.accountId!==accountId||value.generated.ownerFingerprint!==generatedHash({scope:value.generated.scope,ownerMarker:value.ownerMarker}))providerDraftCorrupt()}else if(value.generated!==undefined)providerDraftCorrupt();
     if(value.state==='synced'){
       if(!value.activeOperationId||!value.providerDraftId||!value.providerMessageId||value.desiredRevision===null||value.desiredRevision!==value.syncedRevision||!value.desiredHash||value.desiredHash!==value.syncedHash)providerDraftCorrupt();
       let op:ProviderDraftOperation;try{op=this.operation(accountId,draftId,value.activeOperationId)}catch{return providerDraftCorrupt()}
@@ -60,21 +62,23 @@ export class ProviderDraftRepository {
   saveLink(value: ProviderDraftLink): ProviderDraftLink {
     if (!this.store.db.isTransaction) throw new Error('Cloud draft transition requires a transaction');
     const old = this.link(value.accountId, value.draftId);
-    if (!old || old.ownerMarker !== value.ownerMarker || old.origin !== value.origin || old.createdAt !== value.createdAt || providerDraftHash(old.replyContext) !== providerDraftHash(value.replyContext) || old.revision !== value.revision || old.providerDraftId && old.providerDraftId !== value.providerDraftId || ['discarded','consumed'].includes(old.state) && value.state !== old.state || value.revision >= Number.MAX_SAFE_INTEGER) providerDraftCorrupt();
+    if (!old || old.ownerMarker !== value.ownerMarker || old.origin !== value.origin || generatedHash(old.generated??null)!==generatedHash(value.generated??null) || old.createdAt !== value.createdAt || providerDraftHash(old.replyContext) !== providerDraftHash(value.replyContext) || old.revision !== value.revision || old.providerDraftId && old.providerDraftId !== value.providerDraftId || ['discarded','consumed'].includes(old.state) && value.state !== old.state || value.revision >= Number.MAX_SAFE_INTEGER) providerDraftCorrupt();
     const next = { ...value, revision: value.revision + 1 };
     this.store.db.prepare('UPDATE provider_draft_links SET revision=?,data=? WHERE account_id=? AND draft_id=? AND revision=?').run(next.revision, JSON.stringify(next), next.accountId, next.draftId, value.revision);
     return this.link(value.accountId, value.draftId)!;
   }
-  enroll(draft: Draft, origin: ProviderDraftOrigin): ProviderDraftLink | undefined {
+  enroll(draft: Draft, origin: ProviderDraftOrigin, scope?:GeneratedPublicationScope): ProviderDraftLink | undefined {
     return this.transaction(() => {
       const account = this.account(draft.accountId);
       if (account.provider !== 'google') return;
-      if (!['composer','reply','forward','ai-created','ai-send'].includes(origin) || !keys(draft.id) || !revision(draft.revision) || draft.revision < 1 || draft.providerDraftId || this.link(draft.accountId,draft.id)) throw new HttpError(409, 'Only a newly replica-created draft can be enrolled', 'provider_draft_enrollment_conflict');
+      if (!['composer','reply','forward','ai-created','ai-send','auto-generated-managed'].includes(origin) || !keys(draft.id) || !revision(draft.revision) || draft.revision < 1 || draft.providerDraftId || this.link(draft.accountId,draft.id)) throw new HttpError(409, 'Only a newly replica-created draft can be enrolled', 'provider_draft_enrollment_conflict');
+      if(origin==='auto-generated-managed'?!scope||!generatedScopeValid(scope)||scope.accountId!==draft.accountId||scope.threadId!==draft.threadId:scope!==undefined)throw new HttpError(409,'Invalid generated enrollment scope','provider_draft_enrollment_conflict');
       const current = this.draft(draft.accountId,draft.id);
       if (!current || providerDraftHash(current) !== providerDraftHash(draft)) throw new HttpError(409, 'The new draft identity changed', 'provider_draft_scope_changed');
       let previous=draft.deliveryReplyContext,providerThreadId=previous?.providerThreadId;
       if(draft.threadId&&!previous){const row=this.store.db.prepare("SELECT r.data FROM thread_summaries s JOIN records r ON r.kind='thread' AND r.id=s.id WHERE s.account_id=? AND s.id=?").get(draft.accountId,draft.threadId);if(!row)throw new HttpError(409,'The reply target is not in this account','provider_draft_scope_changed');const thread=JSON.parse(String(row.data));previous=thread.messages?.at(-1);providerThreadId=thread.providerId;}
       const value: ProviderDraftLink = { accountId: draft.accountId, draftId: draft.id, revision: 0, ownerMarker: randomBytes(24).toString('base64url'), origin, createdAt: new Date(this.now()).toISOString(), replyContext:{internetMessageId:previous?.internetMessageId??null,references:previous?.references??null,providerThreadId:providerThreadId??null}, state: 'idle', desiredRevision: null, desiredHash: null, syncedRevision: null, syncedHash: null, providerDraftId: null, providerMessageId: null, providerThreadId: null, activeOperationId: null, discardId: null, error: null };
+      if(scope)value.generated={policy:'generated-enrollment-v1',scope:structuredClone(scope),ownerFingerprint:generatedHash({scope,ownerMarker:value.ownerMarker})};
       this.store.db.prepare('INSERT INTO provider_draft_links VALUES(?,?,?,?)').run(value.accountId,value.draftId,0,JSON.stringify(value)); return value;
     });
   }
@@ -166,7 +170,7 @@ export class ProviderDraftRepository {
   snapshot(accountId: string, draftId: string): ProviderDraftSnapshot {
     const link = this.link(accountId,draftId);
     if (!link) { if (!this.draft(accountId,draftId)) providerDraftMissing(); return { accountId,draftId,ownership:'unmanaged',revision:0,state:'unmanaged',desiredRevision:null,desiredHash:null,syncedRevision:null,syncedHash:null,providerDraftId:null,providerMessageId:null,providerThreadId:null,operation:null,error:null,deliveryBlocked:false }; }
-    const { ownerMarker: _owner,origin: _origin,createdAt: _at,replyContext:_reply,activeOperationId,discardId: _discard,...value } = link;
+    const { ownerMarker: _owner,origin: _origin,createdAt: _at,replyContext:_reply,activeOperationId,discardId: _discard,generated:_generated,...value } = link;
     let operation: ProviderDraftOperation | null = null;
     if (activeOperationId) try { operation = this.operation(accountId,draftId,activeOperationId); } catch { return providerDraftCorrupt(); }
     return { ...value,ownership:'replica-new',operation,deliveryBlocked:!['idle','queued','synced'].includes(link.state) };

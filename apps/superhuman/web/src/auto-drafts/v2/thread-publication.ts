@@ -1,18 +1,18 @@
-import {AUTO_DRAFT_REPLY_OUTPUT_BYTES} from '../../../../api/src/auto-drafts-reply-policy.ts';
+import {AUTO_DRAFT_REPLY_OUTPUT_BYTES,autoDraftQuotedBodyParts} from '../../../../api/src/auto-drafts-reply-policy.ts';
 import { api, type Draft, type Thread } from '../../api.ts';
 import { stable, type Sha256 } from '../../../../api/src/auto-drafts-contract.ts';
 import { parseThreadPublication, parseTargetResolution, type ThreadPublication } from '../../../../api/src/auto-drafts-generation-contract.ts';
 import { browserDigest, type Request } from './model.ts';
 import type { Navigate } from './activity.ts';
 
-export type InlineState = { publication: ThreadPublication | null; draft: Draft | null; pending: 'loading' | 'opening' | null; hidden: boolean; error: string };
+export type InlineState = { publication: ThreadPublication | null; draft: Draft | null; parts:Readonly<{reply:string;quote:string}>|null; pending: 'loading' | 'opening' | null; hidden: boolean; error: string };
 const same = (a: unknown, b: unknown) => stable(a) === stable(b);
 const sourceContent = (m: Thread['messages'][number]) => { const { providerLabels: _labels, trackingRead: _read, ...content } = m; return content; };
 
 /** One selected conversation only. This model never scans generation history,
  * writes Mail, creates a draft, or treats cached association as placement proof. */
 export class AutoDraftThreadModel {
-  private state: InlineState = { publication: null, draft: null, pending: null, hidden: false, error: '' };
+  private state: InlineState = { publication: null, draft: null, parts:null, pending: null, hidden: false, error: '' };
   private listeners = new Set<() => void>(); private active = false; private epoch = 0; private read = 0; private abort?: AbortController;
   private request: Request; private digest: Sha256; private isCurrent: () => boolean;
   readonly accountId: string; readonly thread: Thread;
@@ -38,7 +38,7 @@ export class AutoDraftThreadModel {
   async load(): Promise<boolean> {
     if (!this.current() || this.state.pending || this.thread.accountId !== this.accountId) return false;
     const epoch = this.epoch, read = ++this.read; this.abort?.abort(); this.abort = new AbortController();
-    this.emit({ pending: 'loading', publication: null, draft: null, hidden: false, error: '' });
+    this.emit({ pending: 'loading', publication: null, draft: null, parts:null, hidden: false, error: '' });
     try {
       const first = await this.binding(); if (!this.current(epoch, read)) return false;
       if (first.availability !== 'available') { this.emit({ pending: null }); return true; }
@@ -57,8 +57,9 @@ export class AutoDraftThreadModel {
       const contentHash = await this.digest(stable({ to: d.to, cc: d.cc, bcc: d.bcc, subject: d.subject, body: d.body, html: d.html, attachments: d.attachments }));
       if (!this.current(epoch, read)) return false;
       if (contentHash !== p.contentHash || !await this.unchanged(p, d.id, () => this.current(epoch, read)) || !this.current(epoch, read)) throw Error('Draft changed');
-      this.emit({ pending: null, publication: p, draft: structuredClone(d) }); return true;
-    } catch { if (this.current(epoch, read)) this.emit({ pending: null, publication: null, draft: null, error: '' }); return false; }
+      const parts=p.quotedBody?autoDraftQuotedBodyParts(d.body,p.quotedBody.quoteStartUtf8):null;
+      this.emit({ pending: null, publication: p, draft: structuredClone(d),parts }); return true;
+    } catch { if (this.current(epoch, read)) this.emit({ pending: null, publication: null, draft: null, parts:null, error: '' }); return false; }
   }
   async open(navigate?: Navigate): Promise<boolean> {
     const { publication: p, draft } = this.state;
@@ -71,6 +72,6 @@ export class AutoDraftThreadModel {
       const opened = await navigate({ accountId: this.accountId, kind: 'draft', draftId: draft.id }, current, revalidate);
       if (!current()) return false;
       this.emit({ pending: null, error: opened ? '' : 'The exact auto draft could not be opened. Your current work is retained.' }); return opened;
-    } catch { if (current()) this.emit({ pending: null, publication: null, draft: null, error: '' }); return false; }
+    } catch { if (current()) this.emit({ pending: null, publication: null, draft: null, parts:null, error: '' }); return false; }
   }
 }

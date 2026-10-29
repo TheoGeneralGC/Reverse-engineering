@@ -29,7 +29,7 @@ export function projectAutoDraftSourceText(source:Readonly<Message>):string {
  if(plain.trim()||!html)return plain;
  return text(plainTextFromHtml(sanitizeDraftHtml(html)),REPLY_QUOTE_LIMITS.sourceTextBytes);
 }
-export function composeAutoDraftReply(source:Readonly<Message>,plainReply:string,timeZone:string):Readonly<{body:string;html:string}> {
+export function composeAutoDraftReply(source:Readonly<Message>,plainReply:string,timeZone:string):Readonly<{body:string;html:string;quotedBody:Readonly<{quoteStartUtf8:number}>}> {
  if(!source||typeof source!=='object'||!source.sender)return invalid();
  const reply=text(plainReply,REPLY_QUOTE_LIMITS.replyBytes);if(!reply.trim())return invalid();
  const sourceText=projectAutoDraftSourceText(source);
@@ -40,5 +40,5 @@ export function composeAutoDraftReply(source:Readonly<Message>,plainReply:string
  const markup=`${plainTextToHtml(reply)}<div><br></div><div>${escapeHtml(attribution)}</div><blockquote>${plainTextToHtml(sourceText)}</blockquote>`;
  if(size(body)>REPLY_QUOTE_LIMITS.outputBytes||size(markup)>REPLY_QUOTE_LIMITS.outputBytes)return limit();
  const html=sanitizeDraftHtml(markup);if(size(html)>REPLY_QUOTE_LIMITS.outputBytes)return limit();
- return Object.freeze({body,html});
+ return Object.freeze({body,html,quotedBody:Object.freeze({quoteStartUtf8:size(reply)+2})});
 }

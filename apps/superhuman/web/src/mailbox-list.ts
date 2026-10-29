@@ -4,14 +4,16 @@ import type {SplitCoverage} from '../../api/src/split-inbox-types.ts';
 export type MailboxPage=Omit<ThreadListPage,'total'>&{total:number|null;viewIdentity?:{viewRef:SplitViewRef;settingsRevision:number;sourceGeneration:number;policyVersion:string};coverage?:SplitCoverage};
 export type MailboxOptions=ThreadListOptions&Pick<MailboxContext,'viewRef'|'settingsRevision'|'policyVersion'>;
 
-export type MailboxContext={accountId:string;folder:string;q:string;split:'important'|'other'|'calendar'|'all';limit:number;viewRef?:SplitViewRef;settingsRevision?:number;policyVersion?:string};
+export type MailboxContext={accountId:string;folder:string;q:string;split:'important'|'other'|'calendar'|'all';limit:number;viewRef?:SplitViewRef;settingsRevision?:number;policyVersion?:string;timeZone?:string};
 export type MailboxSnapshot={threads:ThreadSummary[];selectedId:string|null;total:number|null;viewIdentity?:MailboxPage['viewIdentity'];coverage?:SplitCoverage;counts:ThreadListPage['counts'];hasMore:boolean;nextCursor:string|null;loading:boolean;loadingMore:boolean;openingId:string|null;error:string;ready:boolean};
 export const emptyMailbox=():MailboxSnapshot=>({threads:[],selectedId:null,total:0,counts:{inbox:0,important:0,other:0,calendar:0},hasMore:false,nextCursor:null,loading:false,loadingMore:false,openingId:null,error:'',ready:false});
-export function mailboxKey(context:MailboxContext){return JSON.stringify([context.accountId,context.folder,context.q.trim(),context.split,context.limit,context.viewRef,context.settingsRevision,context.policyVersion])}
+// Clone caller context so one list's date boundary cannot change during paging.
+export function browserMailboxContext(context:MailboxContext|null):MailboxContext|null{return context?{...context,...(context.q.trim()?{timeZone:context.timeZone??Intl.DateTimeFormat().resolvedOptions().timeZone}:{})}:null}
+export function mailboxKey(context:MailboxContext){return JSON.stringify([context.accountId,context.folder,context.q.trim(),context.split,context.limit,context.viewRef,context.settingsRevision,context.policyVersion,...(context.timeZone===undefined?[]:[context.timeZone])])}
 export function summaryPath(context:MailboxOptions){
  if(context.viewRef){if(context.q?.trim())throw Error('Search is not supported inside a custom Split view.');const query=new URLSearchParams({accountId:context.accountId,limit:String(context.limit||50)});if(context.cursor)query.set('cursor',context.cursor);return '/split-inboxes/views/'+encodeURIComponent(context.viewRef)+'/threads?'+query;}
  const query=new URLSearchParams({accountId:context.accountId,folder:context.folder||'inbox',q:(context.q||'').trim(),split:context.split||'all',limit:String(context.limit||50)});
- if(context.cursor)query.set('cursor',context.cursor);return '/thread-summaries?'+query;
+ if(context.cursor)query.set('cursor',context.cursor);if(context.timeZone!==undefined)query.set('timeZone',context.timeZone);return '/thread-summaries?'+query;
 }
 // Match the API's SQLite BINARY tie-break rather than locale-dependent ordering.
 const encoder=new TextEncoder();

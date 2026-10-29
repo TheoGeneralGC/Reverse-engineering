@@ -25,4 +25,4 @@ export type TrackingFeedUnavailable = {
   events: []; nextCursor: null; coverage: { imported: false; fullMailbox: false; humanReadVerified: false; namedRecipientIdentity: false };
 };
 
-export type TrackingDeliveryCapabilities={accountId:string;policyVersion:typeof TRACKING_DELIVERY_POLICY;nativeKind:'mapped-draft';sources:{composer:{tracking:'mapped-rich-only'};artifact:{tracking:'unsupported';reason:'mapped-draft-required';action:'create-draft-then-cloud-saved-composer-send'};keyless:{tracking:'unsupported';reason:'keyed-intent-required'}};effectiveReadStatuses:false;effectiveRecentOpens:false;hostingVerified:false;provenance:'local-design'};
+export type TrackingDeliveryCapabilities={accountId:string;policyVersion:typeof TRACKING_DELIVERY_POLICY;nativeKind:'mapped-draft';sources:{composer:{tracking:'mapped-rich-only'};artifact:{tracking:'unsupported';reason:'mapped-draft-required';action:'create-draft-then-cloud-saved-composer-send'};keyless:{tracking:'unsupported';reason:'keyed-intent-required'}};effectiveReadStatuses:boolean;effectiveRecentOpens:boolean;hostingVerified:boolean;provenance:'local-design'};

@@ -1,3 +1,4 @@
+import {generatedHash,generatedScopeValid,type GeneratedPublicationScope,type DraftWriteContext,type ProviderDraftMetadataRequest,type ProviderMetadataVerifier,type ProviderMetadataWriter,type GeneratedMetadataPolicyVerifier,type ProviderAckWriteContext} from './generated-draft-policy.ts';
 import type { KeyedDeliveryIdentity, KeyedDeliveryObserver } from './keyed-delivery-hooks.ts';
 import { initializeSplitHeaders, refreshSplitHeaders } from './split-inbox-headers.ts';
 import { DatabaseSync } from 'node:sqlite';
@@ -7,7 +8,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { Account, Thread, Draft, Label, Preferences, Attachment, DeliveryAttempt, ThreadListOptions, ContactSuggestionOptions, ContactContextOptions } from './types.ts';
 import { HttpError } from './types.ts';
 import { plainTextFromHtml, plainTextToHtml, sanitizeDraftHtml } from './rich-text.ts';
-import { createSearchMatcher, threadHasFolder as hasFolder } from './search.ts';
+import { createSearchMatcher, normalizeSearchTimeZone, threadHasFolder as hasFolder } from './search.ts';
 import { initializeThreadSummaries, listThreadSummaries } from './thread-list.ts';
 import { initializeRecipientContacts, recipientSuggestions, refreshRecipientContacts } from './contacts.ts';
 import { parseOutgoingRecipientHeaders } from './outgoing-recipients.ts';
@@ -15,11 +16,12 @@ import { initializeContactContext, contactContext } from './contact-context.ts';
 
 export type DeliveryContext = { artifactOperationId?: string; composerOperationId?: string; reconciliation?: boolean; recovery?: boolean; trackingContinuation?: boolean };
 export type DeliveryHooks = { claim: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; complete: (draft: Draft, attempt: DeliveryAttempt, context: DeliveryContext) => void; unknown: (draft: Draft, context: DeliveryContext) => void; held?: (draft:Draft,context:DeliveryContext)=>void; resume?: (draft:Draft,context:DeliveryContext)=>void; native?: (draft:Draft,context:DeliveryContext)=>void };
-export type DraftLifecycleOrigin = 'composer' | 'reply' | 'forward' | 'ai-created' | 'ai-send' | 'auto-generated-local';
+export type DraftLifecycleOrigin = 'composer' | 'reply' | 'forward' | 'ai-created' | 'ai-send' | 'auto-generated-local' | 'auto-generated-managed';
+export type DraftWriteCondition = { accountId: string; threadId: string; expectedRevision: number };
 export type DraftLifecycleHooks = {
-  beforeWrite?: (before: Draft | undefined, next: Draft) => void;
-  written?: (before: Draft | undefined, next: Draft) => void;
-  created?: (draft: Draft, origin: DraftLifecycleOrigin) => void;
+  beforeWrite?: (before: Draft | undefined, next: Draft, context: DraftWriteContext) => void;
+  written?: (before: Draft | undefined, next: Draft, context: DraftWriteContext) => void;
+  created?: (draft: Draft, origin: DraftLifecycleOrigin, scope?: GeneratedPublicationScope) => void;
   beforeRemove?: (draft: Draft, context?: { providerDiscardId?: string }) => void;
   acceptedIntent?: (draft: Draft, intent: 'discard') => void;
   deliveryReadiness?: (draft: Draft) => void;
@@ -50,6 +52,49 @@ export class Store {
     return this.putDeliveryDraft({...draft,status:draft.deliveryAttemptId?'sending':mode?.mode==='scheduled'?'scheduled':'send_queued',error:undefined});
   }
   private readonly draftLifecycleHooks = new Set<DraftLifecycleHooks>();
+  private readonly metadataContexts = new WeakSet<object>();
+  private readonly generatedMetadataVerifiers = new Set<GeneratedMetadataPolicyVerifier>();
+  private readonly generatedEnrollmentVerifiers=new Set<(draft:Draft,scope:GeneratedPublicationScope,ownerFingerprint:string)=>boolean>();
+  registerGeneratedEnrollmentVerifier(verify:(draft:Draft,scope:GeneratedPublicationScope,ownerFingerprint:string)=>boolean){this.generatedEnrollmentVerifiers.add(verify);return()=>this.generatedEnrollmentVerifiers.delete(verify)}
+  assertGeneratedEnrollment(draft:Draft,scope:GeneratedPublicationScope,ownerFingerprint:string){let count=0;for(const verify of this.generatedEnrollmentVerifiers)if(verify(draft,scope,ownerFingerprint))count++;if(count!==1)throw new HttpError(409,'Generated publication enrollment unavailable','provider_draft_enrollment_conflict')}
+  registerGeneratedMetadataVerifier(verify:GeneratedMetadataPolicyVerifier){this.generatedMetadataVerifiers.add(verify);return()=>this.generatedMetadataVerifiers.delete(verify)}
+  isProviderMetadataContext(context:DraftWriteContext):context is ProviderAckWriteContext{return context.lane==='provider-ack-v1'&&this.metadataContexts.has(context)}
+  preservesGeneratedMetadata(before:Draft,next:Draft,context:DraftWriteContext):boolean{
+    if(!this.isProviderMetadataContext(context))return false;
+    let verified=0;for(const verify of this.generatedMetadataVerifiers)if(verify(context,before,next))verified++;
+    if(verified>1)throw new HttpError(500,'Ambiguous generated publication owner','auto_draft_generation_corrupt');return verified===1;
+  }
+  createProviderMetadataWriter(verify:ProviderMetadataVerifier):ProviderMetadataWriter{
+    let closed=false;
+    return{close(){closed=true},write:(request:ProviderDraftMetadataRequest)=>{
+      if(closed)throw new HttpError(503,'Cloud metadata owner stopped','provider_draft_stopping');
+      if(!this.db.isTransaction)throw Error('Cloud metadata requires ACK transaction');
+      if(!request||Object.keys(request).sort().join(',')!=='accountId,draftId,expectedCurrentRecordFingerprint,expectedLinkRevision,operationId,patch'||!request.patch||Object.keys(request.patch).sort().join(',')!=='providerDraftId,providerDraftSyncedAt'||!Number.isSafeInteger(request.expectedLinkRevision)||request.expectedLinkRevision<0||!/^[a-f0-9]{64}$/.test(request.expectedCurrentRecordFingerprint)||!/^[A-Za-z0-9_-]{1,256}$/.test(request.patch.providerDraftId)||new Date(request.patch.providerDraftSyncedAt).toISOString()!==request.patch.providerDraftSyncedAt)throw new HttpError(400,'Invalid cloud metadata patch','provider_draft_invalid_request');
+      const row=this.db.prepare("SELECT data FROM records WHERE kind='draft' AND id=?").get(request.draftId);if(!row)return{applied:false,reason:'not-editable'};
+      const before=JSON.parse(String(row.data)) as Draft;
+      if(before.id!==request.draftId||before.accountId!==request.accountId||generatedHash(before)!==request.expectedCurrentRecordFingerprint)return{applied:false,reason:'local-cas-miss'};
+      verify(request,before);
+      if(!['draft','failed'].includes(before.status)||before.artifactSendId||before.composerSendId||before.deliveryAttemptId||this.artifactDeliveryId(before.id)||this.composerDeliveryId(before.id))return{applied:false,reason:'not-editable'};
+      if(before.providerDraftId&&before.providerDraftId!==request.patch.providerDraftId)throw new HttpError(409,'Cloud draft mapping changed','provider_draft_revision_conflict');
+      const next={...before,...request.patch},context:ProviderAckWriteContext={lane:'provider-ack-v1',accountId:before.accountId,draftId:before.id,operationId:request.operationId,linkRevision:request.expectedLinkRevision,currentRecordFingerprint:request.expectedCurrentRecordFingerprint};this.metadataContexts.add(context);
+      this.db.exec('SAVEPOINT provider_metadata_write');
+      try{for(const hook of this.draftLifecycleHooks)hook.beforeWrite?.(before,next,context);
+        // Hooks can synchronously advance the provider ledger without changing
+        // records.data. Recheck link/operation/owner inside this savepoint; a
+        // refusal rolls back only local metadata/hooks, retaining the ACK.
+        if(closed)throw new HttpError(503,'Cloud metadata owner stopped','provider_draft_stopping');
+        verify(request,before);
+        if(this.db.prepare("UPDATE records SET data=? WHERE kind='draft' AND id=? AND data=?").run(JSON.stringify(next),before.id,String(row.data)).changes!==1){this.db.exec('ROLLBACK TO provider_metadata_write; RELEASE provider_metadata_write');return{applied:false,reason:'local-cas-miss'}}
+        for(const hook of this.draftLifecycleHooks)hook.written?.(before,next,context);
+        // A written observer is equally synchronous; do not release a local
+        // metadata savepoint that advanced authority or replaced this row.
+        if(closed)throw new HttpError(503,'Cloud metadata owner stopped','provider_draft_stopping');
+        verify(request,before);
+        if(this.db.prepare("SELECT data FROM records WHERE kind='draft' AND id=?").get(before.id)?.data!==JSON.stringify(next))throw new HttpError(409,'Cloud metadata local row changed','provider_draft_revision_conflict');
+        this.db.exec('RELEASE provider_metadata_write');return{applied:true,draft:next};
+      }catch(error){this.db.exec('ROLLBACK TO provider_metadata_write; RELEASE provider_metadata_write');throw error}finally{this.metadataContexts.delete(context)}
+    }};
+  }
   assertProviderDraftDeliveryReady(draft: Draft) { for (const hook of this.draftLifecycleHooks) hook.deliveryReadiness?.(draft); }
   assertProviderDraftNativeSend(draft: Draft) { for (const hook of this.draftLifecycleHooks) hook.beforeNativeSend?.(draft); }
   hasProviderDraftLink(draftId: string): boolean { return !!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_draft_links'").get() && !!this.db.prepare('SELECT 1 FROM provider_draft_links WHERE draft_id=?').get(draftId); }
@@ -108,9 +153,9 @@ export class Store {
     if (kind === 'thread') this.db.exec('SAVEPOINT recipient_record_write');
     if (draftHooked) this.db.exec('SAVEPOINT provider_draft_record_write');
     try {
-      if (draftHooked && !this.deliveryWriteDepth) for (const hook of this.draftLifecycleHooks) hook.beforeWrite?.(oldDraft, data as Draft);
+      if (draftHooked && !this.deliveryWriteDepth) for (const hook of this.draftLifecycleHooks) hook.beforeWrite?.(oldDraft, data as Draft, {lane:'authored'});
       this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind, id, JSON.stringify(data));
-      if (draftHooked) { for (const hook of this.draftLifecycleHooks) hook.written?.(oldDraft, data as Draft); this.db.exec('RELEASE provider_draft_record_write'); }
+      if (draftHooked) { for (const hook of this.draftLifecycleHooks) hook.written?.(oldDraft, data as Draft, {lane:'authored'}); this.db.exec('RELEASE provider_draft_record_write'); }
       if (kind === 'thread') { refreshRecipientContacts(this.db, { threadId: id }); refreshSplitHeaders(this.db, { threadId: id }); this.db.exec('RELEASE recipient_record_write'); }
       return data;
     } catch (error) { if (kind === 'thread') this.db.exec('ROLLBACK TO recipient_record_write; RELEASE recipient_record_write'); if (draftHooked) this.db.exec('ROLLBACK TO provider_draft_record_write; RELEASE provider_draft_record_write'); throw error; }
@@ -124,17 +169,18 @@ export class Store {
   required<T>(kind: string, id: string): T { const row = this.get<T>(kind, id); if (!row) throw new HttpError(404, `${kind} not found`, 'not_found'); return row; }
   preferences(): Preferences { return this.get<Preferences>('preferences', 'global')!; }
   updatePreferences(value: Partial<Preferences>) { return this.put('preferences', 'global', { ...this.preferences(), ...value }); }
-  threadSummaries(options: ThreadListOptions) { return listThreadSummaries(this.db, options, (accountId, query) => new Set(this.threads(accountId, 'all', query).map(thread => thread.id))); }
+  threadSummaries(options: ThreadListOptions) { return listThreadSummaries(this.db, options, (accountId, query, timeZone) => new Set(this.threads(accountId, 'all', query, timeZone).map(thread => thread.id))); }
   recipientSuggestions(options: ContactSuggestionOptions) { return recipientSuggestions(this.db, options); }
   contactContext(options: ContactContextOptions) { return contactContext(this.db, options); }
-  threads(accountId?: string, folder = 'inbox', query = '') {
+  threads(accountId?: string, folder = 'inbox', query = '', timeZone?: string) {
+    timeZone = normalizeSearchTimeZone(timeZone);
     query = query.trim();
     let result = accountId
       ? this.db.prepare("SELECT data FROM records WHERE kind='thread' AND json_extract(data,'$.accountId')=? ORDER BY rowid").all(accountId).map(row => JSON.parse(String(row.data)) as Thread)
       : this.list<Thread>('thread');
     if (!query) result = result.filter(t => folder === 'all' ? t.folder !== 'trash' && t.folder !== 'spam' : folder === 'starred' ? t.starred : folder === 'snoozed' ? !!t.snoozedUntil : folder === 'important' ? hasFolder(t, 'inbox') && t.important && !t.snoozedUntil : folder === 'other' ? hasFolder(t, 'inbox') && !t.important && !t.snoozedUntil : folder.startsWith('label:') ? t.labels.includes(folder.slice(6)) : hasFolder(t, folder) && !t.snoozedUntil);
     if (query) {
-      result = result.filter(createSearchMatcher(query, { labels: this.list<Label>('label'), accountEmail: id => this.get<Account>('account', id)?.email }));
+      result = result.filter(createSearchMatcher(query, { labels: this.list<Label>('label'), accountEmail: id => this.get<Account>('account', id)?.email, timeZone }));
     }
     return result.sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
   }
@@ -212,7 +258,23 @@ export class Store {
     // state changes. This synchronous helper remains available for demo fixtures.
     for (const thread of this.dueSnoozes(now, 100)) if (this.get<Account>('account', thread.accountId)?.provider === 'demo') { const { thread: awake } = this.prepareAction(thread.id, 'unarchive'); this.put('thread', thread.id, awake); }
   }
-  saveDraft(input: Partial<Draft>, creationOrigin?: DraftLifecycleOrigin) {
+  saveDraft(input: Partial<Draft>, creationOrigin?: Exclude<DraftLifecycleOrigin,'auto-generated-managed'>, condition?: DraftWriteCondition): Draft {
+    if (condition !== undefined) {
+      if (!condition || typeof condition !== 'object' || Object.keys(condition).sort().join(',') !== 'accountId,expectedRevision,threadId' || typeof condition.accountId !== 'string' || !condition.accountId || typeof condition.threadId !== 'string' || !condition.threadId || !Number.isSafeInteger(condition.expectedRevision) || condition.expectedRevision < 0 || !input.id) throw new HttpError(400, 'Invalid conditional draft save', 'draft_invalid_request');
+      this.db.exec('SAVEPOINT draft_conditional_save');
+      try {
+        const before = this.get<Draft>('draft', input.id), thread = this.get<Thread>('thread', condition.threadId), account = this.get<Account>('account', condition.accountId);
+        if (!before || before.id !== input.id || before.accountId !== condition.accountId || before.threadId !== condition.threadId || !thread || thread.id !== condition.threadId || thread.accountId !== condition.accountId || !account || account.id !== condition.accountId || input.accountId !== undefined && input.accountId !== condition.accountId || input.threadId !== undefined && input.threadId !== condition.threadId) throw new HttpError(409, 'The scoped draft changed; reload before saving', 'draft_scope_conflict');
+        const revision = before.revision ?? 0;
+        if (!Number.isSafeInteger(revision) || revision < 0) throw new HttpError(500, 'The draft revision is invalid', 'draft_record_corrupt');
+        if (revision !== condition.expectedRevision || revision === Number.MAX_SAFE_INTEGER) throw new HttpError(409, 'The draft changed; reload before saving', 'draft_revision_conflict');
+        if (!['draft', 'failed'].includes(before.status) || before.deliveryAttemptId) throw new HttpError(409, 'The draft is locked by delivery', 'draft_locked');
+        // The normal path retains all mutability/discard hooks. Its authored write,
+        // guard/revision changes and this CAS share this outer rollback boundary.
+        const saved = this.saveDraft(input, creationOrigin);
+        this.db.exec('RELEASE draft_conditional_save');return saved;
+      } catch (error) { this.db.exec('ROLLBACK TO draft_conditional_save; RELEASE draft_conditional_save');throw error; }
+    }
     const old = input.id ? this.get<Draft>('draft', input.id) : undefined;
     const accountId = input.accountId ?? old?.accountId ?? this.preferences().activeAccountId;
     this.required<Account>('account', accountId);
@@ -234,6 +296,12 @@ export class Store {
   createGeneratedLocalDraft(input: Pick<Draft,'accountId'|'threadId'|'to'|'subject'|'body'|'html'|'deliveryReplyContext'>): Draft {
     if (!this.db.isTransaction) throw new Error('Generated draft requires atomic publication');
     return this.saveDraft({ accountId: input.accountId, threadId: input.threadId, to: input.to, cc: '', bcc: '', subject: input.subject, body: input.body, html: input.html, attachments: [], deliveryReplyContext: input.deliveryReplyContext }, 'auto-generated-local');
+  }
+  createGeneratedManagedDraft(input:Parameters<Store['createGeneratedLocalDraft']>[0],scope:GeneratedPublicationScope):Draft{
+    if(!this.db.isTransaction||!generatedScopeValid(scope)||scope.accountId!==input.accountId||scope.threadId!==input.threadId)throw new HttpError(409,'Generated enrollment requires owned publication','provider_draft_enrollment_conflict');
+    const draft=this.saveDraft({accountId:input.accountId,threadId:input.threadId,to:input.to,cc:'',bcc:'',subject:input.subject,body:input.body,html:input.html,attachments:[],deliveryReplyContext:input.deliveryReplyContext});
+    for(const hook of this.draftLifecycleHooks)hook.created?.(draft,'auto-generated-managed',scope);
+    if(!this.hasProviderDraftLink(draft.id))throw new HttpError(409,'Generated cloud enrollment unavailable','provider_draft_enrollment_conflict');return draft;
   }
   restoreCancelledArtifactDraft(id: string, operationId: string, at: string): Draft {
     if (!this.db.isTransaction) throw new Error('Cancelled restoration requires its operation transaction');

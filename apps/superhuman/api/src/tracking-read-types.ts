@@ -15,7 +15,7 @@ export type TrackingReadView={
  snapshot:TrackingReadSnapshot|null;
  cache:{availability:'none'|'retained';events:number;messages:number;freshness:'not-refreshed'|'current'|'stale-basis'|'stale-configuration'|'preference-disabled'};
  refresh:{allowed:boolean;reason:TrackingReadUnavailableReason|null;basisDigest:string|null;active:null|{requestRef:string;acceptedAt:string};lastResult:null|{requestRef:string;state:'completed'|'failed'|'interrupted';finishedAt:string;error:TrackingReadError|null}};
- effectiveReadStatuses:false;effectiveRecentOpens:false;hostingVerified:false;
+ effectiveReadStatuses:boolean;effectiveRecentOpens:boolean;hostingVerified:boolean;
 };
 export type TrackingReadMessage={
  messageRef:string;generation:number;subject:string|null;

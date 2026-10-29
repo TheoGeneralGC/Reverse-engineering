@@ -51,10 +51,10 @@ test('ambiguous create never retries; local edits remain while delivery, direct 
     assert.throws(()=>f.store.saveDraft({id:draft.id,accountId:'foreign'}));
   }finally{await f.close()}
 });
-test('a failed local acknowledgment commit becomes unknown without replacing edits or making another provider write',async()=>{
+test('a failed local metadata commit retains its confirmed remote ACK without replacing edits or making another provider write',async()=>{
   const f=fixture();try{
     const draft=f.newDraft();f.store.db.exec("CREATE TEMP TRIGGER fail_cloud_ack BEFORE UPDATE ON records WHEN NEW.kind='draft' AND json_extract(NEW.data,'$.providerDraftId') IS NOT NULL BEGIN SELECT RAISE(ABORT,'controlled cloud ACK failure');END");
-    await f.service.flush('google',draft.id);assert.equal(f.calls.create,1);assert.equal(f.remote.size,1);assert.equal(f.service.status('google',draft.id).state,'outcome_unknown');assert.equal(f.store.required<Draft>('draft',draft.id).providerDraftId,undefined);
+    await f.service.flush('google',draft.id);assert.equal(f.calls.create,1);assert.equal(f.remote.size,1);assert.equal(f.service.status('google',draft.id).state,'suspended');assert.equal(f.service.status('google',draft.id).operation!.state,'confirmed');assert.equal(f.service.status('google',draft.id).providerDraftId,'draft-1');assert.equal(f.service.status('google',draft.id).error?.code,'provider_draft_local_metadata_conflict');assert.equal(f.store.required<Draft>('draft',draft.id).providerDraftId,undefined);
     await f.service.flush('google',draft.id);assert.equal(f.calls.create,1);assert.equal(f.calls.delete,0);
   }finally{await f.close()}
 });

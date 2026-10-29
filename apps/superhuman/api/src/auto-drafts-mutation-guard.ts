@@ -1,3 +1,4 @@
+import type {DraftWriteContext} from './generated-draft-policy.ts';
 import { Store } from './store.ts';
 import { createHash } from 'node:crypto';
 import { HttpError, type Account, type Draft, type Thread } from './types.ts';
@@ -20,7 +21,7 @@ export class AutoDraftMutationGuard {
     this.store = store; this.now = now;
     store.db.exec(`CREATE TABLE IF NOT EXISTS auto_draft_thread_versions(account_id TEXT NOT NULL,thread_id TEXT NOT NULL,version INTEGER NOT NULL,PRIMARY KEY(account_id,thread_id));
       CREATE TABLE IF NOT EXISTS auto_draft_mutation_guards(draft_id TEXT PRIMARY KEY,account_id TEXT NOT NULL,data TEXT NOT NULL);`);
-    this.unregister = store.registerDraftLifecycleHooks({ written: (before, next) => this.record(before, next, 'write'), beforeRemove: draft => this.record(draft, draft, 'removed'), acceptedIntent: draft => this.record(draft, draft, 'discard-intent') });
+    this.unregister = store.registerDraftLifecycleHooks({ written: (before, next,context) => {if(before&&store.preservesGeneratedMetadata(before,next,context))return;this.record(before, next, 'write')}, beforeRemove: draft => this.record(draft, draft, 'removed'), acceptedIntent: draft => this.record(draft, draft, 'discard-intent') });
   }
   private account(accountId: string) { if (!guardId(accountId)) conflict(); const account = this.store.get<Account>('account', accountId); if (!account || account.id !== accountId) throw new HttpError(404, 'Account unavailable', 'auto_draft_generation_not_found'); }
   version(accountId: string, threadId: string): number {

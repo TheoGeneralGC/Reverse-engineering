@@ -1,18 +1,32 @@
 import Squire from 'squire-rte';
 import { composerValueFromHTML,plainTextToComposerHTML,sanitizeComposerFragment } from './composer-html.ts';
 import type { ComposerValue } from './composer-html.ts';
+import { composerQuotedTail,type ComposerQuotedBody } from './auto-drafts/v2/composer-quote.ts';
 
 export type FormatCommand='bold'|'italic'|'underline'|'strike'|'bullets'|'numbers'|'quote'|'unquote'|'indent'|'outdent'|'undo'|'redo'|'clear';
 export type FormatState={bold:boolean;italic:boolean;underline:boolean;strike:boolean;bullets:boolean;numbers:boolean;quote:boolean};
 export type RewriteTarget={html:string;range:Range;text:string};
 
-export function createComposerEditor(root:HTMLElement,initial:{body:string;html?:string},onChange:(value:ComposerValue)=>void){
+export function createComposerEditor(root:HTMLElement,initial:{body:string;html?:string},onChange:(value:ComposerValue)=>void,onQuotedBodyChange?:(collapsed:boolean)=>void){
  const document=root.ownerDocument;
  const editor=new Squire(root,{blockTag:'DIV',sanitizeToDOMFragment:html=>sanitizeComposerFragment(html,document),undo:{documentSizeThreshold:200_000,undoLimit:100},didError:error=>{console.error('Composer editing operation failed',error instanceof Error?error.name:'EditorError')}});
  editor.setHTML(initial.html??plainTextToComposerHTML(initial.body));
  let lastSupplied={body:initial.body,html:initial.html};
  let lastPublished=composerValueFromHTML(editor.getHTML(),document);
- const getValue=()=>composerValueFromHTML(editor.getHTML(),document);
+ let quotedTail:HTMLElement[]|null=null,quotedParts:ComposerQuotedBody|null=null;
+ const clearQuoteAttributes=(nodes:HTMLElement[])=>{for(const node of nodes){node.removeAttribute('data-auto-draft-quote-hidden');node.removeAttribute('contenteditable');node.removeAttribute('aria-hidden')}};
+ // Undo, paste and external updates may replace every node. Rebind the complete
+ // proved tail; the reply is allowed to change after the initial proof check.
+ const reconcileQuotedBody=()=>{
+  if(!quotedParts)return false;
+  const tail=composerQuotedTail(root,quotedParts,false);
+  if(!tail){clearQuoteAttributes(quotedTail||[]);quotedTail=null;quotedParts=null;onQuotedBodyChange?.(false);return false}
+  clearQuoteAttributes((quotedTail||[]).filter(node=>!tail.includes(node)));quotedTail=tail;
+  for(const node of tail){if(!node.hasAttribute('data-auto-draft-quote-hidden'))node.setAttribute('data-auto-draft-quote-hidden','');if(node.contentEditable!=='false')node.contentEditable='false';if(node.getAttribute('aria-hidden')!=='true')node.setAttribute('aria-hidden','true')}
+  return true;
+ };
+ const quoteObserver=new document.defaultView!.MutationObserver(()=>reconcileQuotedBody());quoteObserver.observe(root,{childList:true,subtree:true,characterData:true});
+ const getValue=()=>{reconcileQuotedBody();return composerValueFromHTML(editor.getHTML(),document)};
  const publish=()=>{const value=getValue();if(value.html!==lastPublished.html||value.body!==lastPublished.body){lastPublished=value;onChange(value)}};
  editor.addEventListener('input',publish);
  const getFormat=():FormatState=>({bold:editor.hasFormat('B')||editor.hasFormat('STRONG'),italic:editor.hasFormat('I')||editor.hasFormat('EM'),underline:editor.hasFormat('U'),strike:editor.hasFormat('S')||editor.hasFormat('STRIKE'),bullets:editor.hasFormat('UL'),numbers:editor.hasFormat('OL'),quote:editor.hasFormat('BLOCKQUOTE')});
@@ -40,6 +54,15 @@ export function createComposerEditor(root:HTMLElement,initial:{body:string;html?
   publish();
  };
  return{editor,getValue,getFormat,run,publish,captureRewriteTarget,
+  collapseQuotedBody(parts:ComposerQuotedBody){
+   if(quotedParts)return reconcileQuotedBody();if(!composerQuotedTail(root,parts))return false;quotedParts={...parts};const collapsed=reconcileQuotedBody();onQuotedBodyChange?.(collapsed);return collapsed;
+  },
+  expandQuotedBody(){
+   if(!reconcileQuotedBody()||!quotedTail)return false;
+   const index=Array.from(root.childNodes).indexOf(quotedTail[0]);clearQuoteAttributes(quotedTail);
+   quotedParts=null;quotedTail=null;onQuotedBodyChange?.(false);editor.setHTML(editor.getHTML());lastPublished=getValue();const node=root.childNodes[index]||root.lastChild;
+   editor.focus();if(node){const range=document.createRange();range.setStartBefore(node);range.collapse(true);editor.setSelection(range)}return true;
+  },
   applyRewrite(text:string,target:RewriteTarget):RewriteTarget{
    if(root.contentEditable==='false')throw new Error('This draft cannot be edited while delivery is pending.');
    if(target.html!==editor.getHTML()||!root.contains(target.range.startContainer)||!root.contains(target.range.endContainer))throw new Error('The draft changed while AI was working. Select the text again to keep your latest edits.');
@@ -68,7 +91,7 @@ export function createComposerEditor(root:HTMLElement,initial:{body:string;html?
   },
   insertText(text:string){if(root.contentEditable==='false')return;const range=editor.getSelection().cloneRange();editor.focus().setSelection(range).insertPlainText(text,false);publish()},
   replaceText(text:string){if(root.contentEditable==='false')return;editor.saveUndoState();const range=document.createRange();range.selectNodeContents(root);editor.setSelection(range).insertPlainText(text,false);publish()},
-  destroy(){editor.removeEventListener('input',publish);editor.destroy()},
+  destroy(){quoteObserver.disconnect();editor.removeEventListener('input',publish);editor.destroy()},
  };
 }
 export type ComposerController=ReturnType<typeof createComposerEditor>;

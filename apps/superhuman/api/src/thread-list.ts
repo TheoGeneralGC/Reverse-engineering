@@ -1,6 +1,7 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { HttpError, type ThreadListOptions, type ThreadListPage, type ThreadSummary } from './types.ts';
+import { normalizeSearchTimeZone } from './search.ts';
 
 // Explicit metadata projection: adding a content-bearing field to Thread cannot
 // accidentally expose it in a list response. This projection runs only on write
@@ -52,7 +53,7 @@ export function initializeThreadSummaries(db: DatabaseSync) {
   } catch (error) { db.exec('ROLLBACK'); throw error; }
 }
 
-type Context = { accountId: string; folder: string; q: string; split: NonNullable<ThreadListOptions['split']> };
+type Context = { accountId: string; folder: string; q: string; split: NonNullable<ThreadListOptions['split']>; timeZone?: string };
 type Position = { date: string; id: string };
 const contextKey = (context: Context) => createHash('sha256').update(JSON.stringify(context)).digest('base64url');
 function decodeCursor(input: string | null | undefined, context: Context): Position | undefined {
@@ -84,8 +85,9 @@ function folderCondition(folder: string): { sql: string; values: SQLInputValue[]
   return { sql: 'folder=? AND snoozed=0', values: [alias] };
 }
 
-export function listThreadSummaries(db: DatabaseSync, options: ThreadListOptions, search: (accountId: string, query: string) => Set<string>): ThreadListPage {
-  const context: Context = { accountId: options.accountId, folder: options.folder ?? 'inbox', q: (options.q ?? '').trim(), split: options.split ?? 'all' };
+export function listThreadSummaries(db: DatabaseSync, options: ThreadListOptions, search: (accountId: string, query: string, timeZone?: string) => Set<string>): ThreadListPage {
+  const timeZone = normalizeSearchTimeZone(options.timeZone);
+  const context: Context = { accountId: options.accountId, folder: options.folder ?? 'inbox', q: (options.q ?? '').trim(), split: options.split ?? 'all', ...(timeZone === undefined ? {} : { timeZone }) };
   const limit = options.limit ?? 50;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new HttpError(400, 'limit must be an integer from 1 to 100', 'invalid_limit');
   if (!['all', 'important', 'other', 'calendar'].includes(context.split)) throw new HttpError(400, 'Invalid inbox split', 'invalid_split');
@@ -96,7 +98,7 @@ export function listThreadSummaries(db: DatabaseSync, options: ThreadListOptions
   if (context.q) {
     // Preserve the existing local grammar, including body/filename/from:me
     // semantics. Only search falls back to full records, scoped by account.
-    const matches = search(context.accountId, context.q);
+    const matches = search(context.accountId, context.q, context.timeZone);
     const rows = db.prepare('SELECT id,last_message_at,data FROM thread_summaries WHERE account_id=? ORDER BY last_message_at DESC,id DESC').all(context.accountId).filter(row => matches.has(String(row.id)));
     total = rows.length;
     const dateBytes = position && Buffer.from(position.date); const idBytes = position && Buffer.from(position.id);

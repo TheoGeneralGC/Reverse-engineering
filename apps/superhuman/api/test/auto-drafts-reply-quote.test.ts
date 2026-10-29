@@ -12,6 +12,7 @@ test('reconstructs visible dated sender attribution and quoted source without al
  const result=composeAutoDraftReply(message,'Confirmed, thanks. Both work for me.','America/Los_Angeles');
  assert.equal(result.body,'Confirmed, thanks. Both work for me.\n\nOn Thu, Oct 29, 2026 at 5:19 AM, Cedar Sender <sender@example.test> wrote:\n> Could you confirm Thursday at 3 pm in Room Maple?\n> Reference: Cedar &amp; <approved> "A".');
  assert.equal(result.html.includes('<blockquote>'),true);assert.equal(result.html.includes('Reference: Cedar &amp;amp; &lt;approved&gt;'),true);assert.equal(JSON.stringify(message),before);assert.equal(Object.isFrozen(result),true);
+ const tricky='Reply 😀\nOn a model-authored line wrote:\n> literal';const bounded=composeAutoDraftReply(message,tricky,'UTC');assert.equal(bounded.quotedBody.quoteStartUtf8,Buffer.byteLength(tricky)+2);assert.equal(Buffer.from(bounded.body).subarray(0,bounded.quotedBody.quoteStartUtf8-2).toString('utf8'),tricky);assert.equal(Buffer.from(bounded.body).subarray(bounded.quotedBody.quoteStartUtf8).toString('utf8').startsWith('On Thu, Oct 29, 2026 at 12:19 PM,'),true);assert.equal(Object.isFrozen(bounded.quotedBody),true);
 });
 
 test('authored reply and hostile sender markup remain literal text with no active HTML or header reinterpretation',()=>{

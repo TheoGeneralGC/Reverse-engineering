@@ -1,3 +1,4 @@
+import{verifiedCollectorFixture}from'./tracking-verified-fixture.ts';
 /** Synthetic fixture only. No default database, inherited environment, live network or credentials. */
 import {Readable} from 'node:stream';
 import {createHash} from 'node:crypto';
@@ -41,6 +42,7 @@ export function createAppFixture(options:{databasePath?:string;undoWindowMs?:num
   async delete(_account,id){providerCalls.push({kind:'delete',id,raw:null});remote.delete(id)},
  };
  const env={DATABASE_PATH:databasePath,GOOGLE_CLIENT_ID:'synthetic-only',GOOGLE_CLIENT_SECRET:'synthetic-only',TOKEN_ENCRYPTION_KEY:'1'.repeat(64),APPROVED_TEST_SENDERS:EMAIL,APPROVED_TEST_RECIPIENTS:PEER,GOOGLE_CALENDAR_ENABLED:'false',ANTHROPIC_API_KEY:'',OPENAI_API_KEY:''};
+ Object.assign(collector.configuration,verifiedCollectorFixture(collector.configuration));
  const appOptions={databasePath,env,seed:false,runJobs:false,providerDraftAutomatic:false,undoWindowMs:options.undoWindowMs??0,scheduler,providerDraftTransport:transport,trackingCollector:collector.configuration,aiFetch:async()=>{throw Error('Synthetic fixture prohibits model calls')}};
  let app=createApp(appOptions);
  for(const [id,email]of[[SENDER,EMAIL],[FOREIGN,PEER]])app.store.put('account',id,{id,email,provider:'google',name:'Synthetic account',color:'#000'});
