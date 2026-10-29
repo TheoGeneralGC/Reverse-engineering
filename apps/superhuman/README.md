@@ -9,6 +9,8 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Reviewed combined inline/cloud/tracking/date checkpoint](research/final-combined-checkpoint-20261029.md)
+- [Controlled tracked delivery and anonymous-fetch proof](research/tracked-delivery-checkpoint-20261029.md)
 - [Fresh Gmail snippet decoding checkpoint](research/gmail-snippet-checkpoint-20261029.md)
 - [Original response draft before conversation opening](research/original-auto-draft-response-observation-20261029.md)
 - [Applied local Auto Drafts checkpoint](research/auto-drafts-local-checkpoint-20261029.md)
@@ -35,9 +37,29 @@ Store sanitized specifications and synthetic fixtures under version control.
 Layout: `web/` contains the browser client, `api/` the persistent backend, and
 `research/` the observed behavior, acceptance scenarios and comparisons.
 
+## Applied combined checkpoint
+
+The [combined checkpoint](research/final-combined-checkpoint-20261029.md) passed
+**884 API/689 frontend** tests, types/build and a 79-action synthetic inline case.
+Root applied 61 paths matching all 449 files and restarted Main. Jobs-off recovery
+changed only the existing foundation clock; the other 135 tables/all 11,962 records
+and protected 20 drafts/seven attachments/four sealed rows stayed exact. The
+separate postrestart comparison retains 12 changed tables and strict inequality,
+with Threads and protected state unchanged. A read-only 12-action Main smoke
+passed; it did not open an editor, toggle preferences or Send.
+
+Main now has explicit managed generated persistence and matched collector
+operator verification. Responses/tracking desires stay off, attempts/queues are
+zero and no activation exists; generated cloud capability is true while effective
+tracking stays false. No new model/native Send occurred during rollout. Four API
+date queries now match the bounded original slash/ISO pattern; browser search was
+not repeated. The separate controlled tracked delivery/read proof retains strict
+recipient plain/HTML differences. All 22 feature statuses and full-parity gaps
+remain unchanged. Earlier checkpoints below keep their historical identities.
+
 The applied [fresh Gmail snippet correction](research/gmail-snippet-checkpoint-20261029.md)
 passed **687 API tests**, five focused import/codec cases and strict checks.
-Current applied source totals are **855 API/680 frontend/53 collector**, with the separate
+Current applied source totals are **884 API/689 frontend/53 collector**, with the separate
 Vercel package retaining 23 tests. It decodes references once on fresh Gmail
 imports, preserving MIME bodies and safe React text rendering. Older cached
 snippets are not bulk-decoded; guarded authoritative refresh remains pending.
@@ -52,8 +74,8 @@ qualified Main audit and unknown model causality are explicit. That original
 observation predates the local-response rollout below and does not
 establish paired response parity.
 
-The [local Auto Drafts source](research/auto-drafts-local-checkpoint-20261029.md)
-is now applied. Its reviewed **855 API/680 frontend** tests, strict checks/build
+The preceding [local Auto Drafts source](research/auto-drafts-local-checkpoint-20261029.md)
+was applied on its own 855/680 boundary. Its reviewed **855 API/680 frontend** tests, strict checks/build
 and one **57-action** synthetic Inbox/quote/recovery/Undo case passed. Root matched
 all 438 files, passed the exact stopped jobs-off migration/data comparison, then
 restarted Main and passed status/serving reads plus a separate read-only
@@ -187,8 +209,10 @@ Event coverage is incomplete. Earlier New-prompt/focus failures remain recorded;
 their fixes passed the subsequent full demo run. See the
 [bounded AI browser record](research/ai-chat-browser-check.md).
 
-Outlook is outside the current scope at the user's request. Tracking has the
-bounded applied checkpoint above; public hosting/effective flags remain unverified.
+Outlook is outside the current scope at the user's request. The collector has
+separate public deployment and synthetic-wire proof; Main now loads matched operator configuration while desired tracking remains
+off/effectivefalse. The controlled tracked message has separate read proof and
+recorded recipient differences; effective-ON Main behavior/full parity is unverified.
 Team collaboration, CRM
 integrations and many advanced settings remain unimplemented. A local demo
 account contains synthetic email; it cannot send mail.

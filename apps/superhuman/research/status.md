@@ -1,6 +1,33 @@
 # Implementation checkpoint — 2026-10-27–29
 
-Current applied source is **855 API/680 frontend/53 collector**. The
+Current applied source is **884 API/689 frontend/53 collector**, with separate
+Vercel 23 tests. The [combined checkpoint](final-combined-checkpoint-20261029.md)
+binds all 449 exact paths, the passing 79-action inline case and retained review/
+fixture failures. Root applied 61 paths and restarted Main. Jobs-off construction
+made no schema additions or external/model/timer calls, but existing close/
+recovery advanced one foundation clock; other 135 tables/all 11,962 record rows,
+20 drafts/seven attachments/four sealed rows stayed exact. Strict equality is
+false rather than normalized. The postrestart snapshot has 12 changed tables,
+account/sync metadata differences and unchanged Threads/protected data.
+
+Managed generated persistence and matched collector operator verification are
+now configured. Both Responses values remain off/attempts0/queued0/no activation;
+tracking desires remain off, integrated/operator-verified/account-disabled and
+effectivefalse, with no tracking preference rows. A current ingress-not-ready
+observation is point-in-time, not universal available readiness. The separate
+read-only Main 12-action smoke is complete/equality eligible and used no editor,
+toggle or Send. Four HTTP date searches match the original bounded 1/0/1/1 pattern;
+browser query interaction was not repeated. Types/build/full 884/689 are inherited
+by source identity, not rerun after rollout. No new model/native Send occurred.
+
+The [controlled tracked delivery](tracked-delivery-checkpoint-20261029.md) has one
+native mapped Send/collector confirmation and explicit anonymous fetch/import,
+with strict recipient plain/HTML differences retained. Its earlier Main audit
+has 33 changed tables/strictallfalse and its own protected 20/7/4 qualification.
+That boundary is separate from this rollout and the later 12-table comparison.
+All 22 statuses remain unchanged; full original parity is false.
+
+The preceding applied source was **855 API/680 frontend/53 collector**. The
 [local Auto Drafts checkpoint](auto-drafts-local-checkpoint-20261029.md) binds the
 reviewed API/UI gates, strict checks/build and a passed 57-action synthetic case:
 exact quoted inline text, one fake model reply, same-key preference recovery,
