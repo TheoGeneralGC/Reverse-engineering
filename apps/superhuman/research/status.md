@@ -13,6 +13,13 @@ Split footer integration passed 11 focused checks, all 652 frontend tests,
 types/build and an HTTP serving check. It changed three UI paths, with no API
 restart, schema, environment or database change.
 
+A subsequent Delete confirmation copy/order fix is also applied. It uses the
+observed two paragraphs and Delete then Cancel order. Root passed the existing
+11 component cases, types/build and an HTTP copy/Cancel-marker check. It added
+no test cases and repeated neither the full 652 suite nor the matched 101-action
+browser case. Conservative initial Cancel focus remains a local policy;
+original focus and confirmation geometry/layout remain unverified.
+
 The preceding tracking/keyboard source passed **682 API/646 frontend/45 collector tests**,
 build and strict checks, with all 391 frozen source files matching the reviewed
 candidate. Root applied 111 source paths, made a fresh stopped backup and reviewed
@@ -35,8 +42,10 @@ completed one approved original create/name-only edit/off/on/delete, positive
 custom/Important membership and exact restoration of captured settings. The
 corrected footer passed 101 local browser actions with seven immutable receipts,
 eight checkpoints and five protected records. Its three UI paths are now applied.
-Original reordering was skipped for tool binding. Full-family, original Other/negative matching, Alert copy/layout
-and hidden-backend parity remain open. The earlier failed Create/Delete guards remain failed.
+Original reordering was skipped for tool binding. Full-family, original
+Other/negative matching, Alert focus/geometry and hidden-backend parity remain
+open. The earlier Alert copy/order gap is corrected by the narrow follow-up
+above; the failed Create/Delete guards remain failed.
 
 The applied 682/646 source regression passed **16 cases/407 steps**, all eight
 persistence assertions and 436 stable source/runtime entries, with all 16 owned

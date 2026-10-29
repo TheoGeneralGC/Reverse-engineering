@@ -65,8 +65,12 @@ three UI paths and passed 11 focused checks, all 652 frontend tests, types/build
 and an HTTP serving check. Current source is **682 API/652 frontend/53 collector**;
 the earlier 407-step regression retains its 682/646 identity. Original ordering
 was skipped for tool binding, and original Other retention, negative matching,
-Library/template activation, confirmation copy/layout and full Split parity
-remain open.
+Library/template activation, original confirmation focus/geometry and full Split
+parity remain open. A later copy/order-only follow-up now matches the retained
+Delete Alert's two paragraphs and Delete/Cancel button order. Root passed the
+existing 11 component cases, types/build and an HTTP serving check; no broad
+suite or matched-browser repeat is claimed. The 101-action/652-suite identities
+above remain historical.
 
 ## Run the current implementation
 

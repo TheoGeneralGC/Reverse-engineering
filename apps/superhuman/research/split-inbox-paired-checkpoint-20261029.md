@@ -5,7 +5,9 @@ name-only edit, off/on and deletion lifecycle. The prior **observable** settings
 were restored exactly. A corrected private frontend then passed a matched
 101-action synthetic browser case. Root applied the three UI paths and passed
 focused checks, the full 652-test frontend suite, types/build and an HTTP serving
-check. The checkpoint is applied; no full feature family is verified.
+check. A later copy/order-only confirmation follow-up passed the existing
+11 component cases and types/build; it did not repeat that full suite or browser
+case. The checkpoint is applied; no full feature family is verified.
 
 ## Original observation and restoration
 
@@ -74,7 +76,7 @@ The matched candidate binds 392 source files: unchanged 202 API, 173 frontend an
 collector files. Its source identity is
 `967a2a97eae8c40bd136e7ec65e810b2a2e1daf332a2744b017aae2188925497`.
 This does not add API tests, migrations, collector behavior or Auto Drafts work.
-Root then applied those three paths exactly. The current checkpoint is
+Root then applied those three paths exactly. That checkpoint was
 **682 API/652 frontend/53 collector**. Root passed 11 focused checks and the full
 652-test frontend suite, strict checks and build, then received HTTP 200 for the
 page and the exact corrected module marker. No API restart, schema, environment
@@ -110,6 +112,42 @@ elapsed timing test, notification proof or full original feature comparison.
 No real-mail MIME check was repeated; the earlier received plain-text assertion
 [remains failed](mapped-send-live-check-20261029.md).
 
+## Applied Delete confirmation copy/order follow-up
+
+The 101-action browser result and the footer source hashes above describe the
+preceding correction. Its confirmation still combined the warning into one
+paragraph and ordered Keep editing before Delete. The retained original Alert in
+`ev_ac0dbc4d8012511f1b629d39ed586166f24025d1d3ffaf98eaf82894b94a418f`
+has two paragraphs:
+
+- `Would you like to delete the split {savedName}?`
+- `Please note: you cannot undo this action.`
+
+Its visible action order is Delete, then Cancel. An artifact-only parse of three
+captured Alert frames verified those strings and order; no new original action
+was performed. The applied follow-up now uses this copy/order, retains the saved
+name and explicit owned ID, and preserves the separate dirty-discard dialog.
+Cancel remains the initial focus target as a conservative local policy.
+Original focus is unknown; DOM order is not treated as focus proof.
+
+The private follow-up freeze is
+`5302953bd64287273fe28ed147cb27d4b0363e5337f88a6eb51162e713721a5d`;
+its Workspace SHA256 is
+`e7b6776d2ab824a4eb7ab982a039a0c69aa9c45745ea2afef98f0549b012ca08`.
+The existing deletion interaction now verifies two paragraphs, button order,
+Cancel with zero writes and retained fields, safe focus/Tab containment, then
+one explicit Delete of only the owned ID. No test cases were added. The same
+final 11 component cases passed on the successor and gave nine passes/two
+failures against the unchanged preceding 652 component.
+
+Root applied the three exact UI/test paths and passed those 11 cases,
+types/build and an HTTP 200 copy/Cancel-marker check. Root integration review is
+`c15339f837a484d81527cba0989efca9dfd0faca3cfd9723dfb6dc9c48864aee`.
+Counts remain 682 API/652 frontend/53 collector; this follow-up did not rerun the
+full 652 suite or matched 101-action browser case. Their source identities remain
+historical. No API, environment, schema or database change accompanied this fix.
+Confirmation geometry/layout, original focus and full visual parity remain open.
+
 ## Retained predecessors and open acceptance
 
 The first original baseline guard waited for a hidden account span to be visible;
@@ -135,7 +173,7 @@ badge oracle and separate tail, also remains historical.
 | SI-P01 create/edit | One owned subject definition, flags and name-only Save on original; matched local settings/receipts | Broad validation, query editing, defaults, full Gmail grammar |
 | SI-P02 off/on/footer | Original active/inactive controls; corrected local pending-mode cases and browser guards | Other entitlements, unknown hidden states, original Enter/error variants |
 | SI-P03 membership | One original custom positive plus positive Important retention; local positive/negative and Important/Other fixture | Original Other/negative/overlap and full mailbox semantics |
-| SI-P04 delete/restore | One original confirmation and exact captured configuration restoration; local immutable receipt and restore | Original Alert uses Delete/Cancel; local Keep editing/Delete, combined copy and layout remain unmatched |
+| SI-P04 delete/restore | One original confirmation and exact captured configuration restoration; local immutable receipt and restore; later copy/order matches retained Alert paragraphs and Delete/Cancel | Original focus unknown; Cancel focus is local policy; confirmation geometry/layout and full visual comparison remain open |
 | SI-P05 order | Local owned Up only | Original drag skipped for tool binding; ordering parity remains open |
 
 Inactive built-in/template activation, Library behavior, Auto Labels classification,
