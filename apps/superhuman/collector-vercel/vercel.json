@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "express",
+  "regions": ["iad1"],
+  "functions": {
+    "src/index.ts": {
+      "maxDuration": 10,
+      "includeFiles": "../collector/src/protocol.ts"
+    }
+  }
+}

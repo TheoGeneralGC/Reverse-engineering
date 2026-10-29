@@ -1,5 +1,13 @@
 # Implementation checkpoint — 2026-10-27–29
 
+The separate [Vercel collector preparation](vercel-collector-checkpoint-20261029.md)
+is now applied. Root passed its 23 standalone package tests, strict source/test
+types and restricted import check after an offline nested-lock install. Its
+reviewed remote libSQL adapter has no main API/mail/model dependency. No project,
+database, real key, environment setting or deployment has been created; workspace
+access still returns 403. These tests do not establish hosted behavior or add to
+the existing collector53 count. Main remains 682 API/652 frontend/53 collector.
+
 Current applied source is **682 API/652 frontend/53 collector**. The narrow
 Split footer integration passed 11 focused checks, all 652 frontend tests,
 types/build and an HTTP serving check. It changed three UI paths, with no API
