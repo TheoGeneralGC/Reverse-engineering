@@ -10,6 +10,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
 - [Fresh Gmail snippet decoding checkpoint](research/gmail-snippet-checkpoint-20261029.md)
+- [Original response draft before conversation opening](research/original-auto-draft-response-observation-20261029.md)
 - [Applied tracking and keyboard checkpoint](research/tracking-keyboard-checkpoint-20261029.md)
 - [Vercel collector preparation and limits](research/vercel-collector-checkpoint-20261029.md)
 - [Team/CRM discovery and access limits](research/team-crm.md)
@@ -40,6 +41,14 @@ imports, preserving MIME bodies and safe React text rendering. Older cached
 snippets are not bulk-decoded; guarded authoritative refresh remains pending.
 The standalone worker-layout failure is retained alongside the passing exact-source
 hoisted gate. No full browser regression or original snippet parity is claimed.
+
+One separately authorized [original response observation](research/original-auto-draft-response-observation-20261029.md)
+found a new unsent, same-thread Gmail reply draft before any original conversation
+open, following one fictional approved-pair Send. Six snapshots preserved all 34
+prior draft metadata tuples. Late observation times, the retained reader failure,
+qualified Main audit and unknown model causality are explicit. This adds original
+evidence; private Auto Drafts candidates are not applied and current totals above
+are unchanged.
 
 ## Applied tracking and keyboard checkpoint
 

@@ -226,6 +226,16 @@ Original Auto Drafts and typing Autocomplete settings were separately inspected
 without declared toggle/Save/activation actions. Their form states, static AI/
 plan gates, conditional unmount-write caveat and remaining controlled-comparison
 needs are in [auto-drafts-autocomplete.md](auto-drafts-autocomplete.md).
+A later [original response fixture](original-auto-draft-response-observation-20261029.md)
+used one approved-pair Send and six pre-open snapshots. One new unsent HTML-only
+reply draft had the exact received-thread/In-Reply-To linkage; all 34 older draft
+metadata tuples stayed unchanged. The first slots were late, a private reader
+grammar failure remains retained, and the later Main poll stopped for grant/sealed
+changes. A subsequent read-only audit matched refresh/scope/other fingerprints to
+an older historical snapshot; it cannot establish immediate-baseline credential
+equality or causal network provenance. Model attribution/count and generation timing
+remain unknown. Current 687/652/53 source is unchanged; private Auto Drafts
+settings/UI/worker counts are not an applied milestone or a paired-engine proof.
 
 ## Earlier frozen Send/Undo-source regression checks
 
