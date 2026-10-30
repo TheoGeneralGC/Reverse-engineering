@@ -76,3 +76,22 @@ resource observations remain under ignored .local directories. No real emails,
 credentials, captures, browser profiles or vendor binaries belong in this public
 checkpoint. See the [runtime README](../vercel/README.md) for configuration and
 remaining release limitations.
+
+## Final package and upload collection gate
+
+The combined Vercel package gate passes91/91 across12 files with stable268-source
+and26-support holds, zero denied external attempts and108 permitted loopback calls.
+The broader API/frontend gates above were not repeated unchanged.
+
+An actual Vercel CLI65.4 dry run found the first upload rules selected only five
+root files: the CLI matcher treats directory negation syntax differently from
+the earlier generic allowlist checker. The failure was retained before deployment.
+Corrected rules now collect exactly270 reviewed source files with no missing/extra
+paths; the same CLI rejects30 synthetic private/binary/unreviewed sibling files
+and three private directory entries. The Docker ignore remains separately scoped
+to Docker syntax. No Production deployment or daemon activation occurred.
+
+The Git-triggered Preview initially failed on the old frontend-only project build
+path. Project root/build/install/output overrides were then cleared for the new
+root configuration, and All Deployments Authentication was read back enabled.
+A corrected actual platform build remains required.

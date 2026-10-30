@@ -35,7 +35,7 @@ compute cost require separate approval; no worker was activated during the local
 validation below.
 
 Validation: the full API suite passed1044/1044 and frontend781/781 with stable
-source/support hashes. Focused controls cover synchronous SQL compatibility,
+source/support hashes. The final combined runtime package gate passes91/91. Focused controls cover synchronous SQL compatibility,
 actual Core loopback, ten MiB transfer, ten-second Send Undo, AI Stop, cloud-save
 flush, graceful ownership handoff, poisoned Function-client replacement and
 read-only late-result recovery. See the [checkpoint](../research/vercel-runtime-candidate-20261029.md)
