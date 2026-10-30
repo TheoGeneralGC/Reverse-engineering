@@ -6,6 +6,7 @@
 !Dockerfile.mail-worker
 !Dockerfile.mail-worker.dockerignore
 !api
+!api/package.json
 !api/bridge.ts
 !apps
 !apps/superhuman
