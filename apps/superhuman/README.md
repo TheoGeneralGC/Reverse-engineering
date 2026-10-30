@@ -9,6 +9,7 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Protected hosted beta](research/vercel-hosted-beta-20261030.md)
 - [Remote savepoint startup correction](research/vercel-remote-savepoints-20261030.md)
 - [All-Vercel runtime candidate and validation](research/vercel-runtime-candidate-20261029.md)
 - [Protected hosted release preparation](research/hosted-release-preparation-20261029.md)
@@ -192,11 +193,12 @@ above remain historical.
 
 ## Run the current implementation
 
-The [hosted release package](hosted/README.md) has a protected Vercel frontend.
-The user selected Vercel for the backend too; its persistent worker, database and
-large-file transport adaptation is in progress. The earlier Render option is
-unapproved history. No hosted-mail release is live yet. The existing tracking
-collector is a separate deployment.
+The [protected hosted beta](https://rea-superhuman-generalgc.vercel.app/) now has
+both its browser client and persistent backend on Vercel. The demo Inbox and
+ten MiB attachment upload/download pass their bounded checks; fresh hosted
+Google sign-in and real mailbox operation remain separate gates. See the
+[beta checkpoint](research/vercel-hosted-beta-20261030.md). The earlier Render
+option is unapproved history. The tracking collector is a separate deployment.
 
 The preceding serving version passed **561 API/536 frontend tests**, build and strict types,
 plus **16 cases/407 browser steps**, all eight persistence assertions and 165
