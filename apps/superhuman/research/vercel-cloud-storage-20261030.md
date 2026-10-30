@@ -104,6 +104,40 @@ error instead of panicking; the managed-WAL preflight read and closed normally.
 Docker source and preflight peer reviews pass. Actual cloud Core startup and
 Daemon storage/OIDC remain separate release gates.
 
+## Later startup discriminator
+
+The corrected deployed native preflight passed and the next owner was acquired,
+but the worker subsequently reported uncertain ownership. Its generic log does
+not distinguish Core construction from the first heartbeat or command pump.
+The three bootstrap/health requests remain queued and unclaimed. The service was
+stopped again without resetting that owner or replaying requests.
+
+The original approved native diagnostic's fresh read-only check reports the same
+mail resource is now nonempty, with WAL/FK enabled. An expired Studio session had
+shown misleading zero-row results; those later console captures are not schema
+absence evidence. Do not apply the preceding schema-empty recovery rule to this
+new state without a separate verified audit.
+
+An immutable Linux image independently starts the actual Core using managed
+automatic drafts, the matching nonsecret model/timezone/calendar settings and
+synthetic credentials. It creates224 schema objects, seeds one demo account,
+returns bootstrap200, and closes cleanly with networking disabled. This narrows
+the investigation but does not establish remote database/runtime equivalence.
+
+The new fixed failure event reports only lifecycle phase, Core startup stage,
+validated worker identity, allowlisted error category/code and constructor SQL
+ordinal/kind/SHA. It never reads private message/stack/cause fields, emits raw
+SQL/parameters or logs configuration values. Constructor SQL tracking clears
+after successful Core/listener creation; normal mail queries are not fingerprinted.
+Logger/observer errors do not change ownership or error propagation. Core API
+and authority semantics remain unchanged.
+
+This source passes145/145 focused tests across20 files and strict types, with
+418 source/26 support hashes stable,20 zero-external-denial markers and109
+loopback calls. Eight new controls and independent review cover the projection,
+failure identity, observer containment, real stage ordering and successful clear.
+The exact hosted failure still needs the new event and a valid data audit.
+
 ## Remaining release gates
 
 The explicit managed-WAL startup adaptation passes25 SQL/Store controls and one

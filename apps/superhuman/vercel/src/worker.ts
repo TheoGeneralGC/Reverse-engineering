@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ActorAuthority, ActorAuthorityError } from './authority.ts';
+import { ActorAuthority, ActorAuthorityError, type ActorLease } from './authority.ts';
 import { DurableCommandLog } from './command-log.ts';
 import { DurableCoreActor, type ActorContext, type ActorCore } from './actor.ts';
 import { createLibsqlControl } from './control-libsql.ts';
@@ -10,6 +10,7 @@ import { createLibsqlPrimaryFactory } from './sql.ts';
 import { PrivateBodyTransport } from './blob-transport.ts';
 import { VercelPrivateBlobStore } from './vercel-blob-sdk.ts';
 import { LoopbackCoreAdapter } from './core-adapter.ts';
+import { CoreStartupDiagnostic, reportWorkerFailure, type WorkerFailurePhase } from './startup-diagnostic.ts';
 
 export type WorkerConfiguration = Readonly<{ namespace: string; webOrigin: string; databaseUrl: string; databaseToken: string; controlUrl: string; controlToken: string;
   journalMode: 'verify-managed-wal'; storeId: string; deploymentId: string; actorId: string; healthPort: number; pollMs: number; acquireMs: number; heartbeatMs: number }>;
@@ -42,7 +43,8 @@ export function loadWorkerConfiguration(env: Readonly<NodeJS.ProcessEnv>): Worke
 
 export type WorkerRuntimeOptions = { authority: ActorAuthority; log: DurableCommandLog; actorId: string; deploymentId: string;
   createCore: (context: ActorContext) => Promise<ActorCore> | ActorCore; healthPort?: number; healthHost?: '0.0.0.0' | '127.0.0.1'; pollMs?: number; acquireMs?: number; heartbeatMs?: number;
-  housekeeping?: () => Promise<unknown>; housekeepingMs?: number };
+  housekeeping?: () => Promise<unknown>; housekeepingMs?: number;
+  startupDiagnostic?: CoreStartupDiagnostic; failureLogger?: (line: string) => void };
 export class MailWorkerRuntime {
   readonly health: Server;
   readonly completion: Promise<void>;
@@ -53,6 +55,8 @@ export class MailWorkerRuntime {
   private wake?: () => void;
   private closing?: Promise<void>;
   private housekeeping?: Promise<void>;
+  private failurePhase: WorkerFailurePhase = 'acquire';
+  private acquiredLease?: ActorLease;
   private constructor(options: WorkerRuntimeOptions, health: Server) {
     this.options = options; this.health = health;
     this.completion = this.loop(); void this.completion.catch(() => {});
@@ -60,6 +64,8 @@ export class MailWorkerRuntime {
   static async start(options: WorkerRuntimeOptions): Promise<MailWorkerRuntime> {
     for (const value of [options.pollMs ?? 100, options.acquireMs ?? 1000, options.heartbeatMs ?? 10_000]) if (!Number.isSafeInteger(value) || value < 1 || value > 60_000) throw new TypeError('Invalid worker interval');
     if (options.housekeeping !== undefined && typeof options.housekeeping !== 'function' || !Number.isSafeInteger(options.housekeepingMs ?? 60_000) || (options.housekeepingMs ?? 60_000) < 1 || (options.housekeepingMs ?? 60_000) > 3600_000) throw new TypeError('Invalid worker housekeeping');
+    if (options.failureLogger !== undefined && typeof options.failureLogger !== 'function') throw new TypeError('Invalid worker diagnostic logger');
+    if (options.startupDiagnostic !== undefined && !(options.startupDiagnostic instanceof CoreStartupDiagnostic)) throw new TypeError('Invalid worker startup diagnostic');
     const port = options.healthPort ?? 3002; if (!Number.isSafeInteger(port) || port < 0 || port > 65535) throw new TypeError('Invalid worker liveness port');
     if (options.healthHost !== undefined && !['0.0.0.0', '127.0.0.1'].includes(options.healthHost)) throw new TypeError('Invalid worker liveness host');
     let runtime: MailWorkerRuntime | undefined;
@@ -87,14 +93,17 @@ export class MailWorkerRuntime {
     try {
       while (!this.stopping) {
         if (!this.actor) {
+          this.failurePhase = 'acquire';
           try { this.actor = await DurableCoreActor.start({ authority: this.options.authority, log: this.options.log,
-            actorId: this.options.actorId, deploymentId: this.options.deploymentId, createCore: this.options.createCore, initializeControl: false }); this.phase = 'active'; }
+            actorId: this.options.actorId, deploymentId: this.options.deploymentId, createCore: context => {
+              this.acquiredLease = context.lease; this.failurePhase = 'create-core'; return this.options.createCore(context);
+            }, initializeControl: false }); this.options.startupDiagnostic?.clear(); this.phase = 'active'; }
           catch (error) { if (!(error instanceof ActorAuthorityError) || error.code !== 'actor_already_owned') throw error;
             this.phase = 'waiting'; await this.pause(this.options.acquireMs ?? 1000); continue; }
         }
         if (this.stopping) break;
         if (this.actor.state !== 'active') throw new ActorAuthorityError('actor_not_quiescent');
-        if (Date.now() >= nextHeartbeat) { await this.actor.heartbeat(); nextHeartbeat = Date.now() + (this.options.heartbeatMs ?? 10_000); }
+        if (Date.now() >= nextHeartbeat) { this.failurePhase = 'heartbeat'; await this.actor.heartbeat(); nextHeartbeat = Date.now() + (this.options.heartbeatMs ?? 10_000); }
         if (this.options.housekeeping && !this.housekeeping && Date.now() >= nextHousekeeping) {
           nextHousekeeping = Date.now() + (this.options.housekeepingMs ?? 60_000);
           // Cleanup owns its durable releasing marker. Failure retains quota and
@@ -103,10 +112,16 @@ export class MailWorkerRuntime {
           const work = this.actor.context.runNative(this.options.housekeeping).then(() => {}, () => {}).finally(() => { if (this.housekeeping === work) this.housekeeping = undefined; });
           this.housekeeping = work;
         }
-        await this.actor.pumpOnce(); await this.pause(this.options.pollMs ?? 100);
+        this.failurePhase = 'pump'; await this.actor.pumpOnce(); await this.pause(this.options.pollMs ?? 100);
       }
-      this.phase = 'draining'; if (this.actor) await this.actor.close(); this.phase = 'stopped';
-    } catch (error) { this.phase = 'uncertain'; if (this.actor) await this.options.authority.markUncertain(this.actor.context.lease).catch(() => {}); throw error; }
+      this.failurePhase = 'drain'; this.phase = 'draining'; if (this.actor) await this.actor.close(); this.phase = 'stopped';
+    } catch (error) {
+      this.phase = 'uncertain';
+      reportWorkerFailure(this.failurePhase, error, { namespace: this.options.authority.namespace, actorId: this.options.actorId,
+        deploymentId: this.options.deploymentId, epoch: this.acquiredLease?.epoch }, this.options.startupDiagnostic, this.options.failureLogger);
+      if (this.actor) await this.options.authority.markUncertain(this.actor.context.lease).catch(() => {});
+      throw error;
+    }
     finally { if (this.health.listening) await new Promise<void>(done => this.health.close(() => done())); }
   }
   stop(): Promise<void> {
@@ -133,17 +148,24 @@ export async function startProductionWorker(env: NodeJS.ProcessEnv = process.env
   const blob = new VercelPrivateBlobStore({ storeId: configuration.storeId, namespace: configuration.namespace });
   const bodies = new PrivateBodyTransport({ sql, blob, namespace: configuration.namespace });
   const authority = new ActorAuthority(sql, { namespace: configuration.namespace, leaseMs: Math.max(configuration.heartbeatMs * 3, 30_000) });
+  const startupDiagnostic = new CoreStartupDiagnostic();
   const log = new DurableCommandLog(sql, { namespace: configuration.namespace, webOrigin: configuration.webOrigin,
     authorizeBody: async (transaction, request, scope) => { if (request.body.kind !== 'blob') throw invalid(); await bodies.authorizeRequestBody(transaction, request.body, scope); } });
   try {
     await bodies.initialize();
     const runtime = await MailWorkerRuntime.start({ authority, log, actorId: configuration.actorId, deploymentId: configuration.deploymentId,
       healthPort: configuration.healthPort, pollMs: configuration.pollMs, acquireMs: configuration.acquireMs, heartbeatMs: configuration.heartbeatMs,
-      housekeeping: () => bodies.cleanup(),
-      createCore: context => LoopbackCoreAdapter.create({ context, bodies, namespace: configuration.namespace,
+      housekeeping: () => bodies.cleanup(), startupDiagnostic,
+      createCore: async context => {
+        startupDiagnostic.begin();
+        const core = await LoopbackCoreAdapter.create({ context, bodies, namespace: configuration.namespace,
         env: { ...env, DATABASE_PATH: configuration.databaseUrl }, databasePath: configuration.databaseUrl,
-        databaseFactory: createLibsqlPrimaryFactory({ url: configuration.databaseUrl, authToken: configuration.databaseToken, journalMode: configuration.journalMode, beforeOperation: () => context.assertLocal() }),
-      }) });
+        onStartupStage: stage => startupDiagnostic.observeStage(stage),
+        databaseFactory: createLibsqlPrimaryFactory({ url: configuration.databaseUrl, authToken: configuration.databaseToken, journalMode: configuration.journalMode,
+          beforeOperation: operation => { context.assertLocal(); startupDiagnostic.observeSql(operation); } }),
+      });
+        startupDiagnostic.clear(); return core;
+      } });
     let stopping: Promise<void> | undefined;
     const stop = () => stopping ??= runtime.stop().finally(() => sql.close());
     void runtime.completion.then(() => sql.close(), () => sql.close()).catch(() => {});

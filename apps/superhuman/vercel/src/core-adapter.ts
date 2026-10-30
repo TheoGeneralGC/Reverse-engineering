@@ -8,12 +8,14 @@ import { loadTrackingRuntimeConfiguration } from '../../api/src/tracking-runtime
 import type { ActorContext, ActorCore } from './actor.ts';
 import type { CommandRequest, CommandResponse } from './command-log.ts';
 import type { PrivateBodyTransport } from './blob-transport.ts';
+import type { CoreStartupStage } from './startup-diagnostic.ts';
 
 type TestOverrides = Pick<NonNullable<Parameters<typeof createApp>[0]>, 'seed' | 'runJobs' | 'scheduler' | 'undoWindowMs' | 'providerDraftTransport' | 'providerDraftAutomatic'>;
 export type LoopbackCoreOptions = {
   context: ActorContext; namespace: string; env: NodeJS.ProcessEnv; databasePath: string; databaseFactory: SqlDatabaseFactory;
   bodies: Pick<PrivateBodyTransport, 'readRequestBody' | 'writeResponseBody'>;
   maxInlineBytes?: number; maxResponseBytes?: number; transport?: typeof fetch;
+  onStartupStage?: (stage: CoreStartupStage) => void;
   /** Trusted construction seam for isolated tests; the production worker does not supply overrides. */
   overrides?: TestOverrides;
 };
@@ -49,16 +51,20 @@ export class LoopbackCoreAdapter implements ActorCore {
   }
   static async create(options: LoopbackCoreOptions): Promise<LoopbackCoreAdapter> {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(options.namespace) || options.env.DATABASE_PATH !== options.databasePath ||
-        typeof options.databaseFactory !== 'function' || !Number.isSafeInteger(options.maxInlineBytes ?? 1_000_000) ||
+        typeof options.databaseFactory !== 'function' || options.onStartupStage !== undefined && typeof options.onStartupStage !== 'function' || !Number.isSafeInteger(options.maxInlineBytes ?? 1_000_000) ||
         (options.maxInlineBytes ?? 1_000_000) < 1 || (options.maxInlineBytes ?? 1_000_000) > 3_000_000 ||
         !Number.isSafeInteger(options.maxResponseBytes ?? 64 * 1024 ** 2) || (options.maxResponseBytes ?? 64 * 1024 ** 2) < 1 ||
         (options.maxResponseBytes ?? 64 * 1024 ** 2) > 128 * 1024 ** 2) throw new TypeError('Invalid worker Core configuration');
     options.context.assertLocal();
+    const observe = (stage: CoreStartupStage) => { try { options.onStartupStage?.(stage); } catch {} };
     const fenced = transport(options.context, options.transport ?? fetch);
+    observe('tracking-config');
     const collector = loadTrackingRuntimeConfiguration(options.env, fenced);
     let automatic: ReturnType<typeof loadAutoDraftRuntimeConfiguration> | undefined, app: ReturnType<typeof createApp> | undefined;
     try {
+      observe('auto-draft-config');
       automatic = loadAutoDraftRuntimeConfiguration(options.env, { modelFetch: fenced });
+      observe('app-construction');
       app = createApp({ ...options.overrides, databasePath: options.databasePath, databaseFactory: options.databaseFactory, env: options.env,
         ownerLiveness(localRegistered) { options.context.assertLocal(); return localRegistered; },
         aiFetch: fenced, trackingCollector: collector,
@@ -66,6 +72,7 @@ export class LoopbackCoreAdapter implements ActorCore {
         providerDraftTransport: providerTransport(options.context, options.overrides?.providerDraftTransport),
       });
     } finally { collector?.key.fill(0); automatic?.clear(); }
+    observe('loopback-listen');
     try {
       await new Promise<void>((resolve, reject) => {
         const failed = (error: Error) => { app!.server.removeListener('listening', ready); reject(error); };
