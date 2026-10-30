@@ -9,7 +9,7 @@ import { HttpError } from './types.ts';
 import { buildMime } from './mime.ts';
 import { gmailSnippetToText } from './gmail-snippet.ts';
 import { parseOutgoingRecipientHeaders } from './outgoing-recipients.ts';
-import { setTimeout as sleep } from 'node:timers/promises';
+import { setTimeout as sleep, setImmediate as yieldEventLoop } from 'node:timers/promises';
 import { calendarCapabilities, CALENDAR_REQUEST_SCOPES, GMAIL_SCOPE, type GoogleService, type GoogleServiceGrant, type GoogleAuthContext } from './google-scopes.ts';
 
 import { migrateLegacyMailGrantMetadata } from './legacy-mail-grants.ts';
@@ -33,7 +33,7 @@ function decode(raw = '') { return Buffer.from(raw, 'base64url').toString('utf8'
 function header(payload: GmailPart, name: string) { return payload.headers?.find(h => h.name.toLowerCase() === name.toLowerCase())?.value ?? ''; }
 function parseRecipients(raw: string): Person[] { return raw.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).filter(Boolean).map(p => person(p.trim())); }
 type AttachmentRecord = { accountId: string; messageId: string; attachment: Attachment; data?: string };
-export type GoogleTiming = { now: () => number; sleep: (milliseconds: number) => Promise<void>; random: () => number };
+export type GoogleTiming = { now: () => number; sleep: (milliseconds: number) => Promise<void>; random: () => number; yieldSync: () => Promise<void> };
 /** Trusted read-only identity lease fence; not the mapped-Send native permit. */
 export type GoogleReadGuard = { signal: AbortSignal; beforeIssue: () => void };
 export type GoogleFailureDiagnostic = { pathFamily: string; httpStatus: number; status?: string; reasons: string[]; retryAfterSeconds?: number };
@@ -104,7 +104,7 @@ export class GoogleProvider implements MailProvider {
   readTails = new Map<string, Promise<void>>();
   refreshes = new Map<string, Promise<Tokens>>();
   readonly ingress?:GoogleIngressAdapter;
-  constructor(store: Store, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch, timing: Partial<GoogleTiming> = {}, ingress?:GoogleIngressAdapter) { this.ingress=ingress;this.store = store; initializeCredentialMaintenance(store); this.env = env; this.fetcher = fetcher; this.timing = { now: Date.now, sleep, random: Math.random, ...timing }; }
+  constructor(store: Store, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch, timing: Partial<GoogleTiming> = {}, ingress?:GoogleIngressAdapter) { this.ingress=ingress;this.store = store; initializeCredentialMaintenance(store); this.env = env; this.fetcher = fetcher; this.timing = { now: Date.now, sleep, random: Math.random, yieldSync: yieldEventLoop, ...timing }; }
   private headerBasis(accountId:string){
    const account=this.store.required<Account>('account',accountId);if(account.provider!=='google'||!mailHeaderGrant(this.store,accountId))return null;const grant=this.store.required<any>('googleGrant','mail:'+accountId);let version:string|null=null;try{version=currentAccountIncarnation(this.store,accountId)}catch{}
    const registry=this.store.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='auto_draft_ready_accounts'").get(),authority=registry?this.store.db.prepare('SELECT incarnation,epoch,facts,present FROM auto_draft_ready_accounts WHERE account_id=?').get(accountId)??null:null,grantRegistry=this.store.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='auto_draft_ready_grants'").get(),grantEpoch=grantRegistry?this.store.db.prepare('SELECT epoch,present,facts FROM auto_draft_ready_grants WHERE account_id=?').get(accountId)??null:null;
@@ -341,13 +341,20 @@ export class GoogleProvider implements MailProvider {
     if(lease)return this.ingress!.unit(lease,work);
     this.store.db.exec('SAVEPOINT google_sync_publication');try{const result=work();this.store.db.exec('RELEASE google_sync_publication');return result}catch(e){this.store.db.exec('ROLLBACK TO google_sync_publication;RELEASE google_sync_publication');throw e}
   }
+  /** Only between committed producer units. Admitted sync still drains on
+   * graceful shutdown; owner/ingress revocation remains a terminal refusal. */
+  private async yieldSync(lease:GoogleReadLease|undefined){
+    if(this.store.db.isTransaction)throw Error('Sync yield cannot hold a SQL transaction');
+    await this.timing.yieldSync();
+    if(lease)this.ingress!.assert(lease);
+  }
   private async syncRead(accountId:string,path:string,lease?:GoogleReadLease){if(lease)this.ingress!.assert(lease);const result=await this.request(accountId,path,{},undefined,undefined,lease);if(lease)this.ingress!.assert(lease);return result}
   async sync(accountId:string,limits:SyncLimits={}){const lease=this.ingress?.begin(accountId);let success=false;try{const result=await this.syncOwned(accountId,limits,lease);success=true;return result}finally{if(lease)this.ingress!.finish(lease,success)}}
   private async syncOwned(accountId:string,limits:SyncLimits,lease?:GoogleReadLease){
     const account = this.store.required<Account>('account', accountId);
     if (account.provider !== 'google') throw new HttpError(400, 'This account is a demo account');
     const labelsResponse = await this.syncRead(accountId,'labels',lease) as { labels?: { id: string; name: string; type: string; color?: { backgroundColor: string } }[] };
-    for (const label of labelsResponse.labels ?? []) if (label.type === 'user') this.syncUnit(lease,()=>this.store.put<Label>('label', `${accountId}:${label.id}`, { id: `${accountId}:${label.id}`, accountId, name: label.name, color: label.color?.backgroundColor, providerId: label.id }));
+    for (const label of labelsResponse.labels ?? []) if (label.type === 'user') { this.syncUnit(lease,()=>this.store.put<Label>('label', `${accountId}:${label.id}`, { id: `${accountId}:${label.id}`, accountId, name: label.name, color: label.color?.backgroundColor, providerId: label.id })); await this.yieldSync(lease); }
     let state = this.store.get<SyncState>('sync', accountId) ?? await this.beginInitialSync(accountId,lease);
     let imported = 0; let pages = 0; let threadReads = 0;
     const configuredPages = Number(this.env.GMAIL_SYNC_PAGES_PER_RUN ?? 2);
@@ -381,7 +388,7 @@ export class GoogleProvider implements MailProvider {
       for (const id of [...state.pending!.ids]) {
         const alreadyImported = state.phase === 'initial' && this.store.get<Thread>('thread', `${accountId}:${id}`)?.syncGeneration === state.generation;
         if (!alreadyImported) { if (threadReads >= maxThreadReads) break; await this.syncThread(account,id,state.generation,lease,state.pending!.provenance,state.phase==='initial'?'initial':'repair'); imported++; threadReads++; }
-        state = { ...state, pending: { ...state.pending!, ids: state.pending!.ids.filter(item => item !== id) } }; this.syncUnit(lease,()=>this.store.put('sync', accountId, state));
+        state = { ...state, pending: { ...state.pending!, ids: state.pending!.ids.filter(item => item !== id) } }; this.syncUnit(lease,()=>this.store.put('sync', accountId, state)); await this.yieldSync(lease);
       }
       if (state.pending!.ids.length) { pages++; break; }
       const completed = state.pending!;
@@ -425,7 +432,7 @@ export class GoogleProvider implements MailProvider {
     for (const id of [...catchup.pending!.ids]) {
       if (threadReads >= maxThreadReads) break;
       await this.syncThread(account,id,state.generation,lease,catchup.pending!.provenance); threadReads++;
-      catchup = { ...catchup, pending: { ...catchup.pending!, ids: catchup.pending!.ids.filter(item => item !== id) } }; state = { ...state, catchup }; this.syncUnit(lease,()=>this.store.put('sync', account.id, state));
+      catchup = { ...catchup, pending: { ...catchup.pending!, ids: catchup.pending!.ids.filter(item => item !== id) } }; state = { ...state, catchup }; this.syncUnit(lease,()=>this.store.put('sync', account.id, state)); await this.yieldSync(lease);
     }
     if (!catchup.pending!.ids.length) {
       const completed = catchup.pending!;

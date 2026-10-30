@@ -12,6 +12,8 @@ candidate checklist; discovery must expand it to cover the accessible product.
 - [Hosted Command keyboard correction](research/command-hosted-checkpoint-20261030.md)
 - [Hosted initial Gmail sync correction and public-access limits](research/vercel-gmail-sync-thread-20261030.md)
 - [Bounded hosted import database optimization](research/hosted-import-performance-20261030.md)
+- [Command suggestions and retained AI input](research/command-ai-presentation-checkpoint-20261030.md)
+- [Hosted import cooperation between committed units](research/hosted-sync-cooperation-checkpoint-20261030.md)
 - [Current Original Command and confirmation checks](research/command-current-original-check-20261030.md)
 - [Protected hosted beta](research/vercel-hosted-beta-20261030.md)
 - [Remote savepoint startup correction](research/vercel-remote-savepoints-20261030.md)
