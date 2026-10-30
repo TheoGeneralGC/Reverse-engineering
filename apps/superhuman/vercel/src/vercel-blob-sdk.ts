@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import * as blobSdk from '@vercel/blob';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { BlobTransportError } from './blob-transport.ts';
-import type { PrivateBlobPort } from './blob-transport.ts';
+import type { BlobReadBinding, PrivateBlobPort } from './blob-transport.ts';
 
 export type PrivateBlobSdk = Pick<typeof blobSdk, 'issueSignedToken' | 'presignUrl' | 'get' | 'put' | 'head' | 'del'>;
 const contentType = 'application/octet-stream';
@@ -18,6 +18,18 @@ function endpoint(): void {
   }
 }
 type Metadata = { pathname: string; url: string; downloadUrl: string; contentType: string };
+function strongEtag(value: unknown): string | undefined {
+  if (typeof value !== 'string' || /^W\//i.test(value)) return undefined;
+  // GET preserves HTTP ETag quotes; head() preserves the control API's value.
+  // Remove one valid strong quoted wrapper only. Never trim, case-fold or
+  // discard a weak prefix, and never equate empty/malformed version markers.
+  if (/^"[\x21\x23-\x7e]{1,256}"$/.test(value)) return value.slice(1,-1);
+  return /^[A-Za-z0-9][A-Za-z0-9._:+/=-]{0,255}$/.test(value) ? value : undefined;
+}
+export function sameStrongBlobEtag(left: unknown, right: unknown): boolean {
+  const version = strongEtag(left);
+  return version !== undefined && version === strongEtag(right);
+}
 
 /** A private, namespace-scoped SDK port. It never accepts URLs, bearer tokens,
  * wildcard paths or cached OIDC. Grants contain one operation on one object. */
@@ -49,6 +61,16 @@ export class VercelPrivateBlobStore implements PrivateBlobPort {
   }
   private size(bytes: number): void {
     if (!Number.isSafeInteger(bytes) || bytes < 1 || bytes > this.maxBodyBytes) invalid();
+  }
+  private readBinding(value: BlobReadBinding | undefined): BlobReadBinding | undefined {
+    if (value === undefined) return undefined;
+    try {
+      if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 2 ||
+          Object.keys(value).some(key => key !== 'bytes' && key !== 'sha256')) invalid();
+      const bytes = value.bytes, sha256 = value.sha256;this.size(bytes);
+      if (typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(sha256)) invalid();
+      return Object.freeze({bytes,sha256});
+    } catch { invalid(); }
   }
   private expiry(expiresAt: number, maximumLifetime: number): void {
     const now = this.now();
@@ -134,18 +156,35 @@ export class VercelPrivateBlobStore implements PrivateBlobPort {
       return { url: grant.presignedUrl };
     } catch { throw unavailable(); }
   }
-  async read(pathname: string): Promise<ReadableStream<Uint8Array> | null> {
-    this.path(pathname); const auth = await this.auth();
+  async read(pathname: string, expected?: BlobReadBinding): Promise<ReadableStream<Uint8Array> | null> {
+    this.path(pathname);const binding=this.readBinding(expected);const auth = await this.auth();
     let value: blobSdk.GetBlobResult | null;
     try { value = await this.sdk.get(pathname, { ...auth, access: 'private', useCache: false }); }
     catch { throw unavailable(); }
     if (!value) return null;
+    let expectedBytes: number;
     try {
       if (value.statusCode !== 200 || !value.stream) throw unavailable();
-      this.metadata(value.blob, pathname); this.size(value.blob.size);
+      this.metadata(value.blob, pathname);
+      expectedBytes = value.blob.size;
+      const declared=value.headers.get('content-length');
+      if(binding && declared!==null && (typeof declared!=='string' || !/^[1-9]\d{0,8}$/.test(declared) || Number(declared)!==expectedBytes))throw unavailable();
+      if (expectedBytes === 0 && declared === null) {
+        // The pinned SDK reports zero when a successful GET omits length.
+        // A durable caller digest binds content independently of HTTP validators.
+        // Unbound callers still require the same strong GET/HEAD version.
+        const getEtag = value.blob.etag;
+        if (!binding && !sameStrongBlobEtag(getEtag,value.headers.get('etag'))) throw unavailable();
+        const head = await this.sdk.head(pathname,await this.auth());
+        this.metadata(head,pathname);const headSize = head.size;this.size(headSize);
+        if (!binding && !sameStrongBlobEtag(getEtag,head.etag)) throw unavailable();
+        expectedBytes = headSize;
+      }
+      this.size(expectedBytes);
+      if(binding && expectedBytes!==binding.bytes)throw unavailable();
     } catch { if (value.stream) await value.stream.cancel().catch(() => {}); throw unavailable(); }
-    const reader = value.stream.getReader(), expectedBytes = value.blob.size;
-    let bytes = 0;
+    const reader = value.stream.getReader(), hash=binding?createHash('sha256'):undefined;
+    let bytes = 0,digestMismatch=false;
     return new ReadableStream<Uint8Array>({
       async pull(controller) {
         try {
@@ -153,14 +192,15 @@ export class VercelPrivateBlobStore implements PrivateBlobPort {
           if (chunk.done) {
             reader.releaseLock();
             if (bytes !== expectedBytes) throw unavailable();
+            if(binding && hash!.digest('hex')!==binding.sha256){digestMismatch=true;throw unavailable();}
             controller.close(); return;
           }
           if (!(chunk.value instanceof Uint8Array) || (bytes += chunk.value.byteLength) > expectedBytes) throw unavailable();
-          controller.enqueue(chunk.value);
+          hash?.update(chunk.value);controller.enqueue(chunk.value);
         } catch {
           await reader.cancel().catch(() => {});
           try { reader.releaseLock(); } catch { /* Already released after EOF. */ }
-          controller.error(unavailable());
+          controller.error(digestMismatch?new BlobTransportError('transport_body_mismatch',409):unavailable());
         }
       },
       async cancel(reason) { try { await reader.cancel(reason); } finally { reader.releaseLock(); } }

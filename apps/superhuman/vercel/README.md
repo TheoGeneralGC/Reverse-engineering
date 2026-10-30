@@ -50,9 +50,13 @@ for evidence limits.
 
 The [cloud storage checkpoint](../research/vercel-cloud-storage-20261030.md)
 records actual remote SQL/control durability and guarded cleanup, plus a Linux
-image build and corrected protected Preview routing. Open release gates include
-private Blob content verification/CORS, cloud worker ownership/handoff, fresh
-Google OAuth, runtime inspection and rollout. Native context-menu or
+image build, corrected protected Preview routing and actual ten/fifty MiB private
+Blob upload/read/download/hash verification with cleanup. Missing-length reads
+bind fresh metadata to the durable byte count and SHA; HTTP weak validators do
+not become content authority. The successor focused hosting gate passes131/131
+with strict types and independent review. Open release gates include actual
+worker OIDC/Core storage, cloud ownership/handoff, fresh Google OAuth, runtime
+inspection and rollout. Native context-menu or
 middle-click large-file downloads still need a server navigation path. A hard
 worker death conservatively blocks takeover until independent termination proof;
 lease expiry alone never grants ownership. Immediate Sends not yet issued during

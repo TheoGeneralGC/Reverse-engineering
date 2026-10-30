@@ -4,10 +4,13 @@ import type { WireBody } from './command-log.ts';
 
 export type BlobBody = Extract<WireBody, { kind: 'blob' }>;
 export type BodyScope = { namespace: string; commandId: string; method: string; path: string };
+export type BlobReadBinding = Readonly<{ bytes: number; sha256: string }>;
 export interface PrivateBlobPort {
   uploadGrant(pathname: string, bytes: number, expiresAt: number): Promise<{ url: string }>;
   downloadGrant(pathname: string, expiresAt: number): Promise<{ url: string }>;
-  read(pathname: string): Promise<ReadableStream<Uint8Array> | null>;
+  /** A bound stream is verified only after successful EOF; callers must drain
+   * it and reject stream errors before using bytes for any native operation. */
+  read(pathname: string, binding?: BlobReadBinding): Promise<ReadableStream<Uint8Array> | null>;
   write(pathname: string, bytes: Uint8Array): Promise<void>;
   remove(pathname: string): Promise<void>;
 }
@@ -110,15 +113,16 @@ export class PrivateBodyTransport {
   async readRequestBody(body: BlobBody, scope: BodyScope): Promise<Buffer> {
     const row = await this.required(body, scope, 'request', scope);
     if (row.state === 'released' || row.state === 'uncertain') fail('transport_body_not_available', 409);
-    const stream = await this.blob.read(String(row.pathname)); if (!stream) fail('transport_upload_missing', 409);
+    const expectedBytes=Number(row.bytes),expectedSha256=String(row.digest);
+    const stream = await this.blob.read(String(row.pathname),{bytes:expectedBytes,sha256:expectedSha256}); if (!stream) fail('transport_upload_missing', 409);
     const reader = stream.getReader(), chunks: Buffer[] = []; let size = 0;
     try {
       while (true) { const chunk = await reader.read(); if (chunk.done) break;
-        size += chunk.value.byteLength; if (size > body.bytes) { await reader.cancel(); fail('transport_body_mismatch', 409); }
+        size += chunk.value.byteLength; if (size > expectedBytes) { await reader.cancel(); fail('transport_body_mismatch', 409); }
         chunks.push(Buffer.from(chunk.value)); }
     } finally { reader.releaseLock(); }
     const result = Buffer.concat(chunks, size);
-    if (size !== body.bytes || digest(result) !== body.sha256) fail('transport_body_mismatch', 409);
+    if (size !== expectedBytes || digest(result) !== expectedSha256) fail('transport_body_mismatch', 409);
     await this.sql.execute("UPDATE runtime_body_objects SET state='ready' WHERE ref=? AND state='reserved'", [body.ref]);
     return result;
   }

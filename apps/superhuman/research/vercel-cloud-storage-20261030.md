@@ -15,6 +15,8 @@ checkpoint, and the canonical origin is not a usable hosted inbox yet.
 | VC-20261030-03 | The explicit managed-WAL diagnostic passes transactions, savepoints, rollback, exact unsafe integer/BLOB bytes, FTS, trigger/FK behavior and a fresh connection. Owned cleanup passes; a later separate read confirms the user schema is empty and still reports WAL/FK. | This is a synthetic SQL compatibility proof, not real mailbox migration, provider sync or a backup/restore proof. Original Store startup still requires an explicit remote managed-WAL adaptation. |
 | VC-20261030-04 | The dedicated control primary passes independent-client actor, same-key acceptance and claim races; expired ownership is not stolen; completed/uncertain receipts persist; explicit quiesced handoff advances epoch. A separate HTTP request verifies durability. Guarded cleanup then reports a fresh empty schema. | No Core, mail provider, model, Blob or persistent worker is involved. Synthetic ownership checks do not prove actual platform termination or deployment handoff. |
 | VC-20261030-05 | The private-file diagnostic receives a successful authenticated SDK GET for the owned ten MiB fixture, but GET has no Content-Length and SDK metadata reports size0. The existing size guard refuses the read and preserves the pending fixture. | No content verification or deletion is claimed. No fifty MiB fixture was uploaded. A separately reviewed correction and repeated cloud transfer/cleanup proof remain required. |
+| VC-20261030-06 | The first HEAD fallback refuses the live GET's non-strong validator. A later bounded observation confirms a weak GET ETag and strong HEAD representation. The digest-bound successor verifies all original ten MiB bytes and SHA, then acknowledges guarded deletion. | A weak validator is never treated as strong. The immutable/no-overwrite fixture premise remains; cleanup is not a new atomic conditional-delete protocol. Earlier refusals remain separate evidence. |
+| VC-20261030-07 | The protected digest-bound diagnostic passes browser upload, authenticated SDK read, browser signed download and SHA verification for both ten and fifty MiB. Its guarded cleanup completes with an empty pending-fixture journal. | This proves Function OIDC, private-store transfer/CORS and exact synthetic content for that diagnostic. Actual Daemon OIDC, Core attachment storage and real mailbox operation remain separate checks. |
 
 The original Blob diagnostic obscured its primary failure with a later cleanup
 failure. Its observability successor keeps those failures separate. An independent
@@ -31,6 +33,10 @@ The control emitted API SHA256 is
 `111b18ed83b69bcf0e1ac33282f1767d837843de778682c4f4a1fecb033c3720`.
 The corrected Blob observation helper SHA256 is
 `fe05648fe9e7657f1156bff34e45df62959a037274592092f6d4a85d92011678`.
+The final digest-bound production SDK SHA256 is
+`2d9d92ea136308b049bfdcfae4a3448db950ce9d706d4959cd402d49a45ffddc`;
+body transport is
+`5457593f2b84c6d98010aad10ba6b2aa080d14ae89ecdb13f0c4b4051a8fdc67`.
 Local source holds, compiled inventories, controls, failed runs, browser captures
 and sanitized results are retained under ignored `.local/` directories.
 
@@ -61,11 +67,24 @@ Core/actor controls. The same-connection WAL read and exact-prefix handling leav
 the original Store SQL/default adapter unchanged. Those are local controls;
 actual deployed Core startup remains a release gate.
 
-Complete the private-file metadata correction and independent review, repeat
-cloud file verification/cleanup, and publish the reviewed changes. Then activate
-and verify the actual worker, stable
-ownership/heartbeats and a clean deployment handoff. Register the canonical Google
-callback and obtain fresh hosted sign-in before real mail testing.
+The private-file correction takes a length/SHA binding from the validated durable
+manifest before storage work. Bound streams check exact size and incremental SHA
+at successful EOF; the upper caller still drains and double-checks before Core
+dispatch. Missing-length reads use fresh authenticated exact-object HEAD metadata
+with the same bounded length. The hash, rather than a weak HTTP validator,
+establishes content identity. Unbound reads retain their strong-version guard.
+
+The combined focused hosting gate passes131/131 across18 files with strict types,
+415 source and26 support files exact before/after,18 zero-external-denial markers
+and109 permitted loopback calls. The earlier126 gate remains historical. Four
+independent successor controls verify full hash before Core effects/cleanup,
+incorrect-content/metadata refusal and private trace projection. The first
+sandbox loopback refusal is retained alongside the permitted passing run; no
+unchanged broad API/frontend suite was repeated.
+
+Publish the reviewed changes, then activate and verify the actual worker, stable
+ownership/heartbeats and a clean deployment handoff. Use the registered canonical
+Google callback for fresh hosted sign-in before real mail testing.
 
 Native middle/context-click large downloads, unissued immediate Send behavior
 during shutdown, dirty-worker recovery and the separate interaction candidate
