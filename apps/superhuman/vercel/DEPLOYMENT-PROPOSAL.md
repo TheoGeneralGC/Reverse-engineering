@@ -31,9 +31,10 @@ requires exact-instance termination proof before takeover. Preserving an unissue
 immediate Send through deployment and native middle/context-click large downloads
 remain explicit gaps. These limitations do not establish full Superhuman parity.
 
-No persistent worker has been activated. Creating/activating this continuously
-running resource requires the user's approval under the repository instruction
-for account-wide changes or purchases.
+The user approved and activated this continuously running resource. Its first
+two startup failures were stopped and investigated; the worker remains scaled
+to zero pending the reviewed [remote savepoint correction](../research/vercel-remote-savepoints-20261030.md).
+The original proposal above records the approved scope and recurring usage.
 
 Primary pricing/configuration references:
 - https://vercel.com/docs/daemons

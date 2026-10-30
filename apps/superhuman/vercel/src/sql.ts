@@ -1,4 +1,5 @@
 import Libsql from 'libsql';
+import { createHash } from 'node:crypto';
 import type { SqlDatabase, SqlDatabaseFactory, SqlRow, SqlStatement, SqlValue } from '../../api/src/sql-database.ts';
 
 export type SqlOperation = Readonly<{ kind: 'exec' | 'prepare' | 'get' | 'all' | 'run'; sql: string }>;
@@ -84,6 +85,122 @@ export function adaptLibsqlDatabase(database: Libsql.Database, beforeOperation?:
   };
 }
 
+type TransactionControl = { kind: 'savepoint' | 'release' | 'rollback-to' | 'begin' | 'commit' | 'rollback'; name?: string; sql: string };
+const transactionWords = new Set(['SAVEPOINT', 'RELEASE', 'ROLLBACK', 'BEGIN', 'COMMIT', 'END']);
+// Exact self-contained Core schema batches; unlike separate SAVEPOINT calls,
+// they open and finish their transaction within one native execute_batch.
+const coreSchemaBatches = new Set([
+  '2fcadc7b9f9e1469b6c3894bee9d5513559e3f0f929f113c799e0c85bddaf7a2', // tracking-delivery.ts
+  '78b37d666323e1a4c1bfb62eacb8b34015ce956b1860efb2c0f6c00c1bf93c13', // ai-chat-store.ts
+]);
+/** A deliberately narrow parser for complete control-only scripts. Ordinary SQL,
+ * including strings, comments and trigger bodies, is never split or rewritten. */
+function transactionControls(sql: string): TransactionControl[] | undefined {
+  let cursor = 0;
+  const token = (): { word: string; start: number; end: number } | undefined => {
+    while (cursor < sql.length) {
+      if (/\s/.test(sql[cursor])) { cursor++; continue; }
+      if (sql.startsWith('--', cursor)) { const end = sql.indexOf('\n', cursor + 2); cursor = end < 0 ? sql.length : end + 1; continue; }
+      if (sql.startsWith('/*', cursor)) { const end = sql.indexOf('*/', cursor + 2); if (end < 0) return { word: '<invalid>', start: cursor, end: sql.length }; cursor = end + 2; continue; }
+      break;
+    }
+    if (cursor >= sql.length) return undefined;
+    const start = cursor, match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(sql.slice(cursor));
+    cursor += match?.[0].length ?? 1;
+    return { word: match?.[0] ?? sql[start], start, end: cursor };
+  };
+  let current = token();
+  while (current?.word === ';') current = token();
+  if (!current || !transactionWords.has(current.word.toUpperCase())) return undefined;
+  const result: TransactionControl[] = [];
+  const invalid = () => new TypeError('Remote transaction control requires a complete supported control-only script');
+  while (current) {
+    const start = current.start, word = current.word.toUpperCase(); let kind: TransactionControl['kind'], name: string | undefined;
+    current = token();
+    const take = (expected: string) => { if (current?.word.toUpperCase() !== expected) return false; current = token(); return true; };
+    if (word === 'SAVEPOINT') kind = 'savepoint';
+    else if (word === 'RELEASE') { kind = 'release'; take('SAVEPOINT'); }
+    else if (word === 'ROLLBACK') { take('TRANSACTION'); kind = take('TO') ? 'rollback-to' : 'rollback'; if (kind === 'rollback-to') take('SAVEPOINT'); }
+    else if (word === 'COMMIT' || word === 'END') { kind = 'commit'; take('TRANSACTION'); }
+    else if (word === 'BEGIN') { kind = 'begin'; if (current && ['DEFERRED', 'IMMEDIATE', 'EXCLUSIVE'].includes(current.word.toUpperCase())) current = token(); take('TRANSACTION'); }
+    else throw invalid();
+    if (['savepoint', 'release', 'rollback-to'].includes(kind)) {
+      if (!current || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(current.word)) throw invalid();
+      name = current.word.toLowerCase(); current = token();
+    }
+    if (current && current.word !== ';') throw invalid();
+    const end = current?.end ?? sql.length;
+    result.push({ kind, name, sql: sql.slice(start, end) });
+    if (current) current = token();
+    while (current?.word === ';') current = token();
+    if (current && !transactionWords.has(current.word.toUpperCase())) throw invalid();
+  }
+  return result;
+}
+
+/** libsql0.5.29 / Rust0.9.30 closes a standalone SAVEPOINT's HTTP stream because
+ * TxScopeCounter ignores SAVEPOINT. An explicit deferred outer transaction keeps
+ * that stream alive. Only its final root release is translated to COMMIT. */
+export function withRemoteSavepoints(database: SqlDatabase): SqlDatabase {
+  let roots: string[] = [], closed = false, poisoned = false;
+  const enter = () => { if (closed || poisoned) throw new TypeError('Remote SQL connection is unavailable'); };
+  const reconcile = () => { if (roots.length && !database.isTransaction) roots = []; };
+  const poison = () => { poisoned = true; closed = true; roots = []; try { database.close(); } catch {} };
+  const execute = (control: TransactionControl) => {
+    reconcile();
+    if (control.kind === 'savepoint' && !database.isTransaction) {
+      try { database.exec(`BEGIN DEFERRED; ${control.sql}`); roots = [control.name!]; }
+      catch (error) { poison(); throw error; }
+      return;
+    }
+    const index = control.name === undefined ? -1 : roots.lastIndexOf(control.name);
+    if (roots.length && (control.kind === 'commit' || control.kind === 'release' && index === 0)) {
+      try { database.exec(control.kind === 'commit' ? control.sql : 'COMMIT'); roots = []; }
+      catch (error) { poison(); throw error; }
+      return;
+    }
+    database.exec(control.sql);
+    if (roots.length) {
+      if (control.kind === 'savepoint') roots.push(control.name!);
+      else if (control.kind === 'rollback') roots = [];
+      else if (index >= 0 && control.kind === 'release') roots.splice(index);
+      else if (index >= 0 && control.kind === 'rollback-to') roots.splice(index + 1);
+    }
+    reconcile();
+  };
+  return {
+    get isTransaction() { return !closed && !poisoned && database.isTransaction; },
+    exec(sql) {
+      enter();
+      if (coreSchemaBatches.has(createHash('sha256').update(sql).digest('hex'))) {
+        try { database.exec(sql); } finally { reconcile(); }
+        return;
+      }
+      const controls = transactionControls(sql);
+      if (controls) for (const control of controls) execute(control);
+      else { try { database.exec(sql); } finally { reconcile(); } }
+    },
+    prepare(sql) {
+      enter(); if (transactionControls(sql)) throw new TypeError('Use exec for remote transaction control');
+      let transaction = database.isTransaction, statement = database.prepare(sql);
+      const selected = () => { enter(); const current = database.isTransaction; if (current !== transaction) { statement = database.prepare(sql); transaction = current; } return statement; };
+      const failed = (error: unknown): never => {
+        // A cursor query that implicitly rolls back does not refresh the pinned
+        // client's cached autocommit flag. This fixed read updates its metadata;
+        // it never retries the failed user statement.
+        if (database.isTransaction) { try { database.exec('SELECT 1'); } catch { poison(); } }
+        throw error;
+      };
+      return {
+        get(...values) { try { return selected().get(...values); } catch (error) { return failed(error); } finally { reconcile(); } },
+        all(...values) { try { return selected().all(...values); } catch (error) { return failed(error); } finally { reconcile(); } },
+        run(...values) { try { return selected().run(...values); } catch (error) { return failed(error); } finally { reconcile(); } },
+      };
+    },
+    close() { if (!closed) { closed = true; roots = []; database.close(); } },
+  };
+}
+
 const storeWalPrefix = 'PRAGMA journal_mode=WAL;';
 /** Explicit remote policy for a vendor-managed WAL database. The selected
  * connection closes if its initial mode cannot be verified. Only Store's known
@@ -132,7 +249,7 @@ export function createLibsqlPrimaryFactory(configuration: LibsqlPrimaryConfigura
     const connectionOptions: Libsql.Options & { authToken: string } = { authToken };
     const database = new Libsql(databaseUrl, connectionOptions);
     let adapted: SqlDatabase | undefined;
-    try { adapted = adaptLibsqlDatabase(database, beforeOperation); return journalMode === 'verify-managed-wal' ? withVerifiedManagedWal(adapted) : adapted; }
+    try { adapted = withRemoteSavepoints(adaptLibsqlDatabase(database, beforeOperation)); return journalMode === 'verify-managed-wal' ? withVerifiedManagedWal(adapted) : adapted; }
     catch (error) { try { if (adapted) adapted.close(); else database.close(); } catch {} throw error; }
   };
 }

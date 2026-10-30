@@ -9,6 +9,7 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Remote savepoint startup correction](research/vercel-remote-savepoints-20261030.md)
 - [All-Vercel runtime candidate and validation](research/vercel-runtime-candidate-20261029.md)
 - [Protected hosted release preparation](research/hosted-release-preparation-20261029.md)
 - [Hosted backend proposal](hosted/PROPOSAL.md)

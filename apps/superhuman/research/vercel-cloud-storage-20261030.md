@@ -106,6 +106,11 @@ Daemon storage/OIDC remain separate release gates.
 
 ## Later startup discriminator
 
+The [subsequent remote savepoint record](vercel-remote-savepoints-20261030.md)
+supersedes the unknown cause below with an exact local remote reproduction,
+156 passing focused checks and a bounded initialized-state recovery. Actual
+corrected cloud startup remains a separate gate at that boundary.
+
 The corrected deployed native preflight passed and the next owner was acquired,
 but the worker subsequently reported uncertain ownership. Its generic log does
 not distinguish Core construction from the first heartbeat or command pump.
