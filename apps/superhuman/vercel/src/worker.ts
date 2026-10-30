@@ -9,7 +9,7 @@ import { createLibsqlControl } from './control-libsql.ts';
 import { createLibsqlPrimaryFactory } from './sql.ts';
 import { PrivateBodyTransport } from './blob-transport.ts';
 import { VercelPrivateBlobStore } from './vercel-blob-sdk.ts';
-import { LoopbackCoreAdapter } from './core-adapter.ts';
+import { ThreadedCoreAdapter } from './core-thread.ts';
 import { CoreStartupDiagnostic, reportWorkerFailure, type WorkerFailurePhase } from './startup-diagnostic.ts';
 
 export type WorkerConfiguration = Readonly<{ namespace: string; webOrigin: string; databaseUrl: string; databaseToken: string; controlUrl: string; controlToken: string;
@@ -102,7 +102,7 @@ export class MailWorkerRuntime {
             this.phase = 'waiting'; await this.pause(this.options.acquireMs ?? 1000); continue; }
         }
         if (this.stopping) break;
-        if (this.actor.state !== 'active') throw new ActorAuthorityError('actor_not_quiescent');
+        if (this.actor.state !== 'active') throw this.actor.failureError();
         if (Date.now() >= nextHeartbeat) { this.failurePhase = 'heartbeat'; await this.actor.heartbeat(); nextHeartbeat = Date.now() + (this.options.heartbeatMs ?? 10_000); }
         if (this.options.housekeeping && !this.housekeeping && Date.now() >= nextHousekeeping) {
           nextHousekeeping = Date.now() + (this.options.housekeepingMs ?? 60_000);
@@ -116,10 +116,10 @@ export class MailWorkerRuntime {
       }
       this.failurePhase = 'drain'; this.phase = 'draining'; if (this.actor) await this.actor.close(); this.phase = 'stopped';
     } catch (error) {
-      this.phase = 'uncertain';
+      this.phase = 'uncertain'; this.actor?.revokeAuthority(error);
       reportWorkerFailure(this.failurePhase, error, { namespace: this.options.authority.namespace, actorId: this.options.actorId,
         deploymentId: this.options.deploymentId, epoch: this.acquiredLease?.epoch }, this.options.startupDiagnostic, this.options.failureLogger);
-      if (this.actor) await this.options.authority.markUncertain(this.actor.context.lease).catch(() => {});
+      if (this.actor) { await this.actor.settleUncertain().catch(() => {}); await this.options.authority.markUncertain(this.actor.context.lease).catch(() => {}); }
       throw error;
     }
     finally { if (this.health.listening) await new Promise<void>(done => this.health.close(() => done())); }
@@ -141,6 +141,22 @@ export function preflightNativeMail(configuration: Pick<WorkerConfiguration, 'da
   open(configuration.databaseUrl).close();
 }
 
+/** Explicit mail-Core capabilities only. Control/Blob/Vercel credentials stay in
+ * the parent; trusted test configurations use their own explicit construction. */
+export function projectCoreEnvironment(environment: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
+  if (!environment || typeof environment !== 'object' || Array.isArray(environment)) throw invalid();
+  const names = ['DATABASE_PATH', 'WEB_ORIGIN', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI',
+    'TOKEN_ENCRYPTION_KEY', 'APPROVED_TEST_RECIPIENTS', 'APPROVED_TEST_SENDERS', 'AI_PROVIDER', 'ANTHROPIC_API_KEY',
+    'ANTHROPIC_MODEL', 'ANTHROPIC_WORKSPACE_ID', 'OPENAI_API_KEY', 'OPENAI_MODEL', 'GMAIL_READ_QUOTA_UNITS_PER_MINUTE',
+    'GMAIL_SYNC_PAGES_PER_RUN', 'GOOGLE_CALENDAR_ENABLED', 'APPROVED_CALENDAR_TEST_ACCOUNTS', 'APPROVED_CALENDAR_TEST_IDS',
+    'APPROVED_CALENDAR_TEST_ATTENDEES', 'CALENDAR_READS_PER_MINUTE', 'AUTO_DRAFTS_PERSISTENCE', 'MAIL_REPLY_TIME_ZONE',
+    'MAIL_RUNTIME_NAMESPACE', 'TZ', 'LANG', 'LC_ALL', 'TRACKING_PUBLIC_ORIGIN', 'TRACKING_MAIN_SIGNER_FILE',
+    'TRACKING_COLLECTOR_TIMEOUT_MS', 'TRACKING_COLLECTOR_SOURCE_IDENTITY', 'TRACKING_OPERATOR_VERIFICATION_FILE'];
+  const selected: NodeJS.ProcessEnv = {};
+  for (const name of names) { const value = environment[name]; if (value !== undefined) { if (typeof value !== 'string') throw invalid(); selected[name] = value; } }
+  return selected;
+}
+
 export async function startProductionWorker(env: NodeJS.ProcessEnv = process.env): Promise<{ runtime: MailWorkerRuntime; stop: () => Promise<void> }> {
   const configuration = loadWorkerConfiguration(env);
   preflightNativeMail(configuration);
@@ -158,12 +174,12 @@ export async function startProductionWorker(env: NodeJS.ProcessEnv = process.env
       housekeeping: () => bodies.cleanup(), startupDiagnostic,
       createCore: async context => {
         startupDiagnostic.begin();
-        const core = await LoopbackCoreAdapter.create({ context, bodies, namespace: configuration.namespace,
-        env: { ...env, DATABASE_PATH: configuration.databaseUrl }, databasePath: configuration.databaseUrl,
-        onStartupStage: stage => startupDiagnostic.observeStage(stage),
-        databaseFactory: createLibsqlPrimaryFactory({ url: configuration.databaseUrl, authToken: configuration.databaseToken, journalMode: configuration.journalMode,
-          beforeOperation: operation => { context.assertLocal(); startupDiagnostic.observeSql(operation); } }),
-      });
+        const core = await ThreadedCoreAdapter.create({ context, bodies,
+          configuration: { namespace: configuration.namespace, env: { ...projectCoreEnvironment(env), DATABASE_PATH: configuration.databaseUrl },
+            databaseUrl: configuration.databaseUrl, authToken: configuration.databaseToken, journalMode: configuration.journalMode },
+          onStartupStage: stage => startupDiagnostic.observeStage(stage),
+          onStartupSqlFingerprint: fingerprint => startupDiagnostic.observeSqlFingerprint(fingerprint),
+        });
         startupDiagnostic.clear(); return core;
       } });
     let stopping: Promise<void> | undefined;

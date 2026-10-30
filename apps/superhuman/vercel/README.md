@@ -11,6 +11,19 @@ Turso mail database. It acquires exclusive authority before construction,
 migrations or recovery. Command dispatch remains concurrent so a pending Send
 or model request does not block Undo or Stop. Functions never construct Core.
 
+The daemon keeps synchronous Core SQL on one owned worker thread. Control
+transactions, heartbeat, authority checks and Blob IO stay on the parent event
+loop, so a large synchronous import does not block their continuations.
+The child checks a parent-revocable shared fence before guarded SQL. Every
+provider/model call first obtains the parent's existing authority-checked native
+registration and stays tracked through completion. Losing authority or the
+thread revokes that frontier and preserves uncertain receipts; it never retries
+an issued operation. Graceful ownership handoff requires Core drain/close plus
+an acknowledged, observed worker-thread exit. A timeout or forced termination
+does not mark the actor quiesced. Production passes only explicit mail-Core
+environment capabilities into the child; Control, Blob and platform credentials
+remain with their parent adapters.
+
 Large request/response bytes use private Blob staging, immutable scoped grants,
 length/digest checks and a one GiB staging quota. Browser API call sites opt into
 this transport explicitly. A late response is recovered through GET-only receipt

@@ -1,3 +1,4 @@
+import { safeWorkerErrorCode } from './startup-diagnostic.ts';
 import { ActorAuthority, ActorAuthorityError, type ActorLease } from './authority.ts';
 import { DurableCommandLog, type ClaimedCommand, type CommandRequest, type CommandResponse } from './command-log.ts';
 
@@ -11,6 +12,10 @@ export type ActorContext = Readonly<{
   runNative: <T>(operation: () => Promise<T>) => Promise<T>;
 }>;
 export interface ActorCore {
+  /** Fatal isolated-Core failure is latched even before actor binding. */
+  readonly failure?: Promise<never>;
+  /** Synchronously revoke the Core SQL/native frontier; no IO or handoff. */
+  revokeAuthority?(): void;
   /** Begin safe shutdown before waiting for long HTTP callbacks. */
   beginQuiesce?(): void | Promise<void>;
   dispatch(request: CommandRequest, command: { id: string; sequence: number }): Promise<CommandResponse>;
@@ -22,6 +27,7 @@ export interface ActorCore {
 export class DurableCoreActor {
   readonly authority: ActorAuthority; readonly log: DurableCommandLog; readonly context: ActorContext;
   private core: ActorCore;
+  private failureCode?: string;
   private phase: 'active' | 'draining' | 'closed' | 'uncertain' = 'active';
   private readonly requests = new Map<string, Promise<void>>();
   private native = new Set<Promise<unknown>>();
@@ -30,6 +36,7 @@ export class DurableCoreActor {
   private closing: Promise<void> | undefined;
   private constructor(authority: ActorAuthority, log: DurableCommandLog, lease: ActorLease, core: ActorCore, context: ActorContext, capacity: number) {
     this.authority = authority; this.log = log; this.context = context; this.core = core; this.capacity = capacity;
+    void core.failure?.catch(error => { this.revokeAuthority(error); });
   }
   static async start(options: { authority: ActorAuthority; log: DurableCommandLog; actorId: string; deploymentId: string;
     createCore: (context: ActorContext) => Promise<ActorCore> | ActorCore; maxConcurrentRequests?: number; initializeControl?: boolean }): Promise<DurableCoreActor> {
@@ -64,6 +71,17 @@ export class DurableCoreActor {
       construction = 'failed'; await options.authority.markUncertain(acquired.lease).catch(() => {}); throw error;
     }
   }
+  failureError(): Error { return new ActorAuthorityError(this.failureCode ?? 'actor_not_quiescent'); }
+  revokeAuthority(error?: unknown): void {
+    if (this.phase === 'closed') return; this.failureCode ??= safeWorkerErrorCode(error); this.phase = 'uncertain';
+    try { this.core.revokeAuthority?.(); } catch {}
+  }
+  /** Settle already-admitted receipt/transport tracking before persisting an
+   * uncertain actor row. This cannot close Core or authorize a handoff. */
+  async settleUncertain(): Promise<void> {
+    await this.waitForRequests();
+    while (this.native.size) await Promise.allSettled([...this.native]);
+  }
   get activeRequests(): number { return this.requests.size; }
   get activeNative(): number { return this.native.size; }
   get state(): string { return this.phase; }
@@ -80,26 +98,25 @@ export class DurableCoreActor {
         this.dispatch(command); count++;
       }
       return count;
-    })().finally(() => { if (this.pumping === work) this.pumping = undefined; });
+    })().catch(error => { this.revokeAuthority(error); throw error; }).finally(() => { if (this.pumping === work) this.pumping = undefined; });
     this.pumping = work; return work;
   }
   private dispatch(command: ClaimedCommand): void {
     const work = Promise.resolve().then(async () => {
-      this.context.assertLocal();
-      try { const response = await this.core.dispatch(command.request, { id: command.id, sequence: command.sequence });
+      try { this.context.assertLocal(); const response = await this.core.dispatch(command.request, { id: command.id, sequence: command.sequence });
         await this.log.complete(this.context.lease, command.id, response); }
       catch { await this.log.markUncertain(this.context.lease, command.id); }
-    }).catch(() => {
+    }).catch(error => {
       // Persistence/authority failure must leave the existing claimed command
       // untouched. Never convert it to queued or manufacture another request.
-      this.phase = 'uncertain';
+      this.revokeAuthority(error);
     }).finally(() => { this.requests.delete(command.id); });
     this.requests.set(command.id, work);
   }
   async heartbeat(): Promise<void> {
     if (!['active', 'draining'].includes(this.phase)) throw new ActorAuthorityError();
     try { await this.authority.heartbeat(this.context.lease); }
-    catch (error) { this.phase = 'uncertain'; throw error; }
+    catch (error) { this.revokeAuthority(error); throw error; }
   }
   async waitForRequests(): Promise<void> {
     while (this.pumping || this.requests.size) {
@@ -131,7 +148,7 @@ export class DurableCoreActor {
         this.phase = 'closed';
         await this.authority.quiesce(this.context.lease);
       } catch (error) {
-        this.phase = 'uncertain'; await this.authority.markUncertain(this.context.lease).catch(() => {}); throw error;
+        this.revokeAuthority(error); await this.settleUncertain().catch(() => {}); await this.authority.markUncertain(this.context.lease).catch(() => {}); throw error;
       }
     })();
     return this.closing;

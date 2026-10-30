@@ -189,17 +189,21 @@ test('construction failure keeps its dirty authority held; stale epoch rows cann
 });
 
 test('stored request or response corruption cannot bypass the original command fingerprint', async () => {
-  const f = await fixture(); let dispatched = 0;
+  const f = await fixture(); let dispatched = 0, revoked = 0, closed = 0;
   try {
     const actor = await DurableCoreActor.start({ authority: f.authority, log: f.log, actorId: 'integrity-actor', deploymentId: 'deployment-one', createCore: async () => ({
-      async dispatch() { dispatched++; return response({ ok: true }); }, async quiesce() {}, async close() {},
+      async dispatch() { dispatched++; return response({ ok: true }); }, async quiesce() {}, async close() { closed++; }, revokeAuthority() { revoked++; },
     }) });
     await f.enqueue('first', request('/api/first')); await actor.pumpOnce(); await actor.waitForRequests();
     await f.sql.execute('UPDATE runtime_commands SET response_json=? WHERE id=?', [JSON.stringify(response({ forged: true })), 'first']);
     await assert.rejects(f.log.readResult(namespace, 'first'), (error: unknown) => error instanceof CommandLogError && error.code === 'worker_command_corrupt');
     await f.enqueue('second', request('/api/read')); await f.sql.execute('UPDATE runtime_commands SET request_json=? WHERE id=?', [JSON.stringify(request('/api/send')), 'second']);
     await assert.rejects(actor.pumpOnce(), (error: unknown) => error instanceof CommandLogError && error.code === 'worker_command_corrupt');
-    assert.equal(dispatched, 1); assert.equal((await f.log.readResult(namespace, 'second'))?.state, 'queued'); await actor.close();
+    assert.equal(dispatched, 1); assert.equal((await f.log.readResult(namespace, 'second'))?.state, 'queued');
+    assert.equal(actor.state, 'uncertain'); assert.equal(revoked, 1);
+    await assert.rejects(actor.close(), (error: unknown) => error instanceof ActorAuthorityError && error.code === 'actor_not_quiescent');
+    assert.equal(closed, 0); assert.notEqual((await f.authority.current())?.state, 'quiesced');
+    assert.equal((await f.authority.acquire('standby-after-corruption', 'deployment-two')).acquired, false);
   } finally { await f.close(); }
 });
 

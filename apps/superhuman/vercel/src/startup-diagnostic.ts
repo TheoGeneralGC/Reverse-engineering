@@ -10,7 +10,20 @@ const sqliteCodes = new Set(['SQLITE_ERROR', 'SQLITE_INTERNAL', 'SQLITE_PERM', '
   'SQLITE_READONLY', 'SQLITE_INTERRUPT', 'SQLITE_IOERR', 'SQLITE_CORRUPT', 'SQLITE_NOTFOUND', 'SQLITE_FULL', 'SQLITE_CANTOPEN', 'SQLITE_PROTOCOL',
   'SQLITE_EMPTY', 'SQLITE_SCHEMA', 'SQLITE_TOOBIG', 'SQLITE_CONSTRAINT', 'SQLITE_MISMATCH', 'SQLITE_MISUSE', 'SQLITE_AUTH', 'SQLITE_FORMAT', 'SQLITE_RANGE', 'SQLITE_NOTADB', 'SQLITE_UNKNOWN']);
 const actorCodes = new Set(['actor_authority_lost', 'actor_already_owned', 'actor_not_quiescent']);
+const controlCodes = new Set(['control_commit_uncertain', 'control_rollback_uncertain', 'control_result_invalid', 'control_closed',
+  'control_transaction_closed', 'control_transaction_failed', 'control_nested_transaction_unsupported', 'control_close_during_transaction']);
+const libsqlCodes = new Set(['STREAM_EXPIRED', 'TRANSACTION_CLOSED', 'HRANA_PROTO_ERROR', 'HRANA_CLOSED_ERROR', 'SERVER_ERROR', 'PROTOCOL_VERSION_ERROR']);
+const threadCodes = new Set(['core_thread_failure', 'core_thread_protocol_invalid', 'core_thread_exited', 'core_thread_authority_lost', 'core_thread_start_failed']);
 type SqlDescriptor = Readonly<{ ordinal: number; kind: SqlOperation['kind']; sha256: string }>;
+
+/** Shared fixed-code projection for worker logs and IPC. Never inspect private
+ * messages, stacks, causes or arbitrary enumerable fields. */
+export function safeWorkerErrorCode(error: unknown): string | undefined {
+  try {
+    const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined;
+    return typeof code === 'string' && (sqliteCodes.has(code) || actorCodes.has(code) || controlCodes.has(code) || libsqlCodes.has(code) || threadCodes.has(code)) ? code : undefined;
+  } catch { return undefined; }
+}
 
 /** Only constructor SQL is fingerprinted; no parameters or SQL text escape. */
 export class CoreStartupDiagnostic {
@@ -23,6 +36,16 @@ export class CoreStartupDiagnostic {
   observeSql(operation: SqlOperation): void {
     if (!this.active || !operations.has(operation.kind) || typeof operation.sql !== 'string') return;
     this.lastSql = Object.freeze({ ordinal: ++this.ordinal, kind: operation.kind, sha256: createHash('sha256').update(operation.sql).digest('hex') });
+  }
+  /** The child hashes constructor SQL before IPC. Preserve that hash unchanged;
+   * no SQL text or caller-controlled ordinal is accepted at this boundary. */
+  observeSqlFingerprint(fingerprint: unknown): void {
+    if (!this.active || !fingerprint || typeof fingerprint !== 'object' || Array.isArray(fingerprint)) return;
+    try {
+      const { kind, sha256 } = fingerprint as { kind?: unknown; sha256?: unknown };
+      if (typeof kind !== 'string' || !operations.has(kind) || typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(sha256)) return;
+      this.lastSql = Object.freeze({ ordinal: ++this.ordinal, kind: kind as SqlOperation['kind'], sha256 });
+    } catch { /* Malformed observation cannot alter construction or logging. */ }
   }
   clear(): void { this.active = false; this.stage = undefined; this.ordinal = 0; this.lastSql = undefined; }
   snapshot(): Readonly<{ stage?: CoreStartupStage; lastSql?: SqlDescriptor }> {
@@ -41,11 +64,11 @@ export function reportWorkerFailure(phase: WorkerFailurePhase, error: unknown, i
     if (typeof identity.deploymentId === 'string' && /^dpl_[A-Za-z0-9]{1,128}$/.test(identity.deploymentId)) record.deploymentId = identity.deploymentId;
     if (Number.isSafeInteger(identity.epoch) && Number(identity.epoch) >= 1) record.epoch = identity.epoch;
     try { if (error instanceof TypeError) record.errorKind = 'type'; else if (error instanceof RangeError) record.errorKind = 'range'; else if (error instanceof Error) record.errorKind = 'error'; } catch {}
-    try {
-      const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined;
-      if (typeof code === 'string' && sqliteCodes.has(code)) { record.code = code; record.errorKind = 'sqlite'; }
-      else if (typeof code === 'string' && actorCodes.has(code)) { record.code = code; record.errorKind = 'actor'; }
-    } catch {}
+    const code = safeWorkerErrorCode(error);
+    if (code !== undefined) {
+      record.code = code;
+      record.errorKind = sqliteCodes.has(code) ? 'sqlite' : actorCodes.has(code) ? 'actor' : controlCodes.has(code) ? 'control' : libsqlCodes.has(code) ? 'libsql' : 'thread';
+    }
     const snapshot = startup?.snapshot();
     if (snapshot?.stage && stages.has(snapshot.stage)) record.coreStage = snapshot.stage;
     const sql = snapshot?.lastSql;
