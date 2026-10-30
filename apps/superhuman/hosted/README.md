@@ -1,5 +1,9 @@
 # Hosted Superhuman feedback release
 
+The user has selected hosting both frontend and backend on Vercel. The Render
+Blueprint below is an unapproved historical alternative; do not apply it.
+The all-Vercel backend adaptation is in progress and is not yet released.
+
 The browser runs on Vercel behind Vercel Authentication for **All Deployments**.
 One disk-backed Node process runs the existing mail API. This release uses a
 fresh database; connect Gmail from the protected site after deployment.

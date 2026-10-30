@@ -190,10 +190,11 @@ above remain historical.
 
 ## Run the current implementation
 
-The [hosted release package](hosted/README.md) is prepared for Vercel with a
-separate persistent API service. Its hosting controls pass locally; the additional
-backend purchase and live platform checks remain pending. No hosted-mail release
-is live yet. The existing tracking collector is a separate deployment.
+The [hosted release package](hosted/README.md) has a protected Vercel frontend.
+The user selected Vercel for the backend too; its persistent worker, database and
+large-file transport adaptation is in progress. The earlier Render option is
+unapproved history. No hosted-mail release is live yet. The existing tracking
+collector is a separate deployment.
 
 The preceding serving version passed **561 API/536 frontend tests**, build and strict types,
 plus **16 cases/407 browser steps**, all eight persistence assertions and 165

@@ -1,5 +1,9 @@
 # Protected Vercel feedback release
 
+**Historical option, not approved.** The user selected hosting the backend on
+Vercel too. Do not provision this Render service. An all-Vercel backend adaptation
+is underway; this record retains the reviewed disk-backed alternative.
+
 Prepared for the user's production-release request on October 29, 2026. This
 releases the current reconstruction for feedback; full Superhuman parity remains
 unfinished. No paid backend has been provisioned by this proposal.

@@ -1,5 +1,21 @@
 # Protected hosted feedback release preparation
 
+**Current direction:** the user selected hosting the backend on Vercel too.
+The Render proposal below is retained as unapproved history. The Vercel workspace
+is confirmed Pro in its signed-in settings. A persistent Daemon actor, durable
+SQL command channel and private large-file transport are being investigated and
+implemented in isolated candidates. Local SQL compatibility controls pass, but
+remote durability, ownership/handoff and actual platform behavior remain open.
+No all-Vercel mail backend is deployed yet.
+
+The dedicated `rea-sh-mail-prod` Turso database is now created in Virginia on the
+existing free Starter plan and connected through sensitive Production-only
+variables after explicit user approval. The approved private
+`rea-superhuman-mail-files` Blob store is also created in Virginia and restricted
+to Production, with its legacy token variable removed. Initial resource
+configuration does not establish remote SQL durability or file-transfer parity.
+The existing tracking database and unrelated stores remain separate.
+
 The user requested a usable Vercel release and authorized ongoing production
 pushes and GitHub updates. The release package builds on applied commit
 `5aacd6a33856e7872edb63d88f493271101a4eff` (1035 API/766 frontend tests at its
