@@ -1,6 +1,15 @@
 # Implementation checkpoint — 2026-10-27–30
 
-The later [rapid Done and hydration checkpoint](done-applied-checkpoint-20261030.md)
+The latest [immediate Undo and notification checkpoint](undo-toast-applied-checkpoint-20261030.md)
+is applied with **1035 API/762 frontend** source. Its95 focused owner purposes,
+independent5+2 controls, Root762 full gate and58-action synthetic browser case
+passed. Root applied11 frontend paths/all492 exact and preserved20 drafts,seven
+attachments and four sealed rows without restarting the API. The first pointer
+locator failure, logical-table inequality and incomplete events remain explicit.
+Exact moving pixels and broader action/notice parity remain open; all22 inventory
+statuses are unchanged and unverified.
+
+The preceding [rapid Done and hydration checkpoint](done-applied-checkpoint-20261030.md)
 is now applied: **1035 API/732 frontend**, unchanged collector53/Vercel23.
 Consecutive E advances distinct selection before HTTP completion and retains
 leftward departing rows. All 41 synthetic Done and 93 hydration actions passed;
@@ -12,8 +21,8 @@ retains 14 changed old tables and six operational record changes; no Thread/draf
 attachment or sealed-row change. The 13-action read-only Main browser smoke and
 HTTP serving/status check pass. The historical date-fixture failure, sandbox
 listen failure and earlier browser fixture failures remain recorded. Immediate
-Undo/toast, other dismissals, exact pixels/held-key repeat and full parity remain
-open; all 22 families remain unverified and inventory statuses are unchanged.
+Undo/toast were pending at that boundary and are applied in the later checkpoint.
+Other dismissals, exact pixels/held-key repeat and full parity remain open; all 22 families remain unverified and inventory statuses are unchanged.
 
 The earlier [controlled managed response](generated-cloud-reply-checkpoint-20261029.md)
 completed one real Claude request, one unsent Gmail CREATE/raw readback and fresh

@@ -1,5 +1,8 @@
 # Applied Done queue, motion and authoritative hydration
 
+The later [immediate Undo/notification checkpoint](undo-toast-applied-checkpoint-20261030.md)
+is now applied. This record retains the earlier c138 source and data boundary.
+
 The browser app now accepts consecutive E presses without waiting for the first
 Gmail response. Each press reserves a different eligible conversation, advances
 the logical selection immediately and retains its departing row for the declared
@@ -111,6 +114,7 @@ the separate hydration case. DM-06 original reduced-motion behavior and DM-08
 Trash/Move/label/reminder dismissal reuse remain open. Held-key operating-system
 repeat is separate from consecutive physical E actions.
 
-Immediate pre-ACK Undo presentation and ordinary toast lifetime/hover/fade/geometry
-are separately prepared follow-ups, not applied by this composite. Broader
+At this c138 boundary immediate pre-ACK Undo and ordinary toast refinements were
+prepared separately. Their later application is recorded in the linked checkpoint;
+computed geometry and full parity remain open. Broader
 animations, other action contexts and full 1-to-1 parity remain unverified.

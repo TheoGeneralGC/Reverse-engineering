@@ -61,3 +61,10 @@ private. Details and preserved coverage limits are in [Gmail checks](gmail-live-
 | DONE-LOCAL-001 | Consecutive E reserves distinct rows before the first ACK and uses declared left exit/return transitions | [Applied checkpoint](done-applied-checkpoint-20261030.md); physical41-action replica and bounded original observation | No exact moving-pixel, OS held-key repeat, other-dismissal or family parity claim |
 | DONE-LOCAL-002 | Real isolated Gmail Done/Undo restores the selected message IDs and label sets | [Applied checkpoint](done-applied-checkpoint-20261030.md); four GETs/two modify POSTs with known ACKs | One owned synthetic conversation on a consistent-copy DB; Main untouched by that proof |
 | HYDRATION-LOCAL-001 | Guarded FULL hydration preserves current editor/focus and refreshes allowed summary fields without resurrecting dismissed rows | [Applied checkpoint](done-applied-checkpoint-20261030.md);93-action synthetic case | Fake Google transport; complete header/history/provider parity remains open |
+
+## Applied immediate Undo and notification lifecycle
+
+| ID | Finding | Evidence | Limits |
+| --- | --- | --- | --- |
+| UNDO-LOCAL-001 | An accepted inverse projects its owned row before Archive/Undo ACK and survives stale refresh; manual J/K and current editor win | [Applied record](undo-toast-applied-checkpoint-20261030.md); held-ACK outside controls and58 physical actions | Provider labels remain authoritative; no Original held-response/error or full-family claim |
+| NOTICE-LOCAL-001 | Current-intent lifetime survives receipt updates; pointer entry retains it and expired presentation cannot be recreated by a late ACK | [Applied record](undo-toast-applied-checkpoint-20261030.md); retained original static declarations plus physical non-action-pointer case | No standalone hover API, exact moving-pixel/runtime easing or computed-theme geometry claim; generic/Send variants remain separate |

@@ -1,0 +1,15 @@
+/* Scoped ordinary, untitled Done/Undo notification. Declared legacy theme
+   palette/layout; computed geometry/active original theme need browser proof. */
+.toast.ordinary-action-toast{--ordinary-notice-bg:#fff;--ordinary-notice-text:rgb(25,25,25);--ordinary-notice-success:#148072;position:fixed;left:calc(3.5rem + 40px - 1.75rem + 6px);bottom:32px;transform:none;margin-top:12px;height:48px;width:fit-content;max-width:calc(100vw - 88px);padding:0 1rem 0 0;border-radius:0;border-left:4px solid var(--ordinary-notice-success);gap:0;background:var(--ordinary-notice-bg);color:var(--ordinary-notice-text);font-size:12px;line-height:16px;opacity:1;transition:opacity 2s ease-in;z-index:1000;box-shadow:0 6px 30px 2px rgba(0,0,0,.2)}
+.toast.ordinary-action-toast .notification-text{flex:1 1 auto;height:100%;display:flex;align-items:center;padding:0 1.75rem;max-width:500px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.toast.ordinary-action-toast>button{color:inherit;margin-left:1rem}
+.toast.ordinary-action-toast .icon-button{color:inherit;opacity:.3;transition:opacity 150ms ease}
+.toast.ordinary-action-toast .icon-button:hover{opacity:.5;background:none}
+.toast.ordinary-action-toast .icon-button svg{width:10px;height:10px}
+.toast.ordinary-action-toast kbd{background:transparent;color:inherit}
+.toast.ordinary-action-toast.notification-fading{opacity:0}
+.toast.ordinary-action-toast:hover,.toast.ordinary-action-toast:focus-within{opacity:1;transition-duration:.2s}
+:root[data-theme=dark] .toast.ordinary-action-toast{--ordinary-notice-bg:rgb(54,58,64);--ordinary-notice-text:rgb(233,234,234);--ordinary-notice-success:#3ac7a1}
+@media(max-width:1152px){.toast.ordinary-action-toast{left:calc(44px + 40px - 1.75rem + 6px)}}
+@media(max-resolution:1dppx){.toast.ordinary-action-toast{font-size:13px;letter-spacing:.005em}}
+@media(prefers-reduced-motion:reduce){.toast.ordinary-action-toast{transition:none}}

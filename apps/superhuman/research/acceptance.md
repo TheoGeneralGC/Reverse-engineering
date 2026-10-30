@@ -1,5 +1,9 @@
 # Acceptance scenarios
 
+The [applied Undo/notification checkpoint](undo-toast-applied-checkpoint-20261030.md)
+adds bounded pre-ACK inverse, stale-refresh, manual-selection, legacy-journal
+and58-action browser evidence without marking a family or DM-08 verified.
+
 The [applied Done checkpoint](done-applied-checkpoint-20261030.md) records bounded
 DM-01–07 results and gaps; DM-08 and full interaction parity remain open.
 

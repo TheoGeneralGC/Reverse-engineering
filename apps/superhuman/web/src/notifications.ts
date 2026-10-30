@@ -1,0 +1,17 @@
+import{useCallback,useLayoutEffect,useRef,useState}from'react';
+export type NotificationContent={text:string;undo?:string};
+export type OrdinaryNotice=NotificationContent&{identity:string;mode:'start'|'update'};
+export type NotificationState=NotificationContent&{kind:'legacy'|'ordinary';identity:string|null;phase:'shown'|'fading';revision:number};
+export const ordinaryNotificationTokens=Object.freeze({holdMs:8000,fadeMs:2000,easing:'ease-in',legacyHoldMs:6500});
+/** One current presentation. A receipt update cannot renew an intent's clock or
+ * recreate a dismissed/expired notification; explicit new intent uses start. */
+export function createNotifications(options:{schedule:(fn:()=>void,ms:number)=>{cancel():void};onChange:(value:NotificationState|null)=>void}){
+ let state:NotificationState|null=null,revision=0,live=true;const pauses=new Set<'hover'|'focus'>();let hold:{cancel():void}|null=null,fade:{cancel():void}|null=null;
+ const cancel=()=>{hold?.cancel();fade?.cancel();hold=fade=null};
+ const publish=()=>{if(live)options.onChange(state)};
+ const clear=()=>{cancel();revision++;pauses.clear();state=null;publish()};
+ const schedule=()=>{if(!live||!state||pauses.size)return;const current=state.revision;hold=options.schedule(()=>{hold=null;if(!live||state?.revision!==current)return;if(state.kind==='legacy'){clear();return}state={...state,phase:'fading'};publish();fade=options.schedule(()=>{fade=null;if(live&&state?.revision===current)clear()},ordinaryNotificationTokens.fadeMs)},state.kind==='ordinary'?ordinaryNotificationTokens.holdMs:ordinaryNotificationTokens.legacyHoldMs)};
+ const install=(content:NotificationContent,kind:NotificationState['kind'],identity:string|null)=>{if(!live)return;cancel();pauses.clear();state={text:content.text,undo:content.undo,kind,identity,phase:'shown',revision:++revision};publish();schedule()};
+ return{getSnapshot:()=>state,legacy(content:NotificationContent){install(content,'legacy',null)},ordinary(notice:OrdinaryNotice){if(!live)return;if(notice.mode==='start'){install(notice,'ordinary',notice.identity);return}if(state?.kind!=='ordinary'||state.identity!==notice.identity)return;state={...state,text:notice.text,undo:notice.undo};publish()},clear,pause(reason:'hover'|'focus'){if(!live||state?.kind!=='ordinary')return;pauses.add(reason);cancel();if(state.phase==='fading'){state={...state,phase:'shown'};publish()}},resume(reason:'hover'|'focus'){if(!live||state?.kind!=='ordinary'||!pauses.delete(reason)||pauses.size)return;cancel();schedule()},dispose(){live=false;cancel();state=null;pauses.clear()}};
+}
+export function useNotifications(){const[current,setCurrent]=useState<NotificationState|null>(null),controller=useRef<ReturnType<typeof createNotifications>|null>(null);useLayoutEffect(()=>{const next=createNotifications({schedule:(fn,ms)=>{const id=setTimeout(fn,ms);return{cancel:()=>clearTimeout(id)}},onChange:setCurrent});controller.current=next;return()=>{next.dispose();if(controller.current===next)controller.current=null}},[]);const notify=useCallback((text:string,undo?:string)=>controller.current?.legacy({text,undo}),[]),ordinary=useCallback((notice:OrdinaryNotice)=>controller.current?.ordinary(notice),[]),clear=useCallback(()=>controller.current?.clear(),[]),pause=useCallback((reason:'hover'|'focus')=>controller.current?.pause(reason),[]),resume=useCallback((reason:'hover'|'focus')=>controller.current?.resume(reason),[]);return{current,notify,ordinary,clear,pause,resume};}

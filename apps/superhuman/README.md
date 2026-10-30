@@ -9,6 +9,7 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Applied immediate Undo and notification checkpoint](research/undo-toast-applied-checkpoint-20261030.md)
 - [Applied rapid Done, motion and hydration checkpoint](research/done-applied-checkpoint-20261030.md)
 - [Original Done motion and rapid-key observation](research/done-motion-observation-20261029.md)
 - [Reviewed combined inline/cloud/tracking/date checkpoint](research/final-combined-checkpoint-20261029.md)
@@ -41,18 +42,31 @@ Store sanitized specifications and synthetic fixtures under version control.
 Layout: `web/` contains the browser client, `api/` the persistent backend, and
 `research/` the observed behavior, acceptance scenarios and comparisons.
 
+## Applied immediate Undo and notifications
+
+The [Undo/notification checkpoint](research/undo-toast-applied-checkpoint-20261030.md)
+is now running with **1035 API/762 frontend** source. Undo returns the owned row
+before acknowledgement; current notifications retain their timer through status
+updates, pause on pointer entry and expire without late resurrection. The full
+762 frontend gate and58-action synthetic browser case passed within their stated
+limits. Root applied11 frontend paths matching all492 frozen files, preserved
+20 drafts/seven attachments/four sealed rows and kept the API running. The first
+locator failure and selected audit limits are retained. Exact moving pixels,
+other eligible dismissals and full parity remain open.
+
 ## Applied rapid Done and motion
 
-The [Done checkpoint](research/done-applied-checkpoint-20261030.md) is now running
-on Main, with **1035 API/732 frontend** tests on the exact reviewed source. E
+The earlier [Done checkpoint](research/done-applied-checkpoint-20261030.md) introduced
+rapid E, with **1035 API/732 frontend** tests on the exact reviewed source. E
 reserves distinct conversations and advances selection immediately while Gmail
 work stays ordered. Rows retain the recovered 200 ms left exit/400 ms return tokens.
 The 41-action rapid-Done case, 93-action hydration case and a separate real Gmail
 Done/Undo proof passed within their stated limits. Root applied 78 paths matching
 all 489 frozen files, preserved 20 drafts/seven attachments/four sealed rows, then
 passed the 13-action read-only Main smoke. Strict migration/postrestart equality
-is false with explicit differences retained. Immediate Undo/toast refinements,
-other action animations and full 1-to-1 parity remain open. All 22 families remain
+is false with explicit differences retained. Immediate Undo/toast were pending
+at that boundary and are now applied in the later checkpoint. Other action
+animations and full 1-to-1 parity remain open. All 22 families remain
 open and unverified; their inventory statuses are unchanged.
 
 ## Applied combined checkpoint
