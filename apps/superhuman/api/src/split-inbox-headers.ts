@@ -1,5 +1,6 @@
 import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 import { normalizeContactEmail } from './contacts.ts';
+import { insertInJsonBatches } from './bounded-json-insert.ts';
 const normalized=(raw:string)=>raw.normalize('NFKC').toLowerCase().replace(/\s+/gu,' ').trim();
 const text=(path:string,field:string)=>`CASE WHEN json_type(${path},'$.${field}')='text' THEN json_extract(${path},'$.${field}') ELSE '' END`;
 function snapshot(data:string){
@@ -67,15 +68,19 @@ export function initializeSplitHeaders(db:DatabaseSync){
 export function refreshSplitHeaders(db:DatabaseSync,options:{threadId?:string;limit?:number}={}):number{
  db.exec('SAVEPOINT split_header_refresh');try{
   const rows=options.threadId?db.prepare('DELETE FROM split_header_pending WHERE thread_id=? RETURNING *').all(options.threadId):db.prepare('DELETE FROM split_header_pending WHERE thread_id IN (SELECT thread_id FROM split_header_pending ORDER BY thread_id LIMIT ?) RETURNING *').all(options.limit??64);
-  const insert=db.prepare('INSERT INTO split_header_people VALUES(?,?,?,?,?,?,?,?,?)');
+  const insert=db.prepare(`INSERT INTO split_header_people(thread_id,account_id,message_key,role,ordinal,email,domain,name,haystack)
+   SELECT ?,?,json_extract(person.value,'$[0]'),json_extract(person.value,'$[1]'),json_extract(person.value,'$[2]'),json_extract(person.value,'$[3]'),json_extract(person.value,'$[4]'),json_extract(person.value,'$[5]'),json_extract(person.value,'$[6]')
+   FROM json_each(?) AS person ORDER BY CAST(person.key AS INTEGER)`);
+  let singleton:ReturnType<DatabaseSync['prepare']>|undefined;
   for(const row of rows){
    db.prepare('DELETE FROM split_header_people WHERE thread_id=?').run(row.thread_id);db.prepare('DELETE FROM split_header_facts WHERE thread_id=?').run(row.thread_id);
    const value=JSON.parse(String(row.metadata))as{subject?:unknown;subjectClipped?:unknown;metadataInvalid?:unknown;people?:unknown};let incomplete=value.subjectClipped===1||value.metadataInvalid===1||typeof value.subject!=='string';const people=Array.isArray(value.people)?value.people:[];if(people.length>2048)incomplete=true;
-   for(const item of people.slice(0,2048)){
+   const normalizedPeople=(function*(){for(const item of people.slice(0,2048)){
     if(!item||!['from','to','cc'].includes(item.role)||!Number.isSafeInteger(item.ordinal)||typeof item.message!=='string'||!item.person||typeof item.person.email!=='string'||typeof item.person.name!=='string'){incomplete=true;continue}
     const raw=item.person;if(raw.clipped)incomplete=true;const email=normalizeContactEmail(raw.email)??normalized(raw.email),name=normalized(raw.name.startsWith('"')&&raw.name.endsWith('"')?raw.name.slice(1,-1).replace(/\\(["\\])/g,'$1'):raw.name);if(!email&&!name)continue;const at=email.lastIndexOf('@'),domain=at>=0?email.slice(at+1):'';
-    insert.run(row.thread_id,row.account_id,item.message,item.role,item.ordinal,email,domain,name,`${name} ${email}`);
-   }
+    yield [item.message,item.role,item.ordinal,email,domain,name,`${name} ${email}`];
+   }})();
+   insertInJsonBatches(normalizedPeople,json=>{insert.run(row.thread_id,row.account_id,json)},person=>{singleton??=db.prepare('INSERT INTO split_header_people VALUES(?,?,?,?,?,?,?,?,?)');singleton.run(row.thread_id,row.account_id,...person)});
    db.prepare('INSERT INTO split_header_facts VALUES(?,?,?,?)').run(row.thread_id,row.account_id,normalized(typeof value.subject==='string'?value.subject:''),incomplete?1:0);
   }
   db.exec('RELEASE split_header_refresh');return rows.length;

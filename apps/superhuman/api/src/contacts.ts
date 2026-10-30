@@ -1,5 +1,6 @@
 import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 import { domainToASCII } from 'node:url';
+import { insertInJsonBatches } from './bounded-json-insert.ts';
 import { HttpError, type ContactSuggestion, type ContactSuggestionOptions, type ContactSuggestionPage } from './types.ts';
 
 type Occurrence = { email: string; name: string; lastSeen: number; nameSeen: number };
@@ -143,10 +144,16 @@ export function refreshRecipientContacts(db: DatabaseSync, options: { accountId?
       : options.accountId !== undefined
         ? db.prepare('DELETE FROM recipient_pending WHERE thread_id IN (SELECT thread_id FROM recipient_pending WHERE account_id=? ORDER BY thread_id LIMIT ?) RETURNING *').all(options.accountId, options.limit ?? 64)
         : db.prepare('DELETE FROM recipient_pending WHERE thread_id IN (SELECT thread_id FROM recipient_pending ORDER BY thread_id LIMIT ?) RETURNING *').all(options.limit ?? 64);
-    const insert = db.prepare('INSERT INTO recipient_occurrences(thread_id,account_id,email,name,last_seen,name_seen,name_terms) VALUES(?,?,?,?,?,?,?)');
+    const insert = db.prepare(`INSERT INTO recipient_occurrences(thread_id,account_id,email,name,last_seen,name_seen,name_terms)
+      SELECT ?,?,json_extract(person.value,'$[0]'),json_extract(person.value,'$[1]'),json_extract(person.value,'$[2]'),json_extract(person.value,'$[3]'),json_extract(person.value,'$[4]')
+      FROM json_each(?) AS person ORDER BY CAST(person.key AS INTEGER)`);
+    let singleton: ReturnType<DatabaseSync['prepare']> | undefined;
     for (const row of rows) {
       db.prepare('DELETE FROM recipient_occurrences WHERE thread_id=?').run(row.thread_id);
-      for (const person of metadata(String(row.metadata))) insert.run(row.thread_id, row.account_id, person.email, person.name, person.lastSeen, person.nameSeen, terms(person.name));
+      const people = metadata(String(row.metadata));
+      insertInJsonBatches((function* () { for (const person of people) yield [person.email, person.name, person.lastSeen, person.nameSeen, terms(person.name)]; })(),
+        json => { insert.run(row.thread_id, row.account_id, json); },
+        person => { singleton ??= db.prepare('INSERT INTO recipient_occurrences(thread_id,account_id,email,name,last_seen,name_seen,name_terms) VALUES(?,?,?,?,?,?,?)'); singleton.run(row.thread_id, row.account_id, ...person); });
     }
     db.exec('RELEASE recipient_projection_refresh'); return rows.length;
   } catch (error) { db.exec('ROLLBACK TO recipient_projection_refresh; RELEASE recipient_projection_refresh'); throw error; }

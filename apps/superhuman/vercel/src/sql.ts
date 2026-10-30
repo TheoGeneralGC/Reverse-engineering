@@ -1,5 +1,6 @@
 import Libsql from 'libsql';
 import { createHash } from 'node:crypto';
+import { withTransactionSelectReuse } from './statement-reuse.ts';
 import type { SqlDatabase, SqlDatabaseFactory, SqlRow, SqlStatement, SqlValue } from '../../api/src/sql-database.ts';
 
 export type SqlOperation = Readonly<{ kind: 'exec' | 'prepare' | 'get' | 'all' | 'run'; sql: string }>;
@@ -226,17 +227,20 @@ export function withVerifiedManagedWal(database: SqlDatabase): SqlDatabase {
 }
 
 export type LibsqlPrimaryConfiguration = Readonly<{ url: string; authToken: string; beforeOperation?: SqlOperationGuard;
-  journalMode?: 'require-set-wal' | 'verify-managed-wal' }>;
+  journalMode?: 'require-set-wal' | 'verify-managed-wal'; statementReuse?: 'transaction-hot-select-v1' }>;
 
 /** A remote primary is always explicit. There is no offline or local fallback.
  * A replica adapter can be added only after its synchronization/fencing behavior
  * has separate remote proof; a local-first sync client is not used here. */
 export function createLibsqlPrimaryFactory(configuration: LibsqlPrimaryConfiguration): SqlDatabaseFactory {
+  const statementReuse = configuration?.statementReuse;
   if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration) ||
-      Object.keys(configuration).some(key => !['url', 'authToken', 'beforeOperation', 'journalMode'].includes(key)) ||
+      Object.keys(configuration).some(key => !['url', 'authToken', 'beforeOperation', 'journalMode', 'statementReuse'].includes(key)) ||
       typeof configuration.url !== 'string' || typeof configuration.authToken !== 'string' ||
       !configuration.authToken || configuration.authToken.length > 16384 || /[\x00-\x20\x7f]/.test(configuration.authToken) ||
       configuration.beforeOperation !== undefined && typeof configuration.beforeOperation !== 'function' ||
+      statementReuse !== undefined && statementReuse !== 'transaction-hot-select-v1' ||
+      statementReuse !== undefined && typeof configuration.beforeOperation !== 'function' ||
       configuration.journalMode !== undefined && !['require-set-wal', 'verify-managed-wal'].includes(configuration.journalMode)) throw new TypeError('Invalid remote SQL configuration');
   let url: URL;
   try { url = new URL(configuration.url); } catch { throw new TypeError('Invalid remote SQL configuration'); }
@@ -249,7 +253,11 @@ export function createLibsqlPrimaryFactory(configuration: LibsqlPrimaryConfigura
     const connectionOptions: Libsql.Options & { authToken: string } = { authToken };
     const database = new Libsql(databaseUrl, connectionOptions);
     let adapted: SqlDatabase | undefined;
-    try { adapted = withRemoteSavepoints(adaptLibsqlDatabase(database, beforeOperation)); return journalMode === 'verify-managed-wal' ? withVerifiedManagedWal(adapted) : adapted; }
+    try {
+      const base = adaptLibsqlDatabase(database, beforeOperation);
+      adapted = withRemoteSavepoints(statementReuse === 'transaction-hot-select-v1' ? withTransactionSelectReuse(base, beforeOperation!) : base);
+      return journalMode === 'verify-managed-wal' ? withVerifiedManagedWal(adapted) : adapted;
+    }
     catch (error) { try { if (adapted) adapted.close(); else database.close(); } catch {} throw error; }
   };
 }

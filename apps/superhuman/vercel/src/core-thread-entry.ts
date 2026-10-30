@@ -138,7 +138,7 @@ if (!isMainThread && parentPort && process.argv[1] && resolve(process.argv[1]) =
     const selected = workerData as ThreadBootstrap, configuration = selected.configuration;
     return LoopbackCoreAdapter.create({ context: options.context, bodies: options.bodies, namespace: configuration.namespace,
       env: configuration.env, databasePath: configuration.databaseUrl, onStartupStage: options.stage,
-      databaseFactory: createLibsqlPrimaryFactory({ url: configuration.databaseUrl, authToken: configuration.authToken, journalMode: configuration.journalMode,
+      databaseFactory: createLibsqlPrimaryFactory({ url: configuration.databaseUrl, authToken: configuration.authToken, journalMode: configuration.journalMode, statementReuse: 'transaction-hot-select-v1',
         beforeOperation: operation => { options.context.assertLocal(); options.sql(operation.kind, operation.sql); } }),
     });
   });
