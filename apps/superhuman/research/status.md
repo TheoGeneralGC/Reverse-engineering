@@ -1,14 +1,15 @@
 # Implementation checkpoint — 2026-10-27–30
 
-The protected Vercel backend and private-file path were deployed, with exact
-synthetic attachment persistence across a Git-triggered handoff and approved
-fixture cleanup. The first hosted Google grant succeeded, but its initial sync
-stalled; the worker is stopped while the [Core thread correction](vercel-gmail-sync-thread-20261030.md)
-is released. Its153 hosting controls and strict types pass. Real hosted sync and
-Safari acceptance remain pending. The existing local application remains
-available for private feedback. Public access by unrelated Gmail users requires
-additional authenticated ownership/data isolation and Google OAuth readiness;
-the current beta stays private. No complete feature-family verification is implied.
+The protected Vercel backend now imports real Gmail and renders its inbox after
+the [Core thread correction](vercel-gmail-sync-thread-20261030.md), an exact
+incident-specific recovery and preserved queued reads. Browser acceptance found
+a separate idle loopback connection defect during import. Its fresh-connection
+correction passes155 hosting controls and strict types; the same actual-Core
+failure loop now succeeds without retry, while lost-response uncertainty remains
+preserved. Production acceptance of that follow-up and Safari remain pending at
+this source boundary. The existing local application stays available for private
+feedback. Public Gmail access requires authenticated ownership/data isolation
+and Google OAuth readiness; the beta stays private and full parity is unverified.
 
 The following preparation and applied checkpoints retain their historical scope.
 

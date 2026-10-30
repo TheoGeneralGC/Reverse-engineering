@@ -69,3 +69,35 @@ the owner's private beta, and Vercel Authentication remains enabled.
 
 Private raw records and exact source/support hashes remain in ignored evidence
 directories. No emails, tokens, credentials or browser captures enter this record.
+
+## Actual corrected sync and loopback follow-up
+
+The reviewed incident-specific state-only recovery completed once. Independent
+primary reads confirmed the exact old owner changed only to quiesced; the
+captured Mail and transport metadata remained equal and all eight queued reads
+were preserved. The Git-triggered corrected deployment acquired its successor
+normally. Heartbeats advanced over51 seconds, retained reads completed, real
+Google threads grew from4 to10 and the canonical browser rendered the real inbox.
+Initial import remains partial; its201 estimate is not a complete mailbox count.
+
+Browser acceptance then found intermittent uncertain GET sync-status receipts
+while the owner and actual import continued. Those receipts remain uncertain.
+They were not reset, requeued or replayed. Independent default Node24 HTTP and
+actual LoopbackCoreAdapter probes reproduced a second defect: after a6.2-second
+synchronous event-loop pause, a reused idle socket fails ECONNRESET before the
+second request reaches the server. This corroborates the formerly unexplained
+private sync-poll errors, although the original cloud socket code was not captured.
+
+The adapter now selects a fresh connection for each owned loopback dispatch
+with agent:false. There is no request retry. The same actual-Core probe returns
+two200 responses on distinct connections. A separate actual Core/Actor control
+commits one draft then loses its response: its receipt stays uncertain, the same
+key never dispatches again and a later read sees exactly one draft. The final
+720-member source passes155 hosting controls across23 files plus strict types;
+denial markers report zero external attempts and124 owned loopback connections.
+The first strict setup error concerned only the test's undeclared Agent property
+observation and was corrected before the single full gate.
+
+The socket correction's production handoff and Safari acceptance are separate
+checks after this source boundary. The local application remains running for
+private feedback; unrelated-user access and full parity remain unverified.

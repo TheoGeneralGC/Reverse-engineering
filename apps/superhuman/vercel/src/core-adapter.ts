@@ -101,7 +101,9 @@ export class LoopbackCoreAdapter implements ActorCore {
     const result = await new Promise<{ status: number; headers: Record<string, string | string[]>; bytes: Buffer }>((resolve, reject) => {
       let client: ClientRequest;
       try {
-        client = httpRequest({ hostname: '127.0.0.1', port: this.port, method: input.method, path: input.path,
+        // A synchronous Core burst can outlive an idle keep-alive socket. Each
+        // admitted command gets one fresh local connection; never replay it.
+        client = httpRequest({ agent: false, hostname: '127.0.0.1', port: this.port, method: input.method, path: input.path,
           headers: { ...input.headers, host: `127.0.0.1:${this.port}`, 'content-length': bytes.byteLength } }, response => {
           const declared = response.headers['content-length'];
           if (declared !== undefined && (!/^\d+$/.test(declared) || Number(declared) > this.responseLimit)) { response.destroy(); reject(new Error('Worker response exceeds the transfer limit')); return; }
