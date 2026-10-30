@@ -9,6 +9,7 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Applied Shortcuts fade and retirement checkpoint](research/shortcuts-motion-checkpoint-20261030.md)
 - [Applied immediate Undo and notification checkpoint](research/undo-toast-applied-checkpoint-20261030.md)
 - [Applied rapid Done, motion and hydration checkpoint](research/done-applied-checkpoint-20261030.md)
 - [Original Done motion and rapid-key observation](research/done-motion-observation-20261029.md)
@@ -41,6 +42,17 @@ Store sanitized specifications and synthetic fixtures under version control.
 
 Layout: `web/` contains the browser client, `api/` the persistent backend, and
 `research/` the observed behavior, acceptance scenarios and comparisons.
+
+## Applied Shortcuts lifecycle
+
+The [Shortcuts checkpoint](research/shortcuts-motion-checkpoint-20261030.md) is
+running with **1035 API/766 frontend** source. It adds the recovered200ms fade
+and250ms retiring lifetime, preserving inactive help while Command opens and
+keeping focus with the logical owner. Original11/17-action cases, focused
+controls and the full766 frontend gate support the scoped behavior. Root applied
+four paths/all494 exact and preserved20 drafts/seven attachments/four sealed
+rows without restarting the API. Exact pixels, complete help and full parity
+remain open. The separate1088-test Trash API candidate is still unapplied.
 
 ## Applied immediate Undo and notifications
 

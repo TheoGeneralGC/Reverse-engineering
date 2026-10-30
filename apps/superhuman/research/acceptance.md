@@ -1,5 +1,10 @@
 # Acceptance scenarios
 
+The [Shortcuts lifecycle checkpoint](shortcuts-motion-checkpoint-20261030.md)
+adds SM-01–05 for retained close, Command overlap, rapid reopen, editor focus
+and remaining visual/content coverage. The scoped fade is applied; sampled
+original lifecycle and local clock controls do not verify full help or pixels.
+
 The [applied Undo/notification checkpoint](undo-toast-applied-checkpoint-20261030.md)
 adds bounded pre-ACK inverse, stale-refresh, manual-selection, legacy-journal
 and58-action browser evidence without marking a family or DM-08 verified.

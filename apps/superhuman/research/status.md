@@ -1,5 +1,15 @@
 # Implementation checkpoint — 2026-10-27–30
 
+The [Shortcuts lifecycle checkpoint](shortcuts-motion-checkpoint-20261030.md) is
+applied on **1035 API/766 frontend** source. Its200ms fade/250ms retirement
+preserves inactive help during Command replacement and current focus ownership.
+Original11/17-action observations retain missing events/equality false; scoped
+focused controls and Root766 gate pass. Four frontend paths/all494 exact are
+applied, with protected20 drafts/seven attachments/four sealed rows unchanged
+and no API restart. Main open/close, types/build and serving checks pass. Exact
+pixels/help content and full parity remain unverified. The separate1088-test
+Trash API candidate and Command keyboard corrections remain unapplied work.
+
 The latest [immediate Undo and notification checkpoint](undo-toast-applied-checkpoint-20261030.md)
 is applied with **1035 API/762 frontend** source. Its95 focused owner purposes,
 independent5+2 controls, Root762 full gate and58-action synthetic browser case

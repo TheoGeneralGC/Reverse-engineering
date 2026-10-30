@@ -68,3 +68,10 @@ private. Details and preserved coverage limits are in [Gmail checks](gmail-live-
 | --- | --- | --- | --- |
 | UNDO-LOCAL-001 | An accepted inverse projects its owned row before Archive/Undo ACK and survives stale refresh; manual J/K and current editor win | [Applied record](undo-toast-applied-checkpoint-20261030.md); held-ACK outside controls and58 physical actions | Provider labels remain authoritative; no Original held-response/error or full-family claim |
 | NOTICE-LOCAL-001 | Current-intent lifetime survives receipt updates; pointer entry retains it and expired presentation cannot be recreated by a late ACK | [Applied record](undo-toast-applied-checkpoint-20261030.md); retained original static declarations plus physical non-action-pointer case | No standalone hover API, exact moving-pixel/runtime easing or computed-theme geometry claim; generic/Send variants remain separate |
+
+## Applied Shortcuts overlay lifecycle
+
+| ID | Finding | Evidence | Limits |
+| --- | --- | --- | --- |
+| SHORTCUTS-ORIGINAL-001 | Closing retains exit help while list focus returns; rapid Command replacement retains one retiring help before reopening | [Original11/17-action observations](shortcuts-motion-checkpoint-20261030.md) on the identified build | Missing events/equality false; sampled classes and focus regions do not measure exact pixels or editor focus |
+| SHORTCUTS-LOCAL-001 | One retiring owner preserves the250ms clock across Command and cannot intercept its focus/close actions | [Applied1035/766 checkpoint](shortcuts-motion-checkpoint-20261030.md); focused controls and Root766 gate | Reversal pixels and complete catalogue/filter/geometry remain unverified; no family status change |

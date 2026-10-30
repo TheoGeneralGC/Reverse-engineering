@@ -1,0 +1,4 @@
+/* Recovered legacy Overlay opacity; no universal modal or Command animation. */
+.shortcuts-overlay{opacity:0;transition:opacity 200ms ease}
+.shortcuts-overlay[data-shortcuts-phase="open"]{opacity:1}
+.shortcuts-overlay[data-shortcuts-phase="exit"]{opacity:0;pointer-events:none}
