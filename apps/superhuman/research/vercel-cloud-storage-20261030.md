@@ -3,8 +3,9 @@
 This records hosted infrastructure behavior, not original Superhuman behavior.
 The separately reviewed all-Vercel runtime is based on commit
 `5e6f030c7a7624efb2323a87bd64e89cda3b06de`. All 22 product feature families
-remain open and unverified. No hosted mail worker has been activated at this
-checkpoint, and the canonical origin is not a usable hosted inbox yet.
+remain open and unverified. The first worker activation failed during native
+TLS initialization and was stopped; the corrected worker still needs deployed
+Core verification. The canonical origin is not a usable hosted inbox yet.
 
 ## Observed platform behavior
 
@@ -58,6 +59,50 @@ new controls and five existing configuration controls.
 The user approved the canonical hosted Google callback as an additional OAuth
 redirect. Google Cloud reports the client saved; the local callback remains.
 Hosted authorization, token exchange and real provider use are still unverified.
+
+## First worker boot and bounded empty-bootstrap recovery
+
+The first promoted Production build at49895c5 starts exactly one one-GiB iad1
+worker from its reviewed image. Its native Rust/libSQL connector panics while
+loading the missing system certificate bundle. Node's bundled trust roots do
+not supply the native driver's OS trust store. The owner was acquired before
+that first mail connection, so it remains active with only its initial heartbeat;
+expiry is not used to authorize takeover.
+
+The service was explicitly scaled to zero. The original120-second stop grace
+elapsed, and fresh complete scoped platform reads confirmed a persistent
+all-region zero override and zero desired/ready/total instances. Vercel documents
+all-region stopping and forced termination after grace for scale-down. This is
+aggregate provider stop evidence, not an invented historical PID/instance death
+record. A fresh mail-primary query confirmed zero user schema objects. The only
+two queued commands were exact, never-claimed, empty-body bootstrap GETs; there
+were zero issued/responded commands and zero staged body objects.
+
+A separately reviewed one-incident atomic predicate changed only that exact
+epoch-one owner's state to quiesced. It preserved every other owner field and
+both queued reads, with fresh independent readback. No deletes, epoch rewriting,
+requeueing, token copying or general dirty-takeover path was added. The console's
+first leading-comment action was a no-op, resolved by a separate owner read and
+a harmless read-only cursor control before a deliberate comment-free action
+with renewed external proofs. The recovery SQL remains private and is not a
+product endpoint. This schema-empty exception does not authorize recovery after
+unknown provider effects or an initialized mailbox.
+
+The corrected image installs Debian's trusted ca-certificates package in the
+final stage and points Node's extra-CA setting to the same verified OS bundle;
+TLS verification remains enabled. The worker now performs an exact guarded
+read-only native WAL preflight and closes it before constructing control storage,
+authority or Core. Actual Core still acquires authority before migrations and
+uses its separate normal context guard.
+
+The final focused gate passes137/137 across19 files with strict types,416 source
+and26 support holds unchanged,19 zero-external-denial markers and109 loopback
+calls. The full Linux/amd64 image was rebuilt and checked as UID1000 with a
+read-only root, network disabled and synthetic temporary SQLite only. All148 OS
+certificates parsed; the real native HTTPS connector returned a normal connection
+error instead of panicking; the managed-WAL preflight read and closed normally.
+Docker source and preflight peer reviews pass. Actual cloud Core startup and
+Daemon storage/OIDC remain separate release gates.
 
 ## Remaining release gates
 

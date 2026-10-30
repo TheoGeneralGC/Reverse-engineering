@@ -115,8 +115,20 @@ export class MailWorkerRuntime {
   }
 }
 
+/** Fail TLS/native connectivity before acquiring durable ownership. The native
+ * factory verifies managed WAL; no Core, migrations or owner hook is involved. */
+export function preflightNativeMail(configuration: Pick<WorkerConfiguration, 'databaseUrl' | 'databaseToken'>,
+  createFactory: typeof createLibsqlPrimaryFactory = createLibsqlPrimaryFactory): void {
+  const open = createFactory({ url: configuration.databaseUrl, authToken: configuration.databaseToken,
+    journalMode: 'verify-managed-wal', beforeOperation(operation) {
+      if (operation.sql !== 'PRAGMA journal_mode' || !['prepare', 'get'].includes(operation.kind)) throw new TypeError('Native mail preflight permits only the WAL mode read');
+    } });
+  open(configuration.databaseUrl).close();
+}
+
 export async function startProductionWorker(env: NodeJS.ProcessEnv = process.env): Promise<{ runtime: MailWorkerRuntime; stop: () => Promise<void> }> {
   const configuration = loadWorkerConfiguration(env);
+  preflightNativeMail(configuration);
   const sql = createLibsqlControl({ url: configuration.controlUrl, authToken: configuration.controlToken });
   const blob = new VercelPrivateBlobStore({ storeId: configuration.storeId, namespace: configuration.namespace });
   const bodies = new PrivateBodyTransport({ sql, blob, namespace: configuration.namespace });

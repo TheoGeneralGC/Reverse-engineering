@@ -33,6 +33,9 @@ defaults retain their setter behavior. Canonical regional Turso hostnames are
 accepted by both storage adapters and the Function loader. Set
 `MAIL_REPLY_TIME_ZONE` for hosted quoted replies: Vercel reserves `TZ`; the local
 legacy TZ/system fallback remains available when the app setting is absent.
+The worker image provides a system CA bundle for the native connector. A guarded
+read-only native WAL check closes before ownership/control startup; it neither
+constructs Core nor changes authoritative takeover rules.
 
 The root Vercel configuration targets this application and builds the explicit
 web workspace and leaf SDK dependencies separately. The daemon Dockerfile pins
@@ -64,3 +67,10 @@ shutdown retain an explicit `not_dispatched` receipt rather than silently sendin
 after Undo admission stops. Those are operational/parity limits, not verified
 original behavior. The separate Trash/Command interaction candidate is not part
 of this release boundary.
+
+The later CA/preflight gate passes137/137 focused tests and strict types. A
+non-root Linux image check verifies the actual native TLS trust initialization
+and guarded read-only preflight. The first live boot exposed the absent OS roots;
+its schema-empty owner was recovered only after the reviewed whole-service stop
+and exact no-issued-work checks. The service remains scaled to zero pending the
+corrected live startup. See the cloud checkpoint for retained failures/limits.

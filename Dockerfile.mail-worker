@@ -13,7 +13,14 @@ COPY apps/superhuman/vercel/package.json apps/superhuman/vercel/package-lock.jso
 RUN npm ci --omit=dev --ignore-scripts
 
 FROM node:24.22.1-bookworm-slim
-ENV NODE_ENV=production
+# Native libSQL uses the system CA bundle; Node's bundled roots do not supply it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && test -s /etc/ssl/certs/ca-certificates.crt \
+    && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production \
+    NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies /worker-dependencies/node_modules ./apps/superhuman/vercel/node_modules
