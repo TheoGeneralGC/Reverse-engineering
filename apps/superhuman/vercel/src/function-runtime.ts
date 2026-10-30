@@ -16,7 +16,7 @@ export function loadFunctionConfiguration(env: Readonly<NodeJS.ProcessEnv>): Fun
   let web: URL, control: URL;
   try { web = new URL(webOrigin); control = new URL(controlUrl); } catch { throw invalid(); }
   if (web.protocol !== 'https:' || web.origin !== webOrigin || web.username || web.password || web.port || !web.hostname.includes('.') ||
-      !['libsql:', 'https:'].includes(control.protocol) || !/^[a-z0-9][a-z0-9-]*\.turso\.io$/.test(control.hostname) ||
+      !['libsql:', 'https:'].includes(control.protocol) || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?\.turso\.io$/.test(control.hostname) ||
       controlUrl !== `${control.protocol}//${control.hostname}` || control.username || control.password || control.port || control.search || control.hash) throw invalid();
   return Object.freeze({ namespace, webOrigin, controlUrl, controlToken, storeId });
 }

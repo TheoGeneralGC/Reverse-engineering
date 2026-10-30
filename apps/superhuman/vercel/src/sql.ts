@@ -84,28 +84,55 @@ export function adaptLibsqlDatabase(database: Libsql.Database, beforeOperation?:
   };
 }
 
-export type LibsqlPrimaryConfiguration = Readonly<{ url: string; authToken: string; beforeOperation?: SqlOperationGuard }>;
+const storeWalPrefix = 'PRAGMA journal_mode=WAL;';
+/** Explicit remote policy for a vendor-managed WAL database. The selected
+ * connection closes if its initial mode cannot be verified. Only Store's known
+ * leading statement is consumed; all remaining SQL is forwarded unchanged. */
+export function withVerifiedManagedWal(database: SqlDatabase): SqlDatabase {
+  const verify = () => {
+    if (database.prepare('PRAGMA journal_mode').get()?.journal_mode !== 'wal') throw new TypeError('Remote database must already use WAL journal mode');
+  };
+  try { verify(); }
+  catch (error) { try { database.close(); } catch {} throw error; }
+  return {
+    get isTransaction() { return database.isTransaction; },
+    exec(sql) {
+      if (sql.startsWith(storeWalPrefix)) {
+        verify();
+        const remaining = sql.slice(storeWalPrefix.length);
+        if (remaining.trim()) database.exec(remaining);
+      } else database.exec(sql);
+    },
+    prepare: sql => database.prepare(sql),
+    close: () => database.close(),
+  };
+}
+
+export type LibsqlPrimaryConfiguration = Readonly<{ url: string; authToken: string; beforeOperation?: SqlOperationGuard;
+  journalMode?: 'require-set-wal' | 'verify-managed-wal' }>;
 
 /** A remote primary is always explicit. There is no offline or local fallback.
  * A replica adapter can be added only after its synchronization/fencing behavior
  * has separate remote proof; a local-first sync client is not used here. */
 export function createLibsqlPrimaryFactory(configuration: LibsqlPrimaryConfiguration): SqlDatabaseFactory {
   if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration) ||
-      Object.keys(configuration).some(key => !['url', 'authToken', 'beforeOperation'].includes(key)) ||
+      Object.keys(configuration).some(key => !['url', 'authToken', 'beforeOperation', 'journalMode'].includes(key)) ||
       typeof configuration.url !== 'string' || typeof configuration.authToken !== 'string' ||
       !configuration.authToken || configuration.authToken.length > 16384 || /[\x00-\x20\x7f]/.test(configuration.authToken) ||
-      configuration.beforeOperation !== undefined && typeof configuration.beforeOperation !== 'function') throw new TypeError('Invalid remote SQL configuration');
+      configuration.beforeOperation !== undefined && typeof configuration.beforeOperation !== 'function' ||
+      configuration.journalMode !== undefined && !['require-set-wal', 'verify-managed-wal'].includes(configuration.journalMode)) throw new TypeError('Invalid remote SQL configuration');
   let url: URL;
   try { url = new URL(configuration.url); } catch { throw new TypeError('Invalid remote SQL configuration'); }
   if (!['libsql:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.port ||
-      !url.hostname.endsWith('.turso.io') || !url.hostname.slice(0, -'.turso.io'.length) ||
+      !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?\.turso\.io$/.test(url.hostname) ||
       !['', '/'].includes(url.pathname) || url.toString() !== configuration.url && url.toString() !== `${configuration.url}/`) throw new TypeError('Invalid remote SQL configuration');
-  const { url: databaseUrl, authToken, beforeOperation } = configuration;
+  const { url: databaseUrl, authToken, beforeOperation, journalMode = 'require-set-wal' } = configuration;
   return path => {
     if (path !== databaseUrl) throw new TypeError('Remote SQL identity does not match databasePath');
     const connectionOptions: Libsql.Options & { authToken: string } = { authToken };
     const database = new Libsql(databaseUrl, connectionOptions);
-    try { return adaptLibsqlDatabase(database, beforeOperation); }
-    catch (error) { try { database.close(); } catch {} throw error; }
+    let adapted: SqlDatabase | undefined;
+    try { adapted = adaptLibsqlDatabase(database, beforeOperation); return journalMode === 'verify-managed-wal' ? withVerifiedManagedWal(adapted) : adapted; }
+    catch (error) { try { if (adapted) adapted.close(); else database.close(); } catch {} throw error; }
   };
 }

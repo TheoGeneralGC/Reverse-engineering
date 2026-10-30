@@ -14,7 +14,11 @@ export function loadAutoDraftRuntimeConfiguration(environment:Readonly<NodeJS.Pr
  const provider=read('AI_PROVIDER')||'anthropic';if(provider!=='anthropic'&&provider!=='openai')throw new TypeError('Invalid automatic draft model provider');
  const model=read(provider==='anthropic'?'ANTHROPIC_MODEL':'OPENAI_MODEL')||null,secret=read(provider==='anthropic'?'ANTHROPIC_API_KEY':'OPENAI_API_KEY')||null,workspace=provider==='anthropic'?read('ANTHROPIC_WORKSPACE_ID')||undefined:undefined;
  try{modelTransportIdentity({version:'0'.repeat(64),provider,model:model??'unconfigured',...(workspace?{workspaceId:workspace}:{})})}catch{throw new TypeError('Invalid automatic draft model configuration')}
- let replyTimeZone:string;try{if(!environment.TZ)throw Error('No explicit zone');replyTimeZone=autoDraftReplyTimeZone(environment.TZ)}catch{replyTimeZone=autoDraftReplyTimeZone((options.systemTimeZone??(()=>Intl.DateTimeFormat().resolvedOptions().timeZone))())}
+ let replyTimeZone:string;
+ // Vercel reserves TZ. This explicit application setting affects only quoted
+ // reply formatting and takes precedence over the legacy local TZ fallback.
+ if(environment.MAIL_REPLY_TIME_ZONE!==undefined)replyTimeZone=autoDraftReplyTimeZone(environment.MAIL_REPLY_TIME_ZONE);
+ else try{if(!environment.TZ)throw Error('No explicit zone');replyTimeZone=autoDraftReplyTimeZone(environment.TZ)}catch{replyTimeZone=autoDraftReplyTimeZone((options.systemTimeZone??(()=>Intl.DateTimeFormat().resolvedOptions().timeZone))())}
  const profile:AutoDraftModelProfileInput=Object.freeze({provider,model,credentialAvailable:secret!==null,...(workspace?{workspaceId:workspace}:{})}),configuration=projectAutoDraftModelProfile(profile,generatedPersistence);
  const key=Buffer.from(tokenKey,'hex');let signer:Buffer;try{signer=Buffer.from(hkdfSync('sha256',key,Buffer.from('superhuman-reconstruction'),Buffer.from('auto-drafts-history-cursor-v1'),32))}finally{key.fill(0)}
  const adapter=new AutoDraftModelAdapter({fetcher:options.modelFetch??fetch,credential:async expected=>{if(!configuration||!secret||expected.version!==configuration.version||expected.provider!==configuration.provider||expected.model!==configuration.model||expected.workspaceId!==configuration.workspaceId)throw Error('Automatic draft model configuration changed');return secret}});

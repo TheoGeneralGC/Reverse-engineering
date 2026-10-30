@@ -130,7 +130,7 @@ export function createLibsqlControl(options: { url: string; authToken: string })
       !options.authToken || /[\x00-\x20\x7f]/.test(options.authToken)) throw new TypeError('Invalid durable control configuration');
   let url: URL;
   try { url = new URL(options.url); } catch { throw new TypeError('Invalid durable control configuration'); }
-  if (!['libsql:', 'https:'].includes(url.protocol) || !/^[a-z0-9][a-z0-9-]*\.turso\.io$/.test(url.hostname) ||
+  if (!['libsql:', 'https:'].includes(url.protocol) || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?\.turso\.io$/.test(url.hostname) ||
       url.username || url.password || url.port || url.search || url.hash || !['', '/'].includes(url.pathname) ||
       options.url !== `${url.protocol}//${url.hostname}`) throw new TypeError('Invalid durable control configuration');
   return new LibsqlControl(createClient({ url: options.url, authToken: options.authToken, intMode: 'bigint', concurrency: 1 }));

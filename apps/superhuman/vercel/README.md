@@ -27,6 +27,13 @@ credentials only in sensitive server environment variables. The browser receives
 only the explicit nonsecret private-store origin. Preview refuses mail storage
 initialization. All Deployments Vercel Authentication remains required.
 
+Remote mail startup explicitly verifies provider-managed WAL before consuming
+Store's exact leading WAL setter; the remaining SQL is unchanged. Generic/local
+defaults retain their setter behavior. Canonical regional Turso hostnames are
+accepted by both storage adapters and the Function loader. Set
+`MAIL_REPLY_TIME_ZONE` for hosted quoted replies: Vercel reserves `TZ`; the local
+legacy TZ/system fallback remains available when the app setting is absent.
+
 The root Vercel configuration targets this application and builds the explicit
 web workspace and leaf SDK dependencies separately. The daemon Dockerfile pins
 Node24.22.1 and has an allowlisted build context. Its proposed single iad1 worker
@@ -41,9 +48,11 @@ flush, graceful ownership handoff, poisoned Function-client replacement and
 read-only late-result recovery. See the [checkpoint](../research/vercel-runtime-candidate-20261029.md)
 for evidence limits.
 
-Open release gates include actual remote SQL durability, Linux image build,
-private Blob OIDC/CORS, protected hosted routing, cloud worker ownership/handoff,
-fresh Google OAuth, runtime inspection and rollout. Native context-menu or
+The [cloud storage checkpoint](../research/vercel-cloud-storage-20261030.md)
+records actual remote SQL/control durability and guarded cleanup, plus a Linux
+image build and corrected protected Preview routing. Open release gates include
+private Blob content verification/CORS, cloud worker ownership/handoff, fresh
+Google OAuth, runtime inspection and rollout. Native context-menu or
 middle-click large-file downloads still need a server navigation path. A hard
 worker death conservatively blocks takeover until independent termination proof;
 lease expiry alone never grants ownership. Immediate Sends not yet issued during

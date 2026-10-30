@@ -12,7 +12,7 @@ import { VercelPrivateBlobStore } from './vercel-blob-sdk.ts';
 import { LoopbackCoreAdapter } from './core-adapter.ts';
 
 export type WorkerConfiguration = Readonly<{ namespace: string; webOrigin: string; databaseUrl: string; databaseToken: string; controlUrl: string; controlToken: string;
-  storeId: string; deploymentId: string; actorId: string; healthPort: number; pollMs: number; acquireMs: number; heartbeatMs: number }>;
+  journalMode: 'verify-managed-wal'; storeId: string; deploymentId: string; actorId: string; healthPort: number; pollMs: number; acquireMs: number; heartbeatMs: number }>;
 const invalid = () => new TypeError('Mail worker configuration is invalid.');
 function number(value: string | undefined, fallback: number, min: number, max: number): number {
   if (value !== undefined && !/^[1-9]\d*$/.test(value)) throw invalid();
@@ -31,11 +31,11 @@ export function loadWorkerConfiguration(env: Readonly<NodeJS.ProcessEnv>): Worke
       !web.hostname.includes('.') || env.GOOGLE_REDIRECT_URI !== `${webOrigin}/api/auth/google/callback`) throw invalid();
   // Both factories validate this exact primary identity. Merely loading config
   // must not open any database or trigger a local/replica fallback.
-  createLibsqlPrimaryFactory({ url: databaseUrl, authToken: databaseToken });
+  createLibsqlPrimaryFactory({ url: databaseUrl, authToken: databaseToken, journalMode: 'verify-managed-wal' });
   createLibsqlPrimaryFactory({ url: controlUrl, authToken: controlToken });
   if (new URL(databaseUrl).hostname === new URL(controlUrl).hostname) throw invalid();
   const heartbeatMs = number(env.MAIL_HEARTBEAT_MS, 10_000, 1000, 60_000);
-  return Object.freeze({ namespace, webOrigin, databaseUrl, databaseToken, controlUrl, controlToken, storeId, deploymentId, actorId: randomUUID(),
+  return Object.freeze({ namespace, webOrigin, databaseUrl, databaseToken, controlUrl, controlToken, journalMode: 'verify-managed-wal', storeId, deploymentId, actorId: randomUUID(),
     healthPort: number(env.MAIL_HEALTH_PORT, 3002, 1024, 65535), pollMs: number(env.MAIL_POLL_MS, 100, 25, 5000),
     acquireMs: number(env.MAIL_ACQUIRE_MS, 1000, 100, 30_000), heartbeatMs });
 }
@@ -130,7 +130,7 @@ export async function startProductionWorker(env: NodeJS.ProcessEnv = process.env
       housekeeping: () => bodies.cleanup(),
       createCore: context => LoopbackCoreAdapter.create({ context, bodies, namespace: configuration.namespace,
         env: { ...env, DATABASE_PATH: configuration.databaseUrl }, databasePath: configuration.databaseUrl,
-        databaseFactory: createLibsqlPrimaryFactory({ url: configuration.databaseUrl, authToken: configuration.databaseToken, beforeOperation: () => context.assertLocal() }),
+        databaseFactory: createLibsqlPrimaryFactory({ url: configuration.databaseUrl, authToken: configuration.databaseToken, journalMode: configuration.journalMode, beforeOperation: () => context.assertLocal() }),
       }) });
     let stopping: Promise<void> | undefined;
     const stop = () => stopping ??= runtime.stop().finally(() => sql.close());
