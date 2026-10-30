@@ -75,7 +75,7 @@ export async function writeVercelOutput({ webDirectory, env }) {
   await mkdir(output, { recursive: true });
   await cp(dist, join(output, 'static'), { recursive: true, dereference: false });
   await writeFile(join(output, 'static/api-unavailable.json'), JSON.stringify({
-    error: 'preview_api_unavailable', message: 'Email is available on the protected production site.',
+    error: 'preview_api_unavailable', message: 'Email is unavailable in this preview.',
   }) + '\n');
   await writeFile(join(output, 'config.json'), JSON.stringify(config, null, 2) + '\n');
   return config;

@@ -12,9 +12,10 @@ The browser is assigned to Vercel project `rea-superhuman`, ID
 `prj_5VT0qF2SrSQWPuTN9Pk84POwAI8n`, in workspace `generalgc`, ID
 `team_jLr36BtWNJTPsp5X8UMwQLWN`. All Deployments Vercel Authentication is enabled
 and read back. The team inventory contains one confirmed owner. The domain
-`rea-superhuman-generalgc.vercel.app` is assigned and verified. The shorter name
-was already occupied and was left unchanged. No application deployment exists
-yet; a reserved domain is not a usable release.
+`rea-superhuman-generalgc.vercel.app` is assigned and verified. A later domain
+inventory also lists the default `rea-superhuman.vercel.app` on this project;
+the initial duplicate-registration response did not establish another owner's
+use. The longer reserved name remains the configured canonical frontend origin.
 
 The proposed API is one Node 24 process on Render with a persistent SQLite disk.
 This preserves the current synchronous transactions, durable provider-operation
@@ -55,6 +56,27 @@ warnings. Private reference fonts are absent from a clean deployment.
 The official `node:24.22.1-bookworm-slim` tag was verified through Docker manifest
 inspection, including its Linux amd64 manifest. No Docker daemon is running, so
 image construction and container execution remain unverified.
+
+## Vercel frontend preflight
+
+The Git-connected first production attempt, `dpl_6tcBHwYKaUXRnALnPRNicrvUBjQV`,
+clones exact commit `647ad275a8e547d307ddd30d726315ca9a6c6b39` and refuses to build
+without `API_ORIGIN`. The retained build error is the intentional configuration
+guard, not a successful mail release. The request to create a preview with the
+literal target `preview` was rejected before creation; the documented API uses
+an omitted target for previews.
+
+The corrected preview, `dpl_7sJHzSnJRzCaA3bYCZofWsQeqPUw`, is READY on that exact
+commit using Vercel's Node 24.22.2. Anonymous page and API requests both return
+302 redirects. The already signed-in Chrome session opens the actual built app
+and displays the configured preview API error. This verifies protected static
+serving and the preview API boundary, not a working inbox or real backend.
+The subsequent copy correction states simply that email is unavailable in a
+preview. The production domain still has no usable mail release.
+
+The connector's authenticated-fetch check was rejected by automatic approval
+review because it may create a 23-hour share link. No link was created by this
+workflow; normal signed-in browser inspection provided the safe alternative.
 
 The stopped local app was restored using the existing source/configuration. A
 native read-only selected-state audit preserves all 20 drafts and seven
