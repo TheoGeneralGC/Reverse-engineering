@@ -1,0 +1,37 @@
+# Deny-by-default build context. Never include .env, local mail, evidence,
+# browser profiles, credentials, root .local artifacts, tests or vendor code.
+**
+!package.json
+!package-lock.json
+!apps/
+!apps/superhuman/
+!apps/superhuman/api/
+!apps/superhuman/api/package.json
+!apps/superhuman/api/src/
+!apps/superhuman/api/src/**
+!apps/superhuman/collector/
+!apps/superhuman/collector/package.json
+!apps/superhuman/collector/src/
+!apps/superhuman/collector/src/protocol.ts
+!apps/superhuman/vercel/
+!apps/superhuman/vercel/package.json
+!apps/superhuman/vercel/package-lock.json
+!apps/superhuman/vercel/src/
+!apps/superhuman/vercel/src/**
+# Source-directory allowlists must not reopen private captures or binaries.
+**/node_modules/**
+**/.env
+**/.env.*
+**/evidence/**
+**/*.sqlite*
+**/*.har
+**/*.log
+**/*.woff*
+**/*.ttf
+**/*.otf
+**/*.node
+**/*.dylib
+**/*.so
+**/*.exe
+**/*.bin
+**/*.wasm

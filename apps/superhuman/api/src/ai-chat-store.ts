@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 import { HttpError } from './types.ts';
 import type { AiChatSession, AiChatTurn, AiChatSubmit, AiProgressPayload, AiChatEvent, AiSessionPage, AiSessionDetail, AiEventPage } from './ai-chat-types.ts';
 import type { PersonalizationSnapshot } from './personalization-types.ts';

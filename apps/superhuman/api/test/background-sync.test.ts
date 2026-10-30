@@ -32,7 +32,7 @@ function account(app: ReturnType<typeof createApp>, suffix = 'a') {
 }
 
 test('automatic import continues bounded slices then polls history without any UI requests', async () => {
-  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: environment, scheduler: clock }); const owner = account(app);
+  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: { ...environment, DATABASE_PATH: ':memory:' }, scheduler: clock }); const owner = account(app);
   const requests: unknown[] = [];
   app.google.sync = async (id, limits) => { assert.equal(id, owner.id); requests.push(limits); return result(requests.length === 1); };
   try {
@@ -49,7 +49,7 @@ test('automatic import continues bounded slices then polls history without any U
 });
 
 test('runJobs false disables all automatic timers while explicit mocked sync remains usable', async () => {
-  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: environment, scheduler: clock, runJobs: false }); const owner = account(app); let calls = 0;
+  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: { ...environment, DATABASE_PATH: ':memory:' }, scheduler: clock, runJobs: false }); const owner = account(app); let calls = 0;
   app.google.sync = async () => { calls++; return result(); };
   try { assert.equal(clock.tasks.size, 0); await clock.advance(86_400_000); assert.equal(calls, 0); await app.requestSync(owner.id); assert.equal(calls, 1); }
   finally { await app.close(); }
@@ -57,12 +57,12 @@ test('runJobs false disables all automatic timers while explicit mocked sync rem
 
 test('provider retry delay is persisted, survives restart and cannot be bypassed by manual quota retries', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'superhuman-auto-sync-')); const path = join(dir, 'mail.sqlite'); const clock = new Clock();
-  let app = createApp({ databasePath: path, env: environment, scheduler: clock, runJobs: false }); const owner = account(app);
+  let app = createApp({ databasePath: path, env: { ...environment, DATABASE_PATH: path }, scheduler: clock, runJobs: false }); const owner = account(app);
   app.google.sync = async () => { throw Object.assign(new HttpError(429, 'Google rate limit reached', 'google_rate_limited'), { diagnostic: { pathFamily: 'threads', httpStatus: 429, reasons: ['rateLimitExceeded'], retryAfterSeconds: 120 } }); };
   try {
     await assert.rejects(() => app.requestSync(owner.id), /rate limit/);
     const health = app.syncStatus(owner.id); assert.equal(health.failureCount, 1); assert.equal(health.nextSyncAt, new Date(clock.now() + 120_000).toISOString()); assert.equal(health.diagnostic?.retryAfterSeconds, 120);
-    await app.close(); app = createApp({ databasePath: path, env: environment, scheduler: clock, runJobs: false }); let calls = 0;
+    await app.close(); app = createApp({ databasePath: path, env: { ...environment, DATABASE_PATH: path }, scheduler: clock, runJobs: false }); let calls = 0;
     app.google.sync = async () => { calls++; return result(); };
     await assert.rejects(() => app.requestSync(owner.id), error => error instanceof HttpError && error.code === 'sync_retry_pending');
     assert.equal(app.runSyncJobs(), 0); await clock.advance(119_999); assert.equal(app.runSyncJobs(), 0); assert.equal(calls, 0);
@@ -71,7 +71,7 @@ test('provider retry delay is persisted, survives restart and cannot be bypassed
 });
 
 test('transient failures use exponential durable backoff; successful retry clears the prior error only after completion', async () => {
-  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: environment, scheduler: clock, runJobs: false }); const owner = account(app); let calls = 0;
+  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: { ...environment, DATABASE_PATH: ':memory:' }, scheduler: clock, runJobs: false }); const owner = account(app); let calls = 0;
   const gate = deferred(); const entered = deferred();
   app.google.sync = async () => { calls++; if (calls < 3) throw new Error('Synthetic temporary failure'); entered.resolve(); await gate.promise; return result(); };
   try {
@@ -84,7 +84,7 @@ test('transient failures use exponential durable backoff; successful retry clear
 });
 
 test('authorization failure requires explicit reconnect/retry and never starts an automatic authentication flow', async () => {
-  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: environment, scheduler: clock, runJobs: false }); const owner = account(app); let calls = 0;
+  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: { ...environment, DATABASE_PATH: ':memory:' }, scheduler: clock, runJobs: false }); const owner = account(app); let calls = 0;
   app.google.sync = async () => { calls++; if (calls === 1) throw new HttpError(401, 'Reconnect this account', 'reconnect_required'); return result(); };
   app.google.startAuth = () => { throw new Error('Automatic authentication must not occur'); };
   try {
@@ -96,17 +96,17 @@ test('authorization failure requires explicit reconnect/retry and never starts a
 
 test('an interrupted saved running import resumes automatically after restart without resetting its cursor', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'superhuman-sync-resume-')); const path = join(dir, 'mail.sqlite'); const clock = new Clock();
-  let app = createApp({ databasePath: path, env: environment, scheduler: clock, runJobs: false }); const owner = account(app);
+  let app = createApp({ databasePath: path, env: { ...environment, DATABASE_PATH: path }, scheduler: clock, runJobs: false }); const owner = account(app);
   app.store.put('sync', owner.id, { phase: 'initial', historyId: '10', generation: 'preserve', pageToken: 'saved-page', partial: true });
   app.store.put('syncHealth', owner.id, { status: 'running', updatedAt: new Date(clock.now()).toISOString() });
-  await app.close(); app = createApp({ databasePath: path, env: environment, scheduler: clock }); let calls = 0;
+  await app.close(); app = createApp({ databasePath: path, env: { ...environment, DATABASE_PATH: path }, scheduler: clock }); let calls = 0;
   app.google.sync = async () => { calls++; assert.equal(app.store.get<{ pageToken: string }>('sync', owner.id)?.pageToken, 'saved-page'); return result(true); };
   try { await clock.advance(0); assert.equal(calls, 1); assert.equal(app.syncStatus(owner.id).status, 'ready'); }
   finally { await app.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('background sync deduplicates active slices and skips accounts with due authorized deliveries', async () => {
-  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: environment, scheduler: clock, runJobs: false }); const owner = account(app); let calls = 0; const gate = deferred(); const entered = deferred();
+  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: { ...environment, DATABASE_PATH: ':memory:' }, scheduler: clock, runJobs: false }); const owner = account(app); let calls = 0; const gate = deferred(); const entered = deferred();
   app.google.sync = async () => { calls++; entered.resolve(); await gate.promise; return result(true); };
   try {
     assert.equal(app.runSyncJobs(), 1); await entered.promise; assert.equal(app.runSyncJobs(), 0); assert.equal(calls, 1);
@@ -117,7 +117,7 @@ test('background sync deduplicates active slices and skips accounts with due aut
 });
 
 test('a slow import and queued snooze wake on account A do not delay scheduled delivery on account B', async () => {
-  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: environment, scheduler: clock, runJobs: false }); const a = account(app); const b = account(app, 'b');
+  const clock = new Clock(); const app = createApp({ databasePath: ':memory:', env: { ...environment, DATABASE_PATH: ':memory:' }, scheduler: clock, runJobs: false }); const a = account(app); const b = account(app, 'b');
   const gate = deferred(); const entered = deferred(); const bSent = deferred(); const sent: string[] = [];
   app.google.sync = async id => { if (id === a.id) { entered.resolve(); await gate.promise; } return result(true); };
   app.google.updateThread = async () => {};

@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 import { normalizeContactEmail, refreshRecipientContacts } from './contacts.ts';
 import { HttpError, type ContactContextOptions, type ContactContextPage, type ThreadSummary } from './types.ts';
 

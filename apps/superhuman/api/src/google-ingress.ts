@@ -51,7 +51,7 @@ export class GoogleIngressAdapter{
  begin(accountId:string):GoogleReadLease{
   if(this.closed)fail('google_ingress_closed');return this.tx(()=>{
    const {version}=this.account(accountId),old=this.row(accountId),stamp=this.stamp(old);
-   if(old?.lease_id&&old.expires_at!>stamp&&(this.options.ownerAlive??alive)(old.owner!,old.pid!))fail('google_ingress_busy');
+   if(old?.lease_id&&old.expires_at!>stamp&&this.store.ownerLiveness(old.owner===this.owner,()=>(this.options.ownerAlive??alive)(old.owner!,old.pid!)))fail('google_ingress_busy');
    const epoch=next(old?.epoch??0),leaseId=randomUUID(),baseline=old&&old.account_version===version?old.baseline_version:sha(randomUUID());
    const same=old?.account_version===version;
    this.store.db.prepare(`INSERT INTO google_ingress_meta VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET account_version=excluded.account_version,epoch=excluded.epoch,baseline_version=excluded.baseline_version,anchored=excluded.anchored,complete=0,cursor=excluded.cursor,sequence=excluded.sequence,completed_at=excluded.completed_at,owner=excluded.owner,pid=excluded.pid,lease_id=excluded.lease_id,expires_at=excluded.expires_at,stamp=excluded.stamp`).run(accountId,version,epoch,baseline,same?old!.anchored:0,0,same?old!.cursor:null,old?.sequence??0,same?old!.completed_at:null,this.owner,process.pid,leaseId,stamp+this.leaseMs,stamp);

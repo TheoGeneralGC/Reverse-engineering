@@ -4,6 +4,7 @@ import {generatedHash,generatedScopeValid,type GeneratedPublicationScope,type Dr
 import type { KeyedDeliveryIdentity, KeyedDeliveryObserver } from './keyed-delivery-hooks.ts';
 import { initializeSplitHeaders, refreshSplitHeaders } from './split-inbox-headers.ts';
 import { DatabaseSync } from 'node:sqlite';
+import { assertSqlDatabase, type SqlDatabase, type SqlDatabaseFactory } from './sql-database.ts';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -39,7 +40,15 @@ export interface ReminderLifecycleHooks {
  commitUndo?(id:string,next:Thread):boolean;
  ownsProjection?(accountId:string,threadId:string):boolean;
 }
+export type StoreOwnerLiveness = (localRegistered: boolean, nativeFallback: () => boolean) => boolean;
+
 export class Store {
+  private readonly ownerLivenessCheck?: StoreOwnerLiveness;
+  ownerLiveness(localRegistered: boolean, nativeFallback: () => boolean): boolean {
+    const result = this.ownerLivenessCheck ? this.ownerLivenessCheck(localRegistered, nativeFallback) : nativeFallback();
+    if (typeof result !== 'boolean') throw new TypeError('Owner liveness must return a boolean');
+    return result;
+  }
   private readonly reminderHooks=new Set<ReminderLifecycleHooks>();
   private readonly messageWitnessAuthorities=new Set<MessageWitnessAuthority>();
   registerMessageWitnessAuthority(authority:MessageWitnessAuthority){this.messageWitnessAuthorities.add(authority);return()=>this.messageWitnessAuthorities.delete(authority)}
@@ -147,11 +156,28 @@ export class Store {
   assertKeyedNativeSend(draft:Draft,context:DeliveryContext){this.requireDeliveryHook(draft,context)?.native?.(draft,context)}
   private assertDraftMutable(draft: Draft) { if (draft.artifactSendId || draft.composerSendId || this.artifactDeliveryId(draft.id) || this.composerDeliveryId(draft.id)) throw new HttpError(409, 'A reviewed artifact delivery cannot be edited or reused', 'artifact_delivery_locked'); }
 
-  db: DatabaseSync;
-  constructor(path: string, seed = true) {
-    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    this.db = new DatabaseSync(path);
-    if (path !== ':memory:') chmodSync(path, 0o600);
+  db: SqlDatabase;
+  constructor(path: string, seed = true, options: { databaseFactory?: SqlDatabaseFactory; ownerLiveness?: StoreOwnerLiveness } = {}) {
+    if (!options || typeof options !== 'object' || Array.isArray(options) ||
+        Object.keys(options).some(key => !['databaseFactory', 'ownerLiveness'].includes(key)) ||
+        options.databaseFactory !== undefined && typeof options.databaseFactory !== 'function' ||
+        options.ownerLiveness !== undefined && typeof options.ownerLiveness !== 'function') {
+      throw new TypeError('Invalid Store database configuration');
+    }
+    this.ownerLivenessCheck = options.ownerLiveness;
+    const factory = options.databaseFactory;
+    if (factory) {
+      if (typeof path !== 'string' || !path.trim()) throw new TypeError('An injected database requires an explicit path');
+      const supplied = factory(path);
+      try { assertSqlDatabase(supplied); }
+      catch (error) { if (supplied && typeof (supplied as SqlDatabase).close === 'function') { try { supplied.close(); } catch {} } throw error; }
+      this.db = supplied;
+    } else {
+      if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      this.db = new DatabaseSync(path);
+      if (path !== ':memory:') chmodSync(path, 0o600);
+    }
+    try {
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(kind,id));
       CREATE TABLE IF NOT EXISTS secrets(account_id TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -168,6 +194,7 @@ export class Store {
     initializeContactContext(this.db);
     initializeSplitHeaders(this.db);
     if (seed && this.list<Account>('account').length === 0) this.seed();
+    } catch (error) { if (factory) { try { this.db.close(); } catch {} } throw error; }
   }
   list<T>(kind: string): T[] { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(String(r.data))); }
   get<T>(kind: string, id: string): T | undefined { const row = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return row ? JSON.parse(String(row.data)) : undefined; }

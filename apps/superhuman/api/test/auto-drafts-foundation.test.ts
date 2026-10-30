@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import {syntheticFullThread} from './reminder-projection-fixture.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -156,7 +157,7 @@ test('history completeness and final pre-COMMIT clock fence refuse partial publi
   const f = fixture(); try {
     const j = f.job(), lease = f.engine.claim('a', j.generation.id, 1);
     const event = f.store.db.prepare('SELECT * FROM auto_draft_job_events WHERE job_id=? AND revision=1').get(j.generation.id)!; f.store.db.prepare('DELETE FROM auto_draft_job_events WHERE job_id=? AND revision=1').run(j.generation.id); assert.throws(() => f.engine.history('a', j.generation.id), code('auto_draft_generation_corrupt')); f.store.db.prepare('INSERT INTO auto_draft_job_events VALUES(?,?,?,?)').run(event.job_id!, event.revision!, event.data!, event.integrity!);
-    f.store.db.function('controlled_clock_rewind', () => { f.advance(-1); return 0; }); f.store.db.exec("CREATE TEMP TRIGGER rewind_issue BEFORE UPDATE ON auto_draft_jobs WHEN json_extract(NEW.proof,'$.generation.state')='dispatch-issued' BEGIN SELECT controlled_clock_rewind(); END");
+    assert.ok(f.store.db instanceof DatabaseSync); f.store.db.function('controlled_clock_rewind', () => { f.advance(-1); return 0; }); f.store.db.exec("CREATE TEMP TRIGGER rewind_issue BEFORE UPDATE ON auto_draft_jobs WHEN json_extract(NEW.proof,'$.generation.state')='dispatch-issued' BEGIN SELECT controlled_clock_rewind(); END");
     assert.throws(() => f.engine.issue('a', j.generation.id, lease.leaseId!, '{}'), code('auto_draft_generation_corrupt')); assert.equal(f.engine.job('a', j.generation.id).state, 'claimed'); assert.equal(f.store.db.prepare('SELECT request_utf8 FROM auto_draft_jobs WHERE id=?').get(j.generation.id)!.request_utf8, null); f.advance(1); f.store.db.exec('DROP TRIGGER rewind_issue');
   } finally { f.close(); }
 });

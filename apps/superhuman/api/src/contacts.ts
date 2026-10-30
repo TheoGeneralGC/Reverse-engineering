@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 import { domainToASCII } from 'node:url';
 import { HttpError, type ContactSuggestion, type ContactSuggestionOptions, type ContactSuggestionPage } from './types.ts';
 

@@ -26,7 +26,7 @@ export class ProviderDraftService {
   readonly owner=randomUUID();readonly active=new Map<string,Promise<void>>();
   private readonly timers=new Map<string,{cancel:()=>void}>();private readonly aborts=new Map<string,AbortController>();
   private readonly pendingReads=new Set<Promise<unknown>>();
-  private closing=false;private readonly metadataWriter:ProviderMetadataWriter;private readonly automatic:boolean;
+  private closing=false;private quiescing=false;private quiescePromise:Promise<void>|undefined;private readonly metadataWriter:ProviderMetadataWriter;private readonly automatic:boolean;
   private readonly queue:{run<T>(accountId:string,fn:()=>Promise<T>):Promise<T>};
   private readonly debounceMs:number;
   constructor(store:Store,transport:ProviderDraftTransport,options:{clock?:ProviderDraftClock;queue?:{run<T>(accountId:string,fn:()=>Promise<T>):Promise<T>};automatic?:boolean;resume?:boolean;debounceMs?:number;ownerAlive?:(pid:number)=>boolean}={}){
@@ -60,7 +60,7 @@ export class ProviderDraftService {
   private recover(isAlive:(pid:number)=>boolean){
     this.repository.transaction(()=>{
       for(const row of this.store.db.prepare("SELECT id,account_id,draft_id,owner,owner_pid FROM provider_draft_operations WHERE state='dispatching'").all()){
-        const live=Number(row.owner_pid)===process.pid&&isAlive===alive?owners.has(String(row.owner)):isAlive(Number(row.owner_pid));if(live)continue;
+        const live=this.store.ownerLiveness(owners.has(String(row.owner)),()=>Number(row.owner_pid)===process.pid&&isAlive===alive?owners.has(String(row.owner)):isAlive(Number(row.owner_pid)));if(live)continue;
         const op=this.repository.operation(String(row.account_id),String(row.draft_id),String(row.id)),link=this.repository.link(op.accountId,op.draftId);if(!link||link.activeOperationId!==op.id)continue;
         const error:ProviderDraftError={code:'provider_draft_interrupted',message:'A cloud write was interrupted. Check its outcome; it will not repeat automatically.',retry:'explicit-check'};
         this.repository.saveOperation({...op,state:'unknown',error});this.repository.saveLink({...link,state:'outcome_unknown',error});
@@ -114,12 +114,12 @@ export class ProviderDraftService {
     else if(editable&&desired.state==='queued')this.schedule(draft.accountId,draft.id);
   }
   private resumeQueued(){
-    if(!this.automatic||this.closing)return;
+    if(!this.automatic||this.closing||this.quiescing)return;
     const rows=this.store.db.prepare("SELECT account_id,draft_id FROM provider_draft_links WHERE CASE WHEN json_valid(data) THEN json_extract(data,'$.state') END IN ('queued','discard_queued') LIMIT 100").all();
     for(const row of rows){const draftId=String(row.draft_id);if(!this.active.has(draftId)&&!this.timers.has(draftId))this.schedule(String(row.account_id),draftId)}
   }
   private schedule(accountId:string,draftId:string){
-    this.timers.get(draftId)?.cancel();this.timers.delete(draftId);if(this.closing||!this.automatic)return;
+    this.timers.get(draftId)?.cancel();this.timers.delete(draftId);if(this.closing||this.quiescing||!this.automatic)return;
     this.timers.set(draftId,this.clock.schedule(()=>{this.timers.delete(draftId);const run=()=>{void this.flush(accountId,draftId).catch(()=>{})};if(this.store.db.isTransaction)queueMicrotask(run);else run()},this.debounceMs));
   }
   status(accountId:string,draftId:string):ProviderDraftSnapshot{return this.repository.snapshot(accountId,draftId)}
@@ -342,6 +342,25 @@ export class ProviderDraftService {
       const error:ProviderDraftError={code:'provider_draft_write_unknown',message:'The cloud write outcome is unknown. Check it before another provider action; it will not repeat automatically.',retry:'explicit-check'};
       this.repository.saveOperation({...op,state:'unknown',error});this.repository.saveLink({...link,state:'outcome_unknown',error});
     });
+  }
+  /** Hosted handoff: stop debounce admission but flush each already queued
+   * snapshot once before close. Ambiguous writes retain their existing locks. */
+  quiesce():Promise<void>{
+    if(this.quiescePromise)return this.quiescePromise;
+    this.quiescing=true;for(const timer of this.timers.values())timer.cancel();this.timers.clear();
+    this.quiescePromise=(async()=>{
+      const drain=async()=>{const results=await Promise.allSettled([...this.active.values(),...this.pendingReads]);for(const result of results)if(result.status==='rejected')throw result.reason};
+      await drain();
+      if(this.automatic&&!this.closing){
+        const seen=new Set<string>();
+        for(;;){
+          const rows=this.store.db.prepare("SELECT account_id,draft_id FROM provider_draft_links WHERE CASE WHEN json_valid(data) THEN json_extract(data,'$.state') END IN ('queued','discard_queued')").all().filter(row=>!seen.has(String(row.draft_id)));
+          if(!rows.length)break;
+          for(const row of rows){const draftId=String(row.draft_id);seen.add(draftId);await this.flush(String(row.account_id),draftId)}
+        }
+      }
+      await drain();
+    })();return this.quiescePromise;
   }
   async close(){
     if(this.closing){await Promise.allSettled([...this.active.values(),...this.pendingReads]);return}this.closing=true;this.metadataWriter.close();

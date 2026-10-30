@@ -1,5 +1,5 @@
 import {projectStoredMessages} from './reminder-message-projection.ts';
-import type { DatabaseSync } from 'node:sqlite';
+import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 import { Temporal } from '@js-temporal/polyfill';
 import { randomUUID } from 'node:crypto';
 import { KnowledgeRepository } from './knowledge-store.ts';

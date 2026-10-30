@@ -1,0 +1,30 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci --include=dev --ignore-scripts --workspace @re/superhuman-web --include-workspace-root=false",
+  "buildCommand": "node apps/superhuman/vercel/ops/build.mjs",
+  "outputDirectory": "apps/superhuman/web/dist",
+  "regions": ["iad1"],
+  "functions": { "api/bridge.ts": { "maxDuration": 120 } },
+  "routes": [
+    { "src": "^/api(?:/.*)?$", "dest": "/api/bridge" },
+    { "handle": "filesystem" },
+    { "src": "^/.*$", "dest": "/index.html" }
+  ],
+  "daemons": {
+    "mail-worker": {
+      "root": ".",
+      "entrypoint": "Dockerfile.mail-worker",
+      "instances": {"iad1": 1},
+      "resources": {"requests": {"memory": "1Gi"}},
+      "terminationGracePeriodSeconds": 120,
+      "livenessProbe": {
+        "httpGet": {"port": 3002, "path": "/healthz"},
+        "initialDelaySeconds": 20,
+        "periodSeconds": 15,
+        "timeoutSeconds": 3,
+        "failureThreshold": 4
+      }
+    }
+  }
+}

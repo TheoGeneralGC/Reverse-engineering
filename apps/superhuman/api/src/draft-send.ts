@@ -69,12 +69,12 @@ export class DraftSendService{
       claim:(d,a,c)=>this.claim(d,a,c),complete:(d,a,c)=>this.complete(d,a,c),unknown:(d,c)=>this.unknown(d,c),held:(d,c)=>this.held(d,c),resume:(d,c)=>this.resume(d,c),native:(d,c)=>this.native(d,c)
     };
     for(const row of store.db.prepare("SELECT id,owner,owner_pid,data FROM draft_send_operations WHERE state IN ('queued','sending')").all()){
-      const live=liveness===ownerAlive&&Number(row.owner_pid)===process.pid?owners.has(String(row.owner)):liveness(Number(row.owner_pid));
+      const live=store.ownerLiveness(owners.has(String(row.owner)),()=>liveness===ownerAlive&&Number(row.owner_pid)===process.pid?owners.has(String(row.owner)):liveness(Number(row.owner_pid)));
       if(live)continue;
       this.transaction(()=>{
         const fresh=store.db.prepare('SELECT owner,owner_pid,data FROM draft_send_operations WHERE id=?').get(String(row.id));if(!fresh)return;
         const op=JSON.parse(String(fresh.data))as DraftSendOperation;if(!['queued','sending'].includes(op.state))return;
-        const freshLive=liveness===ownerAlive&&Number(fresh.owner_pid)===process.pid?owners.has(String(fresh.owner)):liveness(Number(fresh.owner_pid));if(freshLive)return;
+        const freshLive=store.ownerLiveness(owners.has(String(fresh.owner)),()=>liveness===ownerAlive&&Number(fresh.owner_pid)===process.pid?owners.has(String(fresh.owner)):liveness(Number(fresh.owner_pid)));if(freshLive)return;
         const draft=this.ownedDraft(op.accountId,op.draftId),attempt=op.deliveryAttemptId?store.get<DeliveryAttempt>('delivery',op.deliveryAttemptId):undefined;
         if(draft&&store.trackingNeverIssued(draft,{composerOperationId:op.id})){store.holdTrackedDelivery(draft.id,{composerOperationId:op.id});return;}
         let resumable=false;try{resumable=op.mode==='scheduled'&&op.state==='queued'&&!op.deliveryAttemptId&&draft?.status==='scheduled'&&!draft.deliveryAttemptId&&draft.composerSendId===op.id&&draft.scheduledAt===op.scheduledAt&&op.cancellableUntil===op.scheduledAt&&Number.isFinite(Date.parse(op.scheduledAt??''))&&(draft.revision??0)===op.draftRevision&&this.contentIdentity(draft)===op.contentHash}catch{/* Invalid queued content is not dispatched. */}
@@ -96,7 +96,7 @@ export class DraftSendService{
   ownsLiveDelivery(draftId:string):boolean{
     const row=this.store.db.prepare("SELECT owner,owner_pid FROM draft_send_operations WHERE draft_id=? AND state IN ('queued','sending')").get(draftId);
     if(!row)return false;
-    return Number(row.owner_pid)===process.pid?owners.has(String(row.owner)):ownerAlive(Number(row.owner_pid))
+    return this.store.ownerLiveness(owners.has(String(row.owner)),()=>Number(row.owner_pid)===process.pid?owners.has(String(row.owner)):ownerAlive(Number(row.owner_pid)))
   }
   private transaction<T>(fn:()=>T):T{
     this.store.db.exec('BEGIN IMMEDIATE');
@@ -324,7 +324,7 @@ export class DraftSendService{
   }
   private resume(draft:Draft,context:DeliveryContext){
     const {op,owner}=this.linked(draft,context);const row=this.store.db.prepare('SELECT owner_pid FROM draft_send_operations WHERE id=?').get(op.id);
-    if(this.closing||op.state!=='held_before_provider'||owner!==this.owner&&(Number(row?.owner_pid)===process.pid?owners.has(owner):ownerAlive(Number(row?.owner_pid))))conflict('Another live owner holds this operation');
+    if(this.closing||op.state!=='held_before_provider'||owner!==this.owner&&this.store.ownerLiveness(owners.has(owner),()=>Number(row?.owner_pid)===process.pid?owners.has(owner):ownerAlive(Number(row?.owner_pid))))conflict('Another live owner holds this operation');
     this.policy(draft);this.store.db.prepare('UPDATE draft_send_operations SET owner=?,owner_pid=? WHERE id=?').run(this.owner,process.pid,op.id);
     this.save({...op,state:op.deliveryAttemptId?'sending':'queued',error:null});
   }

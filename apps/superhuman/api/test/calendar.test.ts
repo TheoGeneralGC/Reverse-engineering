@@ -244,7 +244,7 @@ test('existing conferences are preserved, unsupported Meet/replacement are block
 });
 
 test('Calendar HTTP readiness stays explicit/off by default and existing Gmail/summary endpoints keep working', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false }); await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve)); const address = app.server.address(); assert.ok(address && typeof address === 'object'); const base = `http://127.0.0.1:${address.port}`;
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false }); await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve)); const address = app.server.address(); assert.ok(address && typeof address === 'object'); const base = `http://127.0.0.1:${address.port}`;
   try {
     const status = await (await fetch(`${base}/api/calendar/status`)).json(); assert.equal(status.calendar.enabled, false); assert.equal(status.calendar.liveVerified, false); assert.ok(status.calendar.missing.includes('GOOGLE_CALENDAR_ENABLED'));
     const calendars = await (await fetch(`${base}/api/calendar/calendars`)).json(); assert.deepEqual(calendars.calendars, []); assert.equal(calendars.sync.partial, true);

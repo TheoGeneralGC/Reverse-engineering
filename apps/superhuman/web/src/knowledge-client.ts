@@ -1,4 +1,5 @@
 import { ApiError } from './api.ts';
+import { mailFetch } from './mail-fetch.ts';
 import type { KnowledgeSource,KnowledgeSourcePage,KnowledgeStatus,KnowledgeActionRequest,KnowledgeActionResponse } from '../../api/src/knowledge-types.ts';
 export type { KnowledgeSource,KnowledgeSourcePage,KnowledgeStatus,KnowledgeActionRequest,KnowledgeActionResponse };
 export type KnowledgeRequest=(path:string,body?:unknown,method?:string,options?:{signal?:AbortSignal;raw?:boolean})=>Promise<unknown>;
@@ -55,5 +56,5 @@ export async function parseKnowledgeAction(value:unknown,expected:{accountId:str
  if(receipt.fingerprint!==await knowledgeActionFingerprint(expected.request))return fail();return structuredClone(value) as KnowledgeActionResponse;
 }
 export async function knowledgeApi(path:string,body?:unknown,method=body===undefined?'GET':'POST',options:{signal?:AbortSignal;raw?:boolean}={}){
- const response=await fetch('/api'+path,{method,signal:options.signal,...(method==='GET'?{cache:'no-store' as const}:{}),headers:body===undefined?{}:{'Content-Type':options.raw?'application/octet-stream':'application/json'},body:body===undefined?undefined:options.raw?body as ArrayBuffer:JSON.stringify(body)});const result=await response.json();if(!response.ok)throw new ApiError(result.error?.message||`Knowledge request failed (${response.status})`,response.status,result.error?.code);return result;
+ const response=await mailFetch('/api'+path,{method,signal:options.signal,...(method==='GET'?{cache:'no-store' as const}:{}),headers:body===undefined?{}:{'Content-Type':options.raw?'application/octet-stream':'application/json'},body:body===undefined?undefined:options.raw?body as ArrayBuffer:JSON.stringify(body)});const result=await response.json();if(!response.ok)throw new ApiError(result.error?.message||`Knowledge request failed (${response.status})`,response.status,result.error?.code);return result;
 }

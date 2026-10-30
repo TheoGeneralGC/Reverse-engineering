@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 // Tables are a fixed internal allowlist, never client-controlled identifiers.
 const ledgers=['ai_draft_requests','ai_draft_sends','ai_draft_send_cancellations','draft_send_operations','draft_send_cancellations','delivery_accelerations','provider_draft_discards','tracking_delivery_controls'] as const;
 export function deliveryActionKeyInUse(db:DatabaseSync,accountId:string,key:string,except:readonly string[]=[]):boolean{

@@ -15,7 +15,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Store, type DraftWriteCondition } from './store.ts';
+import { Store, type DraftWriteCondition, type StoreOwnerLiveness } from './store.ts';
+import type { SqlDatabaseFactory } from './sql-database.ts';
 import { GoogleProvider } from './google.ts';
 import { AiProvider } from './ai.ts';
 import { AiChatService } from './ai-chat.ts';
@@ -68,9 +69,11 @@ export function resolveApplicationDatabasePath(optionPath: unknown, environmentP
 
 export type AutoDraftGenerationOptions=Pick<AutoDraftsV2AuthorityOptions,'processing'|'replyTimeZone'|'generatedPersistence'|'model'|'cursorKey'|'maximumIdentityAgeMs'>&{googleFetch?:typeof fetch;modelProfile:(accountId:string)=>AutoDraftModelProfileInput};
 
-export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration; autoDraftGeneration?:AutoDraftGenerationOptions; reminderFoundation?:ReminderFoundationOptions;reminderNative?:ReminderNativeConfiguration } = {}) {
-  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector', 'autoDraftGeneration', 'reminderFoundation','reminderNative'].includes(key));
+export function createApp(options: { databasePath?: string; databaseFactory?: SqlDatabaseFactory; ownerLiveness?: StoreOwnerLiveness; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration; autoDraftGeneration?:AutoDraftGenerationOptions; reminderFoundation?:ReminderFoundationOptions;reminderNative?:ReminderNativeConfiguration } = {}) {
+  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'databaseFactory', 'ownerLiveness', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector', 'autoDraftGeneration', 'reminderFoundation','reminderNative'].includes(key));
   if (unknownOptions.length) throw new TypeError('Unknown application configuration option');
+  if (options.databaseFactory !== undefined && typeof options.databaseFactory !== 'function') throw new TypeError('databaseFactory must be a function');
+  if (options.ownerLiveness !== undefined && typeof options.ownerLiveness !== 'function') throw new TypeError('ownerLiveness must be a function');
   if (options.providerDraftAutomatic !== undefined && typeof options.providerDraftAutomatic !== 'boolean') throw new TypeError('providerDraftAutomatic must be a boolean');
   const providerDraftAutomaticEffective=options.providerDraftAutomatic??(options.runJobs!==false);
   const autoOptions=options.autoDraftGeneration;
@@ -78,16 +81,17 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   if(autoOptions?.replyTimeZone!==undefined)autoDraftReplyTimeZone(autoOptions.replyTimeZone);
   const env = options.env ?? process.env;
   const configuredDatabase = resolveApplicationDatabasePath(options.databasePath, env.DATABASE_PATH, !!process.env.NODE_TEST_CONTEXT);
+  if (options.databaseFactory !== undefined && !configuredDatabase) throw new TypeError('An injected database requires an explicit databasePath');
   if(options.reminderFoundation!==undefined&&(!options.reminderFoundation||typeof options.reminderFoundation!=='object'||Array.isArray(options.reminderFoundation)||Object.keys(options.reminderFoundation).some(k=>!['now','contextAuthority','digest'].includes(k))||Object.values(options.reminderFoundation).some(v=>typeof v!=='function')))throw new TypeError('Invalid reminder foundation options');
   if(options.reminderNative!==undefined){validateReminderNativeConfiguration(options.reminderNative);if(options.reminderFoundation!==undefined)throw new TypeError('Choose one reminder authority');if(autoOptions?.googleFetch&&options.reminderNative.googleFetch&&autoOptions.googleFetch!==options.reminderNative.googleFetch)throw new TypeError('Conflicting Google fetch injection')}
   const scheduler = options.scheduler ?? systemScheduler;
   if(options.undoWindowMs!==undefined)deliveryDeadline(scheduler.now(),options.undoWindowMs);
   const syncPollMs = 30_000; const syncContinuationMs = 1_500;
-  let closing = false;const hydrationAbort=new AbortController(),hydrationWork=new Set<Promise<unknown>>();
+  let closing = false, quiescing = false;const hydrationAbort=new AbortController(),hydrationWork=new Set<Promise<unknown>>();
   if (options.trackingCollector !== undefined && (!options.trackingCollector || typeof options.trackingCollector !== 'object' || Array.isArray(options.trackingCollector))) throw new TypeError('Invalid tracking collector configuration');
   const trackingCollector = options.trackingCollector === undefined ? undefined : new TrackingCollectorClient({ ...options.trackingCollector, now: options.trackingCollector.now ?? Date.now });
   let store: Store;
-  try { store = new Store(configuredDatabase ?? resolve(rootPath, '.local/superhuman/mail.sqlite'), options.seed ?? true); } catch (error) { trackingCollector?.close(); throw error; }
+  try { store = new Store(configuredDatabase ?? resolve(rootPath, '.local/superhuman/mail.sqlite'), options.seed ?? true, { databaseFactory: options.databaseFactory, ownerLiveness: options.ownerLiveness }); } catch (error) { trackingCollector?.close(); throw error; }
   let archiveActions:ArchiveActionService|undefined;const json=(response:ServerResponse,status:number,value:unknown)=>sendJson(response,status,publicWireValue(store,value));const archiveJson=(response:ServerResponse,status:number,value:unknown)=>{const wire=publicWireValue(store,value);sendJson(response,status,archiveActions?archiveActions.annotate(wire):wire)};
   let autoDraftGeneration:AutoDraftsV2Authority|undefined;let google:GoogleProvider;
   try{if(autoOptions){autoDraftGeneration=new AutoDraftsV2Authority(store,{...autoOptions,automaticCloudSaveAvailable:autoOptions.generatedPersistence==='managed'&&autoOptions.processing===true&&providerDraftAutomaticEffective,googleEnvironment:env,googleFetch:autoOptions.googleFetch??options.reminderNative?.googleFetch??fetch,webOrigin:env.WEB_ORIGIN||'http://127.0.0.1:5173',now:scheduler.now});google=autoDraftGeneration.facade.runtime.google}else google=new GoogleProvider(store,env,options.reminderNative?.googleFetch)}catch(error){store.close();trackingCollector?.close();throw error}
@@ -112,7 +116,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const calendar = new GoogleCalendarProvider(store, google, env, google.fetcher, { now: scheduler.now });
   const knowledge = new KnowledgeService(store, { now: scheduler.now, resume: options.runJobs !== false });
   const inFlightSends = new Set<string>();
-  const aiChat = new AiChatService(store, env, options.aiFetch, { now: scheduler.now, isDraftLocked: id => inFlightSends.has(id) });
+  const aiChat = new AiChatService(store, env, options.aiFetch, { now: scheduler.now, isDraftLocked: id => inFlightSends.has(id), ownerAlive: pid => store.ownerLiveness(false, () => { try { process.kill(pid, 0); return true; } catch { return false; } }) });
   const aiSend = new AiDraftSendService(store, aiChat.drafts, google, scheduler.now, undefined, { windowMs: options.undoWindowMs ?? 10000, schedule: (callback,ms)=>scheduler.schedule(callback,ms) });
   const draftSend = new DraftSendService(store, google, scheduler.now, undefined, { windowMs: options.undoWindowMs ?? 10000, schedule: (callback,ms)=>scheduler.schedule(callback,ms), isDraftLocked: id => inFlightSends.has(id) });
   const deliveryControl = new DeliveryAccelerationService(store, aiSend, draftSend, scheduler.now);
@@ -129,21 +133,21 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const autoDraftAccounts=(accountId?:string)=>store.list<Account>('account').filter(a=>a.provider==='google'&&(accountId===undefined||a.id===accountId));
   /** Explicit startup/background observation. HTTP GET never calls this. */
   async function initializeAutoDrafts(accountId?:string){
-    if(!autoDraftGeneration)return;if(closing)throw new HttpError(503,'Automatic draft server stopped','auto_draft_generation_stopping');autoDraftGeneration.adoptAccounts();
+    if(!autoDraftGeneration)return;if(closing||quiescing)throw new HttpError(503,'Automatic draft server stopped','auto_draft_generation_stopping');autoDraftGeneration.adoptAccounts();
     await Promise.all(autoDraftAccounts(accountId).map(account=>{const old=autoDraftInitializations.get(account.id);if(old)return old;const generation=autoDraftGeneration!;
       const work=(async()=>{await generation.install(account.id);await generation.observeModelProfile(account.id,autoOptions!.modelProfile(account.id));
         if(autoOptions?.processing===true&&generation.authority.identity(account.id).state==='unavailable'&&generation.authority.binding(account.id).capable)await operations.run(account.id,()=>generation.refreshIdentity(account.id));
-        generation.facade.runtime.worker.foundation.recover((owner,pid)=>{if(owner===generation.facade.runtime.worker.foundation.owner)return true;if(!pid)return false;try{process.kill(pid,0);return true}catch{return false}});
+        generation.facade.runtime.worker.foundation.recover((owner,pid)=>store.ownerLiveness(owner===generation.facade.runtime.worker.foundation.owner,()=>{if(owner===generation.facade.runtime.worker.foundation.owner)return true;if(!pid)return false;try{process.kill(pid,0);return true}catch{return false}}));
         await generation.settle(account.id);
       })().finally(()=>{if(autoDraftInitializations.get(account.id)===work)autoDraftInitializations.delete(account.id)});autoDraftInitializations.set(account.id,work);return work;
     }));
   }
   /** Models run after provider work releases the account queue, never inside it. */
   async function runAutoDraftJobs(accountId?:string){
-    if(!autoDraftGeneration||autoOptions?.processing!==true||closing)return 0;
-    await initializeAutoDrafts(accountId);if(closing)return 0;
+    if(!autoDraftGeneration||autoOptions?.processing!==true||closing||quiescing)return 0;
+    await initializeAutoDrafts(accountId);if(closing||quiescing)return 0;
     const jobs=autoDraftAccounts(accountId).map(account=>{const existing=autoDraftJobs.get(account.id);if(existing)return existing;if(operations.tails.has(account.id))return Promise.resolve(0);const generation=autoDraftGeneration!;
-      const work=(async()=>{if(closing||operations.tails.has(account.id))return 0;const row=store.db.prepare("SELECT id FROM auto_draft_jobs WHERE account_id=? AND json_extract(proof,'$.generation.state')='queued' ORDER BY CAST(json_extract(proof,'$.generation.ordinal') AS INTEGER) LIMIT 1").get(account.id);if(!row)return 0;await generation.run(account.id,String(row.id));return 1})().finally(()=>{if(autoDraftJobs.get(account.id)===work)autoDraftJobs.delete(account.id)});autoDraftJobs.set(account.id,work);return work;
+      const work=(async()=>{if(closing||quiescing||operations.tails.has(account.id))return 0;const row=store.db.prepare("SELECT id FROM auto_draft_jobs WHERE account_id=? AND json_extract(proof,'$.generation.state')='queued' ORDER BY CAST(json_extract(proof,'$.generation.ordinal') AS INTEGER) LIMIT 1").get(account.id);if(!row)return 0;await generation.run(account.id,String(row.id));return 1})().finally(()=>{if(autoDraftJobs.get(account.id)===work)autoDraftJobs.delete(account.id)});autoDraftJobs.set(account.id,work);return work;
     });return(await Promise.all(jobs)).reduce((a,b)=>a+b,0);
   }
   /** Observe already-owned work only; no initialization, sync or dispatch. */
@@ -151,6 +155,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   let pendingWake: Promise<{ woken: number; failed: number }> | undefined;
 
   function wakeSnoozes(now = scheduler.now()) {
+    if (closing || quiescing) return pendingWake ?? Promise.resolve({ woken: 0, failed: 0 });
     store.wakeSnoozes(now);
     if (pendingWake) return pendingWake;
     pendingWake = (async () => {
@@ -181,7 +186,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   }
   function requestSync(accountId: string) {
     const existing = syncs.get(accountId); if (existing) return existing;
-    if (closing) return Promise.reject(new HttpError(503, 'Server is shutting down'));
+    if (closing || quiescing) return Promise.reject(new HttpError(503, 'Server is shutting down'));
     if (store.required<Account>('account', accountId).provider !== 'google') return Promise.reject(new HttpError(400, 'This account is a demo account'));
     const previous = store.get<SyncHealth>('syncHealth', accountId);
     // Explicit user retry can override our transient backoff, but cannot bypass
@@ -214,7 +219,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   }
 
   function runSyncJobs(now = scheduler.now()) {
-    if (closing || !google.status().configured) return 0;
+    if (closing || quiescing || !google.status().configured) return 0;
     let launched = 0;
     for (const account of store.list<Account>('account')) {
       if (account.provider !== 'google' || syncs.has(account.id) || operations.tails.has(account.id)) continue;
@@ -235,7 +240,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   }
   const deliverComposer = (draftId: string, operationId: string) => deliver(draftId, undefined, operationId);
   async function deliver(id: string, artifactOperationId?: string, composerOperationId?: string, trackingContinuation=false) {
-    if (closing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
+    if (closing || quiescing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
     const selected = store.required<Draft>('draft', id);
     if ((selected.artifactSendId || artifactOperationId || store.artifactDeliveryId(id)) && (selected.artifactSendId !== artifactOperationId || store.artifactDeliveryId(id) !== artifactOperationId)) throw new HttpError(409, 'Use the original artifact Send operation; generic Send cannot redispatch it', 'artifact_delivery_locked');
     assertComposerDelivery(selected, artifactOperationId, composerOperationId);
@@ -246,7 +251,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     finally { inFlightSends.delete(id); }
   }
   async function dispatchDelivery(id: string, artifactOperationId?: string, composerOperationId?: string,trackingContinuation=false) {
-    if (closing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
+    if (closing || quiescing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
     const draft = store.required<Draft>('draft', id);
     if ((draft.artifactSendId || artifactOperationId || store.artifactDeliveryId(id)) && (draft.artifactSendId !== artifactOperationId || store.artifactDeliveryId(id) !== artifactOperationId)) throw new HttpError(409, 'The artifact operation owns this delivery', 'artifact_delivery_locked');
     assertComposerDelivery(draft, artifactOperationId, composerOperationId);
@@ -260,8 +265,9 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     let attemptStarted = trackingContinuation&&!!draft.deliveryAttemptId;
     try {
       await providerDrafts.checkBeforeDelivery(draft);
-      if (closing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
+      if (closing || quiescing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
       const tracked=attemptStarted?trackingDelivery.isTracked(draft,deliveryContext):await trackingDelivery.prepare(draft,deliveryContext);
+      if (closing || quiescing) throw new HttpError(503, 'Server is shutting down', 'delivery_stopping');
       const pending = attemptStarted?draft:store.beginDelivery(id, deliveryContext); attemptStarted = true;
       const result = await (tracked?trackingDelivery.send(pending,deliveryContext):google.send(pending)) as { id?: string };
       if (!result || typeof result.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(result.id)) throw new HttpError(502, 'Gmail returned an invalid delivery acknowledgment', 'invalid_google_send_response');
@@ -298,12 +304,13 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   }
   function runJobs() {
     if (jobsPromise) return jobsPromise;
-    if (closing) return Promise.resolve();
+    if (closing || quiescing) return Promise.resolve();
     jobsPromise = (async () => {
       draftSend.runScheduled(deliverComposer);
       const waking = wakeSnoozes(); const groups = new Map<string, string[]>();
       for (const draft of store.list<Draft>('draft').filter(draft => draft.status === 'scheduled' && !draft.composerSendId && !store.composerDeliveryId(draft.id))) groups.set(draft.accountId, [...(groups.get(draft.accountId) ?? []), draft.id]);
       await Promise.all([waking, runAutoDraftJobs(), ...[...groups.values()].map(async ids => { for (const id of ids) {
+        if (closing || quiescing) return;
         const selected = store.get<Draft>('draft', id);
         if (selected?.status !== 'scheduled' || !selected.scheduledAt || Date.parse(selected.scheduledAt) > scheduler.now()) continue;
         try { await deliver(id); }
@@ -318,15 +325,15 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     return jobsPromise;
   }
   let syncTimer: { cancel: () => void } | undefined; let jobTimer: { cancel: () => void } | undefined; let calendarTimer: { cancel: () => void } | undefined;
-  function scheduleSyncTick(delayMs: number) { if (!closing) syncTimer = scheduler.schedule(() => { if (closing) return; runSyncJobs(); scheduleSyncTick(1000); }, delayMs); }
-  function scheduleJobTick() { if (!closing) jobTimer = scheduler.schedule(() => { if (closing) return; void runJobs().catch(() => {}); scheduleJobTick(); }, 15_000); }
-  function scheduleCalendarTick(delayMs: number) { if (!closing) calendarTimer = scheduler.schedule(() => { if (closing) return; calendar.runJobs(scheduler.now()); scheduleCalendarTick(1500); }, delayMs); }
+  function scheduleSyncTick(delayMs: number) { if (!closing && !quiescing) syncTimer = scheduler.schedule(() => { if (closing || quiescing) return; runSyncJobs(); scheduleSyncTick(1000); }, delayMs); }
+  function scheduleJobTick() { if (!closing && !quiescing) jobTimer = scheduler.schedule(() => { if (closing || quiescing) return; void runJobs().catch(() => {}); scheduleJobTick(); }, 15_000); }
+  function scheduleCalendarTick(delayMs: number) { if (!closing && !quiescing) calendarTimer = scheduler.schedule(() => { if (closing || quiescing) return; calendar.runJobs(scheduler.now()); scheduleCalendarTick(1500); }, delayMs); }
   if(autoOptions&&options.runJobs!==false)void initializeAutoDrafts().catch(()=>{});
   if (options.runJobs !== false) { scheduleSyncTick(0); scheduleJobTick(); if (calendar.status().configured) scheduleCalendarTick(0); }
   const frontendOrigin = env.WEB_ORIGIN || 'http://127.0.0.1:5173';
   const allowedOrigins = new Set([frontendOrigin, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000', 'http://127.0.0.1:3000']);
   const server = createServer(async (request, response) => {
-    if(closing)return json(response,503,{error:{code:'server_stopping',message:'Server is shutting down'}});
+    if(closing||quiescing)return json(response,503,{error:{code:'server_stopping',message:'Server is shutting down'}});
     const origin = request.headers.origin;
     if (origin && !allowedOrigins.has(origin) && origin !== `http://${request.headers.host}`) return json(response, 403, { error: { code: 'origin_not_allowed', message: 'Origin is not allowed' } });
     if (origin) { response.setHeader('access-control-allow-origin', origin); response.setHeader('vary', 'Origin'); response.setHeader('access-control-allow-headers', 'Content-Type'); response.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS'); }
@@ -617,6 +624,42 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       throw new HttpError(404, 'Route not found', 'not_found');
     } catch (error) { const status = error instanceof HttpError ? error.status : 500; json(response, status, { error: { code: error instanceof HttpError ? error.code : 'internal_error', message: error instanceof HttpError ? error.message : 'Unexpected server error' } }); }
   });
+  let deliveryQuiescePromise: Promise<void> | undefined, quiescePromise: Promise<void> | undefined;
+  /** Stop new timer/HTTP admission immediately. Existing issued delivery and
+   * model work drains; unissued immediate Sends follow their shutdown policy. */
+  function beginQuiesce(): void {
+    if (quiescing) return;
+    quiescing = true;
+    syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel();
+    aiChat.stopIndexing(); reminderNative?.stopScheduling();
+    deliveryQuiescePromise = Promise.all([aiSend.close(), draftSend.close()]).then(() => undefined);
+    void deliveryQuiescePromise.catch(() => {});
+  }
+  /** The hosted actor first waits for admitted HTTP handlers, then calls this.
+   * It must not close/abort model/native work before these ownership drains. */
+  function quiesce(): Promise<void> {
+    if (quiescePromise) return quiescePromise;
+    beginQuiesce();
+    quiescePromise = (async () => {
+      await deliveryQuiescePromise;
+      await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]);
+      await waitAutoDraftIdle();
+      await Promise.all([aiChat.waitForIdle(), knowledge.waitForIdle()]);
+      while (operations.tails.size || hydrationWork.size || deliveryMetadataJobs.size || trackingConfirmationJobs.size) {
+        await Promise.allSettled([...operations.tails.values(), ...hydrationWork, ...deliveryMetadataJobs, ...trackingConfirmationJobs]);
+      }
+      await Promise.all([trackingDelivery.waitForIdle(), trackingReads.waitForIdle(), reminderNative?.waitForIdle()]);
+      while (calendar.jobs.size || calendar.syncRequests.size || calendar.operations.tails.size || calendar.readTails.size) {
+        await Promise.allSettled([...calendar.jobs.values(), ...calendar.syncRequests.values(), ...calendar.operations.tails.values(), ...calendar.readTails.values()]);
+      }
+      await providerDrafts.quiesce();
+      while (operations.tails.size || hydrationWork.size || deliveryMetadataJobs.size || trackingConfirmationJobs.size) {
+        await Promise.allSettled([...operations.tails.values(), ...hydrationWork, ...deliveryMetadataJobs, ...trackingConfirmationJobs]);
+      }
+      await google.waitForTokenIdle();
+    })();
+    return quiescePromise;
+  }
   let closePromise: Promise<void> | undefined;
   const close = () => {
     if (closePromise) return closePromise;
@@ -625,7 +668,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     return closePromise;
   };
   if(options.runJobs!==false)reminderNative?.start();
-  return { server, store, archiveActions, reminders, reminderNative, reminderHttp, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, autoDrafts, autoDraftGeneration, initializeAutoDrafts, runAutoDraftJobs, waitAutoDraftIdle, providerDrafts, splitInboxes, tracking, trackingCollector,trackingDelivery,trackingReads, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
+  return { server, store, archiveActions, reminders, reminderNative, reminderHttp, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, autoDrafts, autoDraftGeneration, initializeAutoDrafts, runAutoDraftJobs, waitAutoDraftIdle, providerDrafts, splitInboxes, tracking, trackingCollector,trackingDelivery,trackingReads, beginQuiesce, quiesce, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

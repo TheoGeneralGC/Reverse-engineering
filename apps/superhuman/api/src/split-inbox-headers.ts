@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 import { normalizeContactEmail } from './contacts.ts';
 const normalized=(raw:string)=>raw.normalize('NFKC').toLowerCase().replace(/\s+/gu,' ').trim();
 const text=(path:string,field:string)=>`CASE WHEN json_type(${path},'$.${field}')='text' THEN json_extract(${path},'$.${field}') ELSE '' END`;

@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 import type { CalendarMetadata, CalendarEvent, CalendarSyncState, CalendarRangeCache, CalendarOperation } from './calendar-types.ts';
 
 export class CalendarStore {

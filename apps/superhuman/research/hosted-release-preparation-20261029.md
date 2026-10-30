@@ -33,20 +33,13 @@ inventory also lists the default `rea-superhuman.vercel.app` on this project;
 the initial duplicate-registration response did not establish another owner's
 use. The longer reserved name remains the configured canonical frontend origin.
 
-The proposed API is one Node 24 process on Render with a persistent SQLite disk.
-This preserves the current synchronous transactions, durable provider-operation
-receipts and process ownership. The [proposal](../hosted/PROPOSAL.md) and
-[Blueprint](../hosted/render.yaml) specify the additional $7.25/month baseline
-and require purchase approval. No paid resource has been provisioned. The
-existing Vercel tracking collector remains unchanged.
-
-The new hosted entry point validates explicit configuration, authenticates the
-Vercel origin secret before dispatch, checks Host/Origin, removes forwarding
-hints, secures cookies and disables caching. It reuses both existing runtime
-configuration loaders and leaves local API source unchanged. The database starts
-fresh; local mail and tokens are not copied. Production routing receives a
-server-only environment secret. Preview builds cannot reach the production API.
-These are deployment design choices, not observed original-product behavior.
+The active candidate uses one Vercel project with a persistent Daemon Core,
+stateless HTTP Function bridge, separate mail/control Turso primaries and private
+Blob transport. The [runtime checkpoint](vercel-runtime-candidate-20261029.md)
+records its new local gates and remaining cloud proof. The historical Render
+package/proposal below remains unapproved; no Render resource was created.
+All Deployments Authentication remains enabled, and hosted mail starts fresh
+without copying local credentials or cached mailbox data.
 
 ## Local validation
 
@@ -104,10 +97,10 @@ does not transfer data to either hosting provider.
 
 ## Release acceptance still required
 
-- Approve and provision the separate API service/disk, then verify its exact
-  image build, single process, mounted database and initial synthetic state.
-- Verify unauthenticated Vercel HTML and API requests are blocked; direct API
-  requests without the origin secret must disclose no mailbox data.
+- Complete the dedicated control database grant and remote primary proof, then
+  verify the exact worker image, exclusive Core ownership and synthetic state.
+- Verify unauthenticated Vercel HTML and API requests are blocked; all API
+  requests must preserve the same authenticated boundary.
 - Verify protected same-origin reads/changes, uncached responses, a 10 MiB
   round trip, streaming and committed data across replacement/restart.
 - Register the exact hosted callback on the existing Google client and verify

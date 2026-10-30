@@ -1,4 +1,5 @@
 import{useEffect,useRef,useState}from'react';
+import{mailFetch}from'./mail-fetch.ts';
 import type{Thread,ThreadSummary}from'./api.ts';
 import{archiveBasis,createArchiveQueue}from'./archive-actions.ts';
 import type{ArchiveQueue,ArchiveRecord,ArchiveResult}from'./archive-actions.ts';
@@ -9,7 +10,7 @@ import type{useDoneMotion}from'./done-motion.tsx';
 type Props={accountId:string|undefined;accountVersion:string|null;scope:string;mailbox:ReturnType<typeof useMailbox>;motion:ReturnType<typeof useDoneMotion>;notify:(text:string,undo?:string)=>void;notifyOrdinary?:(notice:OrdinaryNotice)=>void;refresh:()=>Promise<void>;captureUndoGuard?:()=>()=>boolean};
 type Binding={reservation:DoneReservation;scope:string;motion:Props['motion'];undone:boolean;projectionKey?:string};
 const timeoutMs=25000;
-async function transport(path:string,body?:unknown,method?:string){const signal=AbortSignal.timeout(timeoutMs),work=fetch('/api'+path,{method:method??(body===undefined?'GET':'POST'),headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal,redirect:'error'}).then(r=>r.json());return new Promise((resolve,reject)=>{const abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});work.then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort))})}
+async function transport(path:string,body?:unknown,method?:string){const signal=AbortSignal.timeout(timeoutMs),work=mailFetch('/api'+path,{method:method??(body===undefined?'GET':'POST'),headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal,redirect:'error'}).then(r=>r.json());return new Promise((resolve,reject)=>{const abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});work.then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort))})}
 export function useArchiveActions(props:Props){
  const presentationStarts=useRef(new Set<string>()),explicitChecks=useRef(new Map<string,number>());
  const current=useRef(props);current.current=props;const queues=useRef(new Map<string,ArchiveQueue>()),bindings=useRef(new Map<string,Binding>()),latest=useRef<{accountId:string;requestId:string}|null>(null),onEvent=useRef<(r:ArchiveRecord,v?:ArchiveResult)=>void>(()=>{}),[status,setStatus]=useState<{accountId:string;requestId:string;text:string}|null>(null);

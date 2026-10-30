@@ -49,7 +49,7 @@ export class AutomationFixtureEngine<Configuration> {
         CREATE TABLE IF NOT EXISTS automation_applications(id TEXT PRIMARY KEY,account_id TEXT NOT NULL,preview_id TEXT NOT NULL,data TEXT NOT NULL,UNIQUE(account_id,preview_id));
         CREATE TABLE IF NOT EXISTS automation_requests(account_id TEXT NOT NULL,client_key TEXT NOT NULL,kind TEXT NOT NULL,entity_id TEXT NOT NULL,fingerprint TEXT NOT NULL,data TEXT,PRIMARY KEY(account_id,client_key));`);
       for (const row of store.db.prepare("SELECT id,owner,owner_pid,data FROM automation_previews WHERE state IN ('prepared','classifying')").all()) {
-        const live = Number(row.owner_pid) === process.pid && ownerAlive === alive ? owners.has(String(row.owner)) : ownerAlive(Number(row.owner_pid));
+        const live = store.ownerLiveness(owners.has(String(row.owner)), () => Number(row.owner_pid) === process.pid && ownerAlive === alive ? owners.has(String(row.owner)) : ownerAlive(Number(row.owner_pid)));
         if (live) continue;
         const preview = JSON.parse(String(row.data)) as AutomationPreview;
         preview.state = 'interrupted'; preview.error = { code: 'automation_interrupted', message: 'The earlier manual preview was interrupted. Request a new preview explicitly.', retry: 'explicit-new-preview' };

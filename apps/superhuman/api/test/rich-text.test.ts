@@ -90,7 +90,7 @@ test('forwarding an HTML-only original keeps its visible content in both MIME al
 });
 
 test('API accepts rich drafts, returns sanitized markup and rejects non-string HTML', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false }); await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve)); const address = app.server.address(); assert.ok(address && typeof address === 'object'); const base = `http://127.0.0.1:${address.port}`;
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false }); await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve)); const address = app.server.address(); assert.ok(address && typeof address === 'object'); const base = `http://127.0.0.1:${address.port}`;
   try {
     const created = await fetch(`${base}/api/drafts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html: '<div><u>Saved</u><script>bad()</script></div>' }) }); assert.equal(created.status, 201); const { draft } = await created.json(); assert.equal(draft.html, '<div><u>Saved</u></div>'); assert.equal(draft.body, 'Saved');
     const patched = await fetch(`${base}/api/drafts/${draft.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body: 'Plain replacement' }) }); assert.equal((await patched.json()).draft.html, undefined);

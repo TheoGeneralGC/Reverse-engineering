@@ -64,7 +64,7 @@ test('delivery guard blocks unknown recipients and CRLF injection before network
 });
 
 test('delivery requires an explicitly approved authenticated sender and empty sender approval disables delivery', async () => {
-  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_RECIPIENTS: 'approved@example.test' }, runJobs: false });
+  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_RECIPIENTS: 'approved@example.test' , DATABASE_PATH: ':memory:'}, runJobs: false });
   app.store.put<Account>('account', 'google:test', { id: 'google:test', provider: 'google', email: 'sender@example.test', name: 'Sender', color: '#888' });
   const draft = app.store.saveDraft({ accountId: 'google:test', to: 'approved@example.test', subject: 'Sender guard' }); let sends = 0; app.google.send = async () => { sends++; return { id: 'should-not-send' }; };
   assert.equal(app.google.status().deliveryEnabled, false);
@@ -85,7 +85,7 @@ test('Google OAuth state rejects a mismatching browser session without exchangin
 });
 
 test('API persists drafts, provides actionable missing-credential status and rejects cross-origin mutations', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false });
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false });
   await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address(); assert.ok(address && typeof address === 'object'); const base = `http://127.0.0.1:${address.port}`;
   const request = (path: string, method = 'GET', data?: unknown, origin?: string) => fetch(base + path, { method, headers: { ...(data ? { 'content-type': 'application/json' } : {}), ...(origin ? { origin } : {}) }, body: data ? JSON.stringify(data) : undefined });
@@ -201,7 +201,7 @@ test('interrupted delivery is durably unknown after restart and is never retried
     const store = new Store(path); store.put<Account>('account', 'google:test', { id: 'google:test', provider: 'google', email: 'sender@example.test', name: 'Sender', color: '#888' });
     const draft = store.saveDraft({ accountId: 'google:test', to: 'approved@example.test', body: 'Test', status: 'scheduled', scheduledAt: new Date(Date.now() - 1).toISOString() });
     const pending = store.beginDelivery(draft.id); assert.equal(pending.status, 'sending'); assert.ok(pending.deliveryMessageId); store.close();
-    const app = createApp({ databasePath: path, env, runJobs: false }); let providerCalls = 0; app.google.send = async () => { providerCalls++; return { id: 'should-not-send' }; };
+    const app = createApp({ databasePath: path, env: { ...env, DATABASE_PATH: path }, runJobs: false }); let providerCalls = 0; app.google.send = async () => { providerCalls++; return { id: 'should-not-send' }; };
     assert.equal(app.store.required<Draft>('draft', draft.id).status, 'delivery_unknown');
     await assert.rejects(() => app.deliver(draft.id), /reconciled/); await app.runJobs(); assert.equal(providerCalls, 0);
     assert.throws(() => app.store.saveDraft({ id: draft.id, status: 'draft' }), /reconciled/); await app.close();
@@ -209,7 +209,7 @@ test('interrupted delivery is durably unknown after restart and is never retried
 });
 
 test('ambiguous provider failure and accepted-before-commit failure cannot be resent', async () => {
-  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_RECIPIENTS: 'approved@example.test', APPROVED_TEST_SENDERS: 'sender@example.test' }, runJobs: false });
+  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_RECIPIENTS: 'approved@example.test', APPROVED_TEST_SENDERS: 'sender@example.test' , DATABASE_PATH: ':memory:'}, runJobs: false });
   app.store.put<Account>('account', 'google:test', { id: 'google:test', provider: 'google', email: 'sender@example.test', name: 'Sender', color: '#888' });
   let calls = 0; app.google.send = async () => { calls++; throw new Error('Socket lost after provider acceptance'); };
   const first = app.store.saveDraft({ accountId: 'google:test', to: 'approved@example.test' });
@@ -222,7 +222,7 @@ test('ambiguous provider failure and accepted-before-commit failure cannot be re
 });
 
 test('scheduler re-reads queued drafts and never downgrades one manually sent while an earlier job waits', async () => {
-  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_RECIPIENTS: 'approved@example.test', APPROVED_TEST_SENDERS: 'sender@example.test' }, runJobs: false });
+  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_RECIPIENTS: 'approved@example.test', APPROVED_TEST_SENDERS: 'sender@example.test' , DATABASE_PATH: ':memory:'}, runJobs: false });
   app.store.put<Account>('account', 'google:test', { id: 'google:test', provider: 'google', email: 'sender@example.test', name: 'Sender', color: '#888' });
   const scheduledAt = new Date(Date.now() - 1000).toISOString(); const first = app.store.saveDraft({ accountId: 'google:test', to: 'approved@example.test', status: 'scheduled', scheduledAt }); const second = app.store.saveDraft({ accountId: 'google:test', to: 'approved@example.test', status: 'scheduled', scheduledAt });
   let release!: () => void; let entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; }); const gate = new Promise<void>(resolve => { release = resolve; }); const sent: string[] = [];
@@ -243,7 +243,7 @@ test('Gmail membership retains new inbox mail despite an older trashed message a
 });
 
 test('account queue preserves rapid Star and Archive during awaited provider work', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false }); const thread = app.store.required<Thread>('thread', 'demo-thread-1'); app.store.put<Account>('account', 'google:test', { id: 'google:test', provider: 'google', email: 'sender@example.test', name: 'Sender', color: '#888' }); app.store.put('thread', thread.id, { ...thread, accountId: 'google:test', providerId: 'provider-thread', providerLabels: ['INBOX'] });
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false }); const thread = app.store.required<Thread>('thread', 'demo-thread-1'); app.store.put<Account>('account', 'google:test', { id: 'google:test', provider: 'google', email: 'sender@example.test', name: 'Sender', color: '#888' }); app.store.put('thread', thread.id, { ...thread, accountId: 'google:test', providerId: 'provider-thread', providerLabels: ['INBOX'] });
   let release!: () => void; let entered!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); const started = new Promise<void>(resolve => { entered = resolve; }); let calls = 0;
   app.google.updateThread = async () => { calls++; if (calls === 1) { entered(); await gate; } };
   await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve)); const address = app.server.address(); assert.ok(address && typeof address === 'object'); const base = `http://127.0.0.1:${address.port}`;
@@ -252,7 +252,7 @@ test('account queue preserves rapid Star and Archive during awaited provider wor
 });
 
 test('OAuth success redirects after account persistence even when initial sync fails; retry uses saved account', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false }); let syncCalls = 0;
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false }); let syncCalls = 0;
   app.google.finishAuth = async () => { app.store.put<Account>('account', 'google:connected', { id: 'google:connected', provider: 'google', email: 'connected@example.test', name: 'Connected', color: '#888' }); app.store.db.prepare('INSERT INTO secrets VALUES(?,?)').run('google:connected', 'preserved-token-ciphertext'); return 'google:connected'; };
   app.google.sync = async () => { syncCalls++; if (syncCalls === 1) throw new Error('Temporary mailbox failure'); return { imported: 1, partial: false, phase: 'history' as const, pages: 1, resultSizeEstimate: undefined, scope: 'test' }; };
   await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve)); const address = app.server.address(); assert.ok(address && typeof address === 'object'); const base = `http://127.0.0.1:${address.port}`;
@@ -263,7 +263,7 @@ test('OAuth success redirects after account persistence even when initial sync f
 });
 
 test('rescheduling is rejected while a due delivery is queued behind account synchronization', async () => {
-  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_RECIPIENTS: 'approved@example.test', APPROVED_TEST_SENDERS: 'sender@example.test' }, runJobs: false });
+  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_RECIPIENTS: 'approved@example.test', APPROVED_TEST_SENDERS: 'sender@example.test' , DATABASE_PATH: ':memory:'}, runJobs: false });
   app.store.put<Account>('account', 'google:test', { id: 'google:test', provider: 'google', email: 'sender@example.test', name: 'Sender', color: '#888' });
   const originalSchedule = new Date(Date.now() - 1000).toISOString(); const draft = app.store.saveDraft({ accountId: 'google:test', to: 'approved@example.test', status: 'scheduled', scheduledAt: originalSchedule });
   let entered!: () => void; let release!: () => void; const started = new Promise<void>(resolve => { entered = resolve; }); const gate = new Promise<void>(resolve => { release = resolve; });
@@ -278,7 +278,7 @@ test('rescheduling is rejected while a due delivery is queued behind account syn
 });
 
 test('archived Gmail snooze wakes in provider and local Inbox; failed wake stays due and retries with backoff', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false });
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false });
   const original = app.store.required<Thread>('thread', 'demo-thread-1'); const account: Account = { id: 'google:test', provider: 'google', email: 'sender@example.test', name: 'Sender', color: '#888' }; app.store.put('account', account.id, account);
   const id = 'provider-snoozed'; app.store.put<Thread>('thread', id, { ...original, id, accountId: account.id, providerId: 'provider-thread', folder: 'done', providerLabels: [] });
   const until = new Date(Date.now() + 1000).toISOString(); const snooze = app.store.prepareAction(id, 'snooze', { until }); app.store.commitAction(snooze.before, snooze.thread);

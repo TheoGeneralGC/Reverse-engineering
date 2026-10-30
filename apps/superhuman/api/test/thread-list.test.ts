@@ -129,7 +129,7 @@ test('failed legacy projection rolls back migration schema and preserves origina
 });
 
 test('additive HTTP list and metadata-only bootstrap preserve legacy responses and validate limits', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false }); await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve)); const address = app.server.address(); assert.ok(address && typeof address === 'object'); const base = `http://127.0.0.1:${address.port}`;
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false }); await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve)); const address = app.server.address(); assert.ok(address && typeof address === 'object'); const base = `http://127.0.0.1:${address.port}`;
   try {
     const legacy = await (await fetch(`${base}/api/bootstrap`)).json(); assert.equal(legacy.threads.length, 12); assert.ok(legacy.threads[0].messages);
     const fullThreads = app.store.threads.bind(app.store); let calls = 0; app.store.threads = (...args) => { calls++; return fullThreads(...args); };

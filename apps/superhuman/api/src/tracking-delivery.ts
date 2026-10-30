@@ -46,7 +46,7 @@ export class TrackingDeliveryService {
  }
  private tx<T>(fn:()=>T):T{this.store.db.exec('SAVEPOINT tracking_delivery_write');try{const v=fn();this.store.db.exec('RELEASE tracking_delivery_write');return v}catch(e){this.store.db.exec('ROLLBACK TO tracking_delivery_write; RELEASE tracking_delivery_write');throw e}}
  private at(){try{const n=this.now();if(!integer(n)||!Number.isFinite(new Date(n).getTime()))return corrupt();return new Date(n).toISOString()}catch{return corrupt()}}
- private ownerLive(b:Binding){return b.ownerPid===process.pid?liveOwners.has(b.owner):alive(b.ownerPid)}
+ private ownerLive(b:Binding){return this.store.ownerLiveness(liveOwners.has(b.owner),()=>b.ownerPid===process.pid?liveOwners.has(b.owner):alive(b.ownerPid))}
  private identity(draft:Draft,context:DeliveryContext):TrackingDeliveryIdentity|null{const operationId=context.composerOperationId??context.artifactOperationId??draft.composerSendId??draft.artifactSendId;if(!operationId)return null;return{accountId:draft.accountId,source:context.composerOperationId||draft.composerSendId?'composer':'artifact',operationId}}
  private readMetadata(b:Binding){return{tracked:b.tracked?1:0,confirmed:b.tracked&&b.native==='acknowledged'&&b.phase==='confirmed'?1:0,realm:b.configuration?.configurationFingerprint??null}}
  private readCount(accountId:string,realm:string){const row=this.store.db.prepare('SELECT * FROM tracking_delivery_read_counts WHERE account_id=? AND realm=?').get(accountId,realm);if(!row)return{accountId,realm,revision:0,count:0};const value={accountId,realm,revision:Number(row.revision),count:Number(row.confirmed_count)};if(!integer(value.revision)||!integer(value.count)||row.integrity!==trackingHash(value))return corrupt();return value}

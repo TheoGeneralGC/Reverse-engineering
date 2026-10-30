@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {publicKnowledgeAddress,fetchKnowledgeLink} from '../src/knowledge-url.ts';
@@ -41,7 +42,7 @@ test('historical upload keys never resurrect a deleted source or retarget a late
 test('an FTS update failure rolls back acknowledged metadata and its revision in the same transaction',async()=>{
  const f=fixture();try{const created=f.service.upload('a','atomic-edit','owned.txt',Buffer.from('Cedar searchable text')).source;await f.service.runJobs();const before=f.repo.get('a',created.id),raw=f.store.db.prepare('SELECT data FROM knowledge_sources WHERE id=?').get(created.id)!.data;
   // A thrown SQL function inside UPDATE aborts after the metadata save has begun.
-  f.store.db.function('owned_abort',{varargs:true},()=>{throw Error('Controlled FTS update failure')});const statement=f.store.db.prepare.bind(f.store.db);f.store.db.prepare=((sql:string)=>sql.startsWith('UPDATE knowledge_fts SET name=')?statement('SELECT owned_abort(?,?,?)'):statement(sql))as typeof f.store.db.prepare;
+  assert.ok(f.store.db instanceof DatabaseSync); f.store.db.function('owned_abort',{varargs:true},()=>{throw Error('Controlled FTS update failure')});const statement=f.store.db.prepare.bind(f.store.db);f.store.db.prepare=((sql:string)=>sql.startsWith('UPDATE knowledge_fts SET name=')?statement('SELECT owned_abort(?,?,?)'):statement(sql))as typeof f.store.db.prepare;
   try{assert.throws(()=>f.repo.edit('a',created.id,before.revision,{name:'Must roll back',description:'Must roll back too'}));assert.equal(f.store.db.isTransaction,false)}finally{f.store.db.prepare=statement}
   assert.equal(f.store.db.prepare('SELECT data FROM knowledge_sources WHERE id=?').get(created.id)!.data,raw);assert.equal(f.repo.get('a',created.id).revision,before.revision);assert.equal(f.repo.search('a','Cedar')[0].source.name,before.name);
  }finally{await f.close()}

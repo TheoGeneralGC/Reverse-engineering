@@ -7,7 +7,7 @@ async function listen(app: ReturnType<typeof createApp>) { await new Promise<voi
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { resolve, promise }; }
 
 test('exact draft GET includes sent and delivery_unknown without provider calls or state changes', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false }); const base = await listen(app);
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false }); const base = await listen(app);
   app.google.request = async () => { throw new Error('Status reads must not call Google'); };
   app.google.reconcileDelivery = async () => { throw new Error('Status reads must not reconcile implicitly'); };
   const sent = app.store.saveDraft({ to: 'synthetic@example.test', subject: 'Read sent state' }); app.store.beginDelivery(sent.id); app.store.completeDelivery(sent.id, 'mock-accepted');
@@ -25,7 +25,7 @@ test('exact draft GET includes sent and delivery_unknown without provider calls 
 });
 
 test('exact missing draft GET returns existing not_found 404 and creates nothing', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false }); const base = await listen(app);
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false }); const base = await listen(app);
   try {
     const before = app.store.list('draft'); const response = await fetch(`${base}/api/drafts/missing-draft`);
     assert.equal(response.status, 404); assert.deepEqual(await response.json(), { error: { code: 'not_found', message: 'draft not found' } }); assert.deepEqual(app.store.list('draft'), before);
@@ -33,7 +33,7 @@ test('exact missing draft GET returns existing not_found 404 and creates nothing
 });
 
 test('queued dispatch is pending before stored sending status and remains pending until the mock send settles', async () => {
-  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_SENDERS: 'sender@example.test', APPROVED_TEST_RECIPIENTS: 'recipient@example.test' }, runJobs: false }); const base = await listen(app);
+  const app = createApp({ databasePath: ':memory:', env: { APPROVED_TEST_SENDERS: 'sender@example.test', APPROVED_TEST_RECIPIENTS: 'recipient@example.test' , DATABASE_PATH: ':memory:'}, runJobs: false }); const base = await listen(app);
   const owner: Account = { id: 'google:status-fixture', name: 'Status fixture', email: 'sender@example.test', provider: 'google', color: '#888' }; app.store.put('account', owner.id, owner);
   const draft = app.store.saveDraft({ accountId: owner.id, to: 'recipient@example.test', subject: 'Mock queued dispatch' });
   const syncStarted = deferred(); const releaseSync = deferred(); const sendStarted = deferred(); const releaseSend = deferred();

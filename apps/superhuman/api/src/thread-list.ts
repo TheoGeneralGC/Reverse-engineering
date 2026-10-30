@@ -1,4 +1,5 @@
-import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import type { SQLInputValue } from 'node:sqlite';
+import type { SqlDatabase as DatabaseSync } from './sql-database.ts';
 import { createHash } from 'node:crypto';
 import { HttpError, type ThreadListOptions, type ThreadListPage, type ThreadSummary } from './types.ts';
 import { normalizeSearchTimeZone } from './search.ts';

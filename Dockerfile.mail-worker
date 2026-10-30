@@ -1,0 +1,29 @@
+# Private candidate only. No worker or paid compute is activated by this file.
+FROM node:24.22.1-bookworm-slim AS dependencies
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/superhuman/api/package.json apps/superhuman/api/package.json
+COPY apps/superhuman/collector/package.json apps/superhuman/collector/package.json
+RUN npm ci --omit=dev --ignore-scripts --workspace=@reconstruction/superhuman-api --include-workspace-root=false
+
+# This leaf intentionally is not a root workspace. Install its exact native
+# Linux binding and SDK lock independently from the API workspace.
+WORKDIR /worker-dependencies
+COPY apps/superhuman/vercel/package.json apps/superhuman/vercel/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+FROM node:24.22.1-bookworm-slim
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies /worker-dependencies/node_modules ./apps/superhuman/vercel/node_modules
+COPY package.json ./package.json
+COPY apps/superhuman/api/package.json ./apps/superhuman/api/package.json
+COPY apps/superhuman/api/src ./apps/superhuman/api/src
+COPY apps/superhuman/collector/package.json ./apps/superhuman/collector/package.json
+COPY apps/superhuman/collector/src/protocol.ts ./apps/superhuman/collector/src/protocol.ts
+COPY apps/superhuman/vercel/package.json ./apps/superhuman/vercel/package.json
+COPY apps/superhuman/vercel/src ./apps/superhuman/vercel/src
+USER node
+EXPOSE 3002
+CMD ["node", "--experimental-strip-types", "apps/superhuman/vercel/src/worker.ts"]

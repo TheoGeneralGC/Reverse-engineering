@@ -6,7 +6,7 @@ import type { Account } from '../src/types.ts';
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { resolve, promise }; }
 
 test('repeated shutdown shares one promise, waits for owned sync and closes the Store once', async () => {
-  const app = createApp({ databasePath: ':memory:', env: {}, runJobs: false });
+  const app = createApp({ databasePath: ':memory:', env: {DATABASE_PATH: ':memory:'}, runJobs: false });
   const owner: Account = { id: 'google:shutdown-fixture', provider: 'google', email: 'offline@example.test', name: 'Offline', color: '#888' }; app.store.put('account', owner.id, owner);
   const entered = deferred(); const release = deferred(); let syncFinished = false;
   app.google.sync = async () => { entered.resolve(); await release.promise; syncFinished = true; return { imported: 0, pages: 1, partial: false, phase: 'history' as const, resultSizeEstimate: undefined, scope: 'offline shutdown fixture' }; };
