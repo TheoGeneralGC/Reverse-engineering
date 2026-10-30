@@ -9,6 +9,8 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Protected hosted release preparation](research/hosted-release-preparation-20261029.md)
+- [Hosted backend proposal](hosted/PROPOSAL.md)
 - [Applied Shortcuts fade and retirement checkpoint](research/shortcuts-motion-checkpoint-20261030.md)
 - [Applied immediate Undo and notification checkpoint](research/undo-toast-applied-checkpoint-20261030.md)
 - [Applied rapid Done, motion and hydration checkpoint](research/done-applied-checkpoint-20261030.md)
@@ -187,6 +189,11 @@ suite or matched-browser repeat is claimed. The 101-action/652-suite identities
 above remain historical.
 
 ## Run the current implementation
+
+The [hosted release package](hosted/README.md) is prepared for Vercel with a
+separate persistent API service. Its hosting controls pass locally; the additional
+backend purchase and live platform checks remain pending. No hosted-mail release
+is live yet. The existing tracking collector is a separate deployment.
 
 The preceding serving version passed **561 API/536 frontend tests**, build and strict types,
 plus **16 cases/407 browser steps**, all eight persistence assertions and 165

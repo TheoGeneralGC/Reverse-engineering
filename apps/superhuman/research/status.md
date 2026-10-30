@@ -1,5 +1,15 @@
 # Implementation checkpoint — 2026-10-27–30
 
+The [protected hosted release package](hosted-release-preparation-20261029.md)
+is prepared on the applied 1035 API/766 frontend source. Vercel project
+`rea-superhuman` exists in `generalgc`, with All Deployments authentication and
+the reserved domain `rea-superhuman-generalgc.vercel.app`. Sixteen local hosting
+controls pass; a clean Git archive installs and builds without private assets.
+The proposed single-instance disk-backed API requires a separate Render purchase
+approval. No hosted-mail deployment is live, and remote authentication, routing,
+OAuth and disk checks remain pending. All 22 feature-family statuses remain
+unchanged and unverified.
+
 The [Shortcuts lifecycle checkpoint](shortcuts-motion-checkpoint-20261030.md) is
 applied on **1035 API/766 frontend** source. Its200ms fade/250ms retirement
 preserves inactive help during Command replacement and current focus ownership.

@@ -1,0 +1,55 @@
+# Creates a paid service and disk. Apply only after approval of PROPOSAL.md.
+services:
+  - type: web
+    name: rea-superhuman-api
+    runtime: docker
+    repo: https://github.com/TheoGeneralGC/Reverse-engineering
+    branch: codex/superhuman-parity
+    region: oregon
+    plan: 0.5c-512mb
+    numInstances: 1
+    autoDeployTrigger: off
+    dockerfilePath: apps/superhuman/hosted/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    disk:
+      name: superhuman-mail
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: HOSTED_DATA_DIR
+        value: /var/data/superhuman
+      - key: DATABASE_PATH
+        value: /var/data/superhuman/mail.sqlite
+      - key: WEB_ORIGIN
+        value: https://rea-superhuman-generalgc.vercel.app
+      - key: HOSTED_API_ORIGIN
+        sync: false
+      - key: ORIGIN_SECRET
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        value: https://rea-superhuman-generalgc.vercel.app/api/auth/google/callback
+      - key: APPROVED_TEST_RECIPIENTS
+        sync: false
+      - key: APPROVED_TEST_SENDERS
+        sync: false
+      - key: AI_PROVIDER
+        value: anthropic
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        sync: false
+      - key: GOOGLE_CALENDAR_ENABLED
+        value: "false"
+      - key: AUTO_DRAFTS_PERSISTENCE
+        value: local

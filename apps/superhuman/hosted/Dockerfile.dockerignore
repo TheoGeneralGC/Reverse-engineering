@@ -1,0 +1,17 @@
+**
+!package.json
+!package-lock.json
+!apps/
+!apps/superhuman/
+!apps/superhuman/api/
+!apps/superhuman/api/package.json
+!apps/superhuman/api/src/
+!apps/superhuman/api/src/**
+!apps/superhuman/collector/
+!apps/superhuman/collector/package.json
+!apps/superhuman/collector/src/
+!apps/superhuman/collector/src/protocol.ts
+!apps/superhuman/hosted/
+!apps/superhuman/hosted/package.json
+!apps/superhuman/hosted/src/
+!apps/superhuman/hosted/src/**

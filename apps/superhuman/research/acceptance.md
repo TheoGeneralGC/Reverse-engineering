@@ -206,6 +206,17 @@ Use the current event ETag, verify provider results, distinguish a conflict from
 an unknown delivery outcome, and reconcile before offering another write.
 No invitation is authorized merely because an address was approved for email tests.
 
+## Hosted feedback release acceptance
+
+The [hosting preparation](hosted-release-preparation-20261029.md) adds a deployment
+gate without changing original-product feature verification. Before real hosted
+mail connection, verify All Deployments authentication on both HTML and API,
+direct-origin denial, exact browser-origin enforcement, secure OAuth state cookie
+round-trip, private uncached responses, streaming and a synthetic 10 MiB transfer.
+Restart/replacement must preserve committed data and keep uncertain issued
+operations locked without replay. Preview deployments must not reach the real
+production API. Local controls alone do not satisfy these platform scenarios.
+
 ## REA execution pattern
 
 Use the installed release's actual tool schemas. REA 6.8.0 CLI was checked for
