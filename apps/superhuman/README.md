@@ -9,6 +9,8 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Applied rapid Done, motion and hydration checkpoint](research/done-applied-checkpoint-20261030.md)
+- [Original Done motion and rapid-key observation](research/done-motion-observation-20261029.md)
 - [Reviewed combined inline/cloud/tracking/date checkpoint](research/final-combined-checkpoint-20261029.md)
 - [Controlled tracked delivery and anonymous-fetch proof](research/tracked-delivery-checkpoint-20261029.md)
 - [Fresh Gmail snippet decoding checkpoint](research/gmail-snippet-checkpoint-20261029.md)
@@ -39,10 +41,24 @@ Store sanitized specifications and synthetic fixtures under version control.
 Layout: `web/` contains the browser client, `api/` the persistent backend, and
 `research/` the observed behavior, acceptance scenarios and comparisons.
 
+## Applied rapid Done and motion
+
+The [Done checkpoint](research/done-applied-checkpoint-20261030.md) is now running
+on Main, with **1035 API/732 frontend** tests on the exact reviewed source. E
+reserves distinct conversations and advances selection immediately while Gmail
+work stays ordered. Rows retain the recovered 200 ms left exit/400 ms return tokens.
+The 41-action rapid-Done case, 93-action hydration case and a separate real Gmail
+Done/Undo proof passed within their stated limits. Root applied 78 paths matching
+all 489 frozen files, preserved 20 drafts/seven attachments/four sealed rows, then
+passed the 13-action read-only Main smoke. Strict migration/postrestart equality
+is false with explicit differences retained. Immediate Undo/toast refinements,
+other action animations and full 1-to-1 parity remain open. All 22 families remain
+open and unverified; their inventory statuses are unchanged.
+
 ## Applied combined checkpoint
 
 One later [controlled response](research/generated-cloud-reply-checkpoint-20261029.md)
-on this exact source completed one real Claude request and one managed unsent
+on the earlier 884 API/689 frontend, 449-path source completed one real Claude request and one managed unsent
 Gmail draft with raw readback and fresh persisted-state verification. It used a
 separate consistent-copy database; this check did not activate Main. Three observations
 found no original reply to that same question, so paired output/timing parity
@@ -61,14 +77,15 @@ Main now has explicit managed generated persistence and matched collector
 operator verification. Responses/tracking desires stay off, attempts/queues are
 zero and no activation exists; generated cloud capability is true while effective
 tracking stays false. No new model/native Send occurred during rollout. Four API
-date queries now match the bounded original slash/ISO pattern; browser search was
+date queries matched the bounded original slash/ISO pattern at that earlier
+checkpoint; browser search was
 not repeated. The separate controlled tracked delivery/read proof retains strict
 recipient plain/HTML differences. All 22 feature statuses and full-parity gaps
 remain unchanged. Earlier checkpoints below keep their historical identities.
 
 The applied [fresh Gmail snippet correction](research/gmail-snippet-checkpoint-20261029.md)
 passed **687 API tests**, five focused import/codec cases and strict checks.
-Current applied source totals are **884 API/689 frontend/53 collector**, with the separate
+At that preceding checkpoint, applied source totals were **884 API/689 frontend/53 collector**, with the separate
 Vercel package retaining 23 tests. It decodes references once on fresh Gmail
 imports, preserving MIME bodies and safe React text rendering. Older cached
 snippets are not bulk-decoded; guarded authoritative refresh remains pending.

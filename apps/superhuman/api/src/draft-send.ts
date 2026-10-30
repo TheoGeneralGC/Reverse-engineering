@@ -146,7 +146,7 @@ export class DraftSendService{
     if(draft.deliveryReplyContext)return draft.deliveryReplyContext;
     const thread=draft.threadId?this.store.get<Thread>('thread',draft.threadId):undefined;
     if(draft.threadId&&(!thread||thread.accountId!==draft.accountId))conflict('Reply context is unavailable in this account');
-    const last=thread?.messages.at(-1);
+    const last=thread?this.store.replySource(thread.id):undefined;
     return last?{
       id:last.id,internetMessageId:last.internetMessageId,references:last.references,providerThreadId:thread?.providerId
     }:{

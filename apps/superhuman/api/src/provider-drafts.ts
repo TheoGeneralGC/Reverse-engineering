@@ -72,7 +72,7 @@ export class ProviderDraftService {
     if(link)return{account,previous:{internetMessageId:link.replyContext.internetMessageId??undefined,references:link.replyContext.references??undefined},providerThreadId:link.replyContext.providerThreadId??undefined};
     let thread:Thread|undefined;
     if(draft.threadId){const row=this.store.db.prepare("SELECT r.data FROM thread_summaries s JOIN records r ON r.kind='thread' AND r.id=s.id WHERE s.account_id=? AND s.id=?").get(draft.accountId,draft.threadId);if(!row)throw new HttpError(409,'The reply context changed account','provider_draft_scope_changed');thread=JSON.parse(String(row.data));}
-    return{account,previous:draft.deliveryReplyContext??thread?.messages.at(-1),providerThreadId:draft.deliveryReplyContext?.providerThreadId??thread?.providerId};
+    return{account,previous:draft.deliveryReplyContext??(thread?this.store.replySource(thread.id):undefined),providerThreadId:draft.deliveryReplyContext?.providerThreadId??thread?.providerId};
   }
   private beforeWrite(before:Draft|undefined,next:Draft,context:DraftWriteContext){
     const metadata=this.store.isProviderMetadataContext(context);

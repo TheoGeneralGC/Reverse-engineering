@@ -1,8 +1,24 @@
-# Implementation checkpoint — 2026-10-27–29
+# Implementation checkpoint — 2026-10-27–30
 
-The later [controlled managed response](generated-cloud-reply-checkpoint-20261029.md)
+The later [rapid Done and hydration checkpoint](done-applied-checkpoint-20261030.md)
+is now applied: **1035 API/732 frontend**, unchanged collector53/Vercel23.
+Consecutive E advances distinct selection before HTTP completion and retains
+leftward departing rows. All 41 synthetic Done and 93 hydration actions passed;
+one isolated real Gmail Done/Undo restored exact message IDs/labels. Main's
+78-path overlay matches all 489 frozen files. The stopped migration preserves
+all 12,021 records/20 drafts/seven attachments/four sealed rows, with three new
+action/credential tables and precisely qualified metadata additions. Postrestart
+retains 14 changed old tables and six operational record changes; no Thread/draft,
+attachment or sealed-row change. The 13-action read-only Main browser smoke and
+HTTP serving/status check pass. The historical date-fixture failure, sandbox
+listen failure and earlier browser fixture failures remain recorded. Immediate
+Undo/toast, other dismissals, exact pixels/held-key repeat and full parity remain
+open; all 22 families remain unverified and inventory statuses are unchanged.
+
+The earlier [controlled managed response](generated-cloud-reply-checkpoint-20261029.md)
 completed one real Claude request, one unsent Gmail CREATE/raw readback and fresh
-read-only persisted-content verification on the unchanged applied source. It ran
+read-only persisted-content verification on the earlier 884 API/689 frontend,
+449-path applied source. It ran
 in a separate consistent-copy database, with no new Send or Main activation.
 Three same-question observations found no original reply; earlier original
 positive evidence remains separate. All 22 families stay open. The isolated audit
@@ -10,7 +26,7 @@ has zero unexpected rows and strict inequality; a separate Main snapshot preserv
 20 prior drafts/seven Draft attachments but retains 38 changed tables and unequal sealed
 ciphertexts rather than claiming all-state equality.
 
-Current applied source is **884 API/689 frontend/53 collector**, with separate
+The preceding combined source was **884 API/689 frontend/53 collector**, with separate
 Vercel 23 tests. The [combined checkpoint](final-combined-checkpoint-20261029.md)
 binds all 449 exact paths, the passing 79-action inline case and retained review/
 fixture failures. Root applied 61 paths and restarted Main. Jobs-off construction
@@ -26,7 +42,8 @@ tracking desires remain off, integrated/operator-verified/account-disabled and
 effectivefalse, with no tracking preference rows. A current ingress-not-ready
 observation is point-in-time, not universal available readiness. The separate
 read-only Main 12-action smoke is complete/equality eligible and used no editor,
-toggle or Send. Four HTTP date searches match the original bounded 1/0/1/1 pattern;
+toggle or Send. At that earlier checkpoint four HTTP date searches matched the original bounded
+1/0/1/1 pattern;
 browser query interaction was not repeated. Types/build/full 884/689 are inherited
 by source identity, not rerun after rollout. No new model/native Send occurred.
 

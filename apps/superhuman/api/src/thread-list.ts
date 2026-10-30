@@ -10,6 +10,7 @@ const field = (name: string) => `json_extract(data,'$.${name}')`;
 const flag = (name: string) => `COALESCE(${field(name)},0)<>0`;
 const array = (name: string) => `json(COALESCE(${field(name)},'[]'))`;
 const membership = (name: string, providerLabel: string) => `CASE WHEN json_type(data,'$.providerLabels')='array' THEN EXISTS(SELECT 1 FROM json_each(data,'$.providerLabels') WHERE value='${providerLabel}') ELSE ${field('folder')}='${name}' END`;
+const visibleMessage=(value:string)=>`NOT(COALESCE(json_extract(${value},'$.reminderPresentation.version'),0)=1 AND COALESCE(json_extract(${value},'$.reminderPresentation.coverage'),'')='full' AND COALESCE(json_extract(${value},'$.reminderPresentation.hidden'),0)=1 AND COALESCE(json_extract(${value},'$.reminderPresentation.kind'),'') IN ('system-original','system-owned'))`;
 const projection = `SELECT id,${field('accountId')},${field('lastMessageAt')},${field('folder')},
   ${membership('inbox', 'INBOX')},${membership('sent', 'SENT')},${membership('trash', 'TRASH')},${membership('spam', 'SPAM')},${membership('drafts', 'DRAFT')},
   ${flag('starred')},${flag('important')},COALESCE(${field('snoozedUntil')},'')<>'',${flag('muted')},
@@ -20,13 +21,16 @@ const projection = `SELECT id,${field('accountId')},${field('lastMessageAt')},${
     'starred',json(CASE WHEN ${flag('starred')} THEN 'true' ELSE 'false' END),'important',json(CASE WHEN ${flag('important')} THEN 'true' ELSE 'false' END),
     'folder',${field('folder')},'labels',${array('labels')},'snoozedUntil',${field('snoozedUntil')},'snoozeRetryAt',${field('snoozeRetryAt')},
     'snoozeError',${field('snoozeError')},'split',${field('split')},'muted',json(CASE WHEN ${flag('muted')} THEN 'true' ELSE 'false' END),
-    'providerLabels',json(${field('providerLabels')}),'messageCount',COALESCE(json_array_length(data,'$.messages'),0),
-    'hasAttachments',json(CASE WHEN EXISTS(SELECT 1 FROM json_each(data,'$.messages') AS message JOIN json_each(message.value,'$.attachments') AS attachment) THEN 'true' ELSE 'false' END))
+    'providerLabels',json(${field('providerLabels')}),'messageCount',(SELECT count(*) FROM json_each(data,'$.messages') message WHERE ${visibleMessage('message.value')}),
+    'hasAttachments',json(CASE WHEN EXISTS(SELECT 1 FROM json_each(data,'$.messages') AS message JOIN json_each(message.value,'$.attachments') AS attachment WHERE ${visibleMessage('message.value')}) THEN 'true' ELSE 'false' END))
   FROM records`;
 
 export function initializeThreadSummaries(db: DatabaseSync) {
   db.exec('BEGIN IMMEDIATE');
   try {
+    db.exec('CREATE TABLE IF NOT EXISTS schema_migrations(name TEXT PRIMARY KEY)');
+    const reminderProjection=!db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('thread-summary-reminder-visible-v1');
+    if(reminderProjection)db.exec('DROP TRIGGER IF EXISTS thread_summary_insert;DROP TRIGGER IF EXISTS thread_summary_update');
     db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations(name TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS thread_summaries(
         id TEXT PRIMARY KEY,account_id TEXT NOT NULL,last_message_at TEXT NOT NULL,folder TEXT NOT NULL,
@@ -49,6 +53,7 @@ export function initializeThreadSummaries(db: DatabaseSync) {
       db.exec(`INSERT OR REPLACE INTO thread_summaries ${projection} WHERE kind='thread'`);
       db.prepare('INSERT INTO schema_migrations(name) VALUES(?)').run('thread-summaries-v1');
     }
+    if(reminderProjection)db.prepare('INSERT INTO schema_migrations VALUES(?)').run('thread-summary-reminder-visible-v1');
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
 }

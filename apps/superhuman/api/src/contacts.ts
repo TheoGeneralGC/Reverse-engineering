@@ -44,12 +44,12 @@ function metadata(raw: string): Occurrence[] {
     people.set(person.email, { email: person.email, name: useName ? person.name : current?.name ?? '', lastSeen: current ? Math.max(current.lastSeen, date) : date, nameSeen: useName ? date : current?.nameSeen ?? 0 });
   };
   for (const message of Array.isArray(thread.messages) ? thread.messages : []) {
-    if (!object(message)) continue;
+    if (!object(message)||(message.reminderContactEligible===false||message.reminderContactEligible===0)) continue;
     const date = stamp(message.date); add(message.sender, date);
     for (const key of ['to', 'cc']) for (const person of Array.isArray(message[key]) ? message[key] : []) add(person, date);
   }
-  const date = stamp(thread.lastMessageAt); add(thread.sender, date, true);
-  for (const person of Array.isArray(thread.participants) ? thread.participants : []) add(person, date, true);
+  if(thread.reminderContactEligible!==false&&thread.reminderContactEligible!==0){const date = stamp(thread.lastMessageAt); add(thread.sender, date, true);
+  for (const person of Array.isArray(thread.participants) ? thread.participants : []) add(person, date, true)}
   return [...people.values()];
 }
 
@@ -61,7 +61,7 @@ function terms(name: string): string {
 // Persisted triggers use only built-in SQLite functions. A connection running an
 // older application can therefore invalidate/enqueue metadata without knowing
 // any JS functions. The snapshot deliberately excludes bodies and attachments.
-const snapshot = (data: string) => `json_object('sender',json_extract(${data},'$.sender'),'participants',json(CASE WHEN json_type(${data},'$.participants')='array' THEN json_extract(${data},'$.participants') ELSE '[]' END),'lastMessageAt',json_extract(${data},'$.lastMessageAt'),'messages',json(COALESCE((SELECT json_group_array(json_object('sender',json_extract(message.value,'$.sender'),'to',json(CASE WHEN json_type(message.value,'$.to')='array' THEN json_extract(message.value,'$.to') ELSE '[]' END),'cc',json(CASE WHEN json_type(message.value,'$.cc')='array' THEN json_extract(message.value,'$.cc') ELSE '[]' END),'date',json_extract(message.value,'$.date'))) FROM json_each(${data},'$.messages') AS message),'[]')))`;
+const snapshot = (data: string) => `json_object('reminderContactEligible',json_extract(${data},'$.reminderContactEligible'),'sender',json_extract(${data},'$.sender'),'participants',json(CASE WHEN json_type(${data},'$.participants')='array' THEN json_extract(${data},'$.participants') ELSE '[]' END),'lastMessageAt',COALESCE(json_extract(${data},'$.reminderContactAt'),json_extract(${data},'$.lastMessageAt')),'messages',json(COALESCE((SELECT json_group_array(json_object('reminderContactEligible',json_extract(message.value,'$.reminderContactEligible'),'sender',json_extract(message.value,'$.sender'),'to',json(CASE WHEN json_type(message.value,'$.to')='array' THEN json_extract(message.value,'$.to') ELSE '[]' END),'cc',json(CASE WHEN json_type(message.value,'$.cc')='array' THEN json_extract(message.value,'$.cc') ELSE '[]' END),'date',json_extract(message.value,'$.date'))) FROM json_each(${data},'$.messages') AS message),'[]')))`;
 
 export function initializeRecipientContacts(db: DatabaseSync) {
   db.exec('BEGIN IMMEDIATE');
@@ -82,6 +82,7 @@ export function initializeRecipientContacts(db: DatabaseSync) {
       CREATE INDEX IF NOT EXISTS recipient_pending_account ON recipient_pending(account_id,thread_id);`);
     for (const table of ['recipient_contacts', 'recipient_occurrences']) if (!db.prepare(`PRAGMA table_info(${table})`).all().some(row => row.name === 'name_terms')) db.exec(`ALTER TABLE ${table} ADD COLUMN name_terms TEXT NOT NULL DEFAULT '[]'`);
     const migrated = !!db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('recipient-contacts-v3');
+    const presentationMigrated=!!db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('recipient-contacts-reminder-metadata-v1');if(!presentationMigrated)for(const name of['recipient_thread_insert','recipient_thread_update','recipient_thread_delete'])db.exec('DROP TRIGGER IF EXISTS '+name);
     if (!migrated) for (const name of ['contact_insert', 'contact_update', 'contact_delete', 'occurrence_insert', 'occurrence_delete', 'thread_insert', 'thread_update', 'thread_delete']) db.exec(`DROP TRIGGER IF EXISTS recipient_${name}`);
     db.exec(`
       CREATE TRIGGER IF NOT EXISTS recipient_contact_insert AFTER INSERT ON recipient_contacts BEGIN
@@ -128,6 +129,7 @@ export function initializeRecipientContacts(db: DatabaseSync) {
       db.exec(`INSERT OR REPLACE INTO recipient_pending SELECT id,json_extract(data,'$.accountId'),${snapshot('data')} FROM records WHERE kind='thread'`);
       db.prepare('INSERT INTO schema_migrations VALUES(?)').run('recipient-contacts-v3');
     }
+    if(!presentationMigrated)db.prepare('INSERT INTO schema_migrations VALUES(?)').run('recipient-contacts-reminder-metadata-v1');
     while (refreshRecipientContacts(db, { limit: 256 })) { /* Startup metadata backfill; original records are untouched. */ }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }

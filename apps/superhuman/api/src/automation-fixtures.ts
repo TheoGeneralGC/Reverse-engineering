@@ -1,3 +1,4 @@
+import {lastRealMessage} from './message-presentation.ts';
 import { normalizeContactEmail } from './contacts.ts';
 import { automationHash } from './automation-store.ts';
 import { AUTOMATION_BUILTINS, automationLabelId, normalizeAutomationSelector } from './automation-config.ts';
@@ -23,7 +24,7 @@ function selectorMatches(rawEmail: string, selector: string): Match {
 }
 function criterionMatches(thread: Thread, item: AutomationCriterion): Match {
   if (item.type === 'from') return selectorMatches(thread.sender.email, item.value);
-  if (item.type === 'to') return any((thread.messages.at(-1)?.to ?? []).map(person => selectorMatches(person.email, item.value)));
+  if (item.type === 'to') {const source=lastRealMessage(thread);return source?any(source.to.map(person => selectorMatches(person.email, item.value))):undefined;}
   if (item.type === 'subject') return thread.subject.toLowerCase().includes(item.value.toLowerCase());
   return thread.labels.includes(item.value);
 }

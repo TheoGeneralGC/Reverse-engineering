@@ -1,3 +1,9 @@
+import {ArchiveActionService} from './archive-actions.ts';
+import {publicWireValue} from './reminder-message-projection.ts';
+import {ReminderNativeOwner,validateReminderNativeConfiguration,type ReminderNativeConfiguration} from './reminder-native-owner.ts';
+import {ReminderNativeHttp} from './reminder-native-api.ts';
+import {ReminderService,type ReminderFoundationOptions} from './reminders.ts';
+import {ReminderHttp} from './reminder-http.ts';
 import {loadAutoDraftRuntimeConfiguration} from './auto-drafts-runtime-configuration.ts';
 import { loadTrackingRuntimeConfiguration } from './tracking-runtime-config.ts';
 import { TrackingReadService } from './tracking-read.ts';
@@ -39,7 +45,7 @@ import type { Account, Draft, Label, Thread, ThreadListOptions } from './types.t
 import { normalizeSearchTimeZone } from './search.ts';
 
 const rootPath = fileURLToPath(new URL('../../../../', import.meta.url));
-function json(response: ServerResponse, status: number, body: unknown) { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); response.end(JSON.stringify(body)); }
+function sendJson(response: ServerResponse, status: number, body: unknown) { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); response.end(JSON.stringify(body)); }
 async function body(request: IncomingMessage, limit = 1_000_000): Promise<Record<string, unknown>> {
   if (!(request.headers['content-type'] ?? '').startsWith('application/json')) throw new HttpError(415, 'Use application/json');
   let size = 0; const buffers: Buffer[] = []; for await (const chunk of request) { const bytes = Buffer.from(chunk); size += bytes.length; if (size > limit) throw new HttpError(413, 'Request is too large'); buffers.push(bytes); }
@@ -62,8 +68,8 @@ export function resolveApplicationDatabasePath(optionPath: unknown, environmentP
 
 export type AutoDraftGenerationOptions=Pick<AutoDraftsV2AuthorityOptions,'processing'|'replyTimeZone'|'generatedPersistence'|'model'|'cursorKey'|'maximumIdentityAgeMs'>&{googleFetch?:typeof fetch;modelProfile:(accountId:string)=>AutoDraftModelProfileInput};
 
-export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration; autoDraftGeneration?:AutoDraftGenerationOptions } = {}) {
-  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector', 'autoDraftGeneration'].includes(key));
+export function createApp(options: { databasePath?: string; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration; autoDraftGeneration?:AutoDraftGenerationOptions; reminderFoundation?:ReminderFoundationOptions;reminderNative?:ReminderNativeConfiguration } = {}) {
+  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector', 'autoDraftGeneration', 'reminderFoundation','reminderNative'].includes(key));
   if (unknownOptions.length) throw new TypeError('Unknown application configuration option');
   if (options.providerDraftAutomatic !== undefined && typeof options.providerDraftAutomatic !== 'boolean') throw new TypeError('providerDraftAutomatic must be a boolean');
   const providerDraftAutomaticEffective=options.providerDraftAutomatic??(options.runJobs!==false);
@@ -72,16 +78,19 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   if(autoOptions?.replyTimeZone!==undefined)autoDraftReplyTimeZone(autoOptions.replyTimeZone);
   const env = options.env ?? process.env;
   const configuredDatabase = resolveApplicationDatabasePath(options.databasePath, env.DATABASE_PATH, !!process.env.NODE_TEST_CONTEXT);
+  if(options.reminderFoundation!==undefined&&(!options.reminderFoundation||typeof options.reminderFoundation!=='object'||Array.isArray(options.reminderFoundation)||Object.keys(options.reminderFoundation).some(k=>!['now','contextAuthority','digest'].includes(k))||Object.values(options.reminderFoundation).some(v=>typeof v!=='function')))throw new TypeError('Invalid reminder foundation options');
+  if(options.reminderNative!==undefined){validateReminderNativeConfiguration(options.reminderNative);if(options.reminderFoundation!==undefined)throw new TypeError('Choose one reminder authority');if(autoOptions?.googleFetch&&options.reminderNative.googleFetch&&autoOptions.googleFetch!==options.reminderNative.googleFetch)throw new TypeError('Conflicting Google fetch injection')}
   const scheduler = options.scheduler ?? systemScheduler;
   if(options.undoWindowMs!==undefined)deliveryDeadline(scheduler.now(),options.undoWindowMs);
   const syncPollMs = 30_000; const syncContinuationMs = 1_500;
-  let closing = false;
+  let closing = false;const hydrationAbort=new AbortController(),hydrationWork=new Set<Promise<unknown>>();
   if (options.trackingCollector !== undefined && (!options.trackingCollector || typeof options.trackingCollector !== 'object' || Array.isArray(options.trackingCollector))) throw new TypeError('Invalid tracking collector configuration');
   const trackingCollector = options.trackingCollector === undefined ? undefined : new TrackingCollectorClient({ ...options.trackingCollector, now: options.trackingCollector.now ?? Date.now });
   let store: Store;
   try { store = new Store(configuredDatabase ?? resolve(rootPath, '.local/superhuman/mail.sqlite'), options.seed ?? true); } catch (error) { trackingCollector?.close(); throw error; }
+  let archiveActions:ArchiveActionService|undefined;const json=(response:ServerResponse,status:number,value:unknown)=>sendJson(response,status,publicWireValue(store,value));const archiveJson=(response:ServerResponse,status:number,value:unknown)=>{const wire=publicWireValue(store,value);sendJson(response,status,archiveActions?archiveActions.annotate(wire):wire)};
   let autoDraftGeneration:AutoDraftsV2Authority|undefined;let google:GoogleProvider;
-  try{if(autoOptions){autoDraftGeneration=new AutoDraftsV2Authority(store,{...autoOptions,automaticCloudSaveAvailable:autoOptions.generatedPersistence==='managed'&&autoOptions.processing===true&&providerDraftAutomaticEffective,googleEnvironment:env,googleFetch:autoOptions.googleFetch??fetch,webOrigin:env.WEB_ORIGIN||'http://127.0.0.1:5173',now:scheduler.now});google=autoDraftGeneration.facade.runtime.google}else google=new GoogleProvider(store,env)}catch(error){store.close();trackingCollector?.close();throw error}
+  try{if(autoOptions){autoDraftGeneration=new AutoDraftsV2Authority(store,{...autoOptions,automaticCloudSaveAvailable:autoOptions.generatedPersistence==='managed'&&autoOptions.processing===true&&providerDraftAutomaticEffective,googleEnvironment:env,googleFetch:autoOptions.googleFetch??options.reminderNative?.googleFetch??fetch,webOrigin:env.WEB_ORIGIN||'http://127.0.0.1:5173',now:scheduler.now});google=autoDraftGeneration.facade.runtime.google}else google=new GoogleProvider(store,env,options.reminderNative?.googleFetch)}catch(error){store.close();trackingCollector?.close();throw error}
   try { google.migrateLegacyMailGrants(); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   let automation: AutomationService;
   try { automation = new AutomationService(store, { now: scheduler.now, fixture: options.automationFixture }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
@@ -96,6 +105,8 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const trackingDelivery=new TrackingDeliveryService(store,google,tracking,trackingCollector,{configuration:()=>trackingBasis,wallNow:options.trackingCollector?.now??Date.now,isClosing:()=>closing});
   const trackingReads=new TrackingReadService(store,tracking,trackingDelivery,trackingCollector,{now:options.trackingCollector?.now??Date.now});
   trackingRuntimeIntegrated=true;
+  let reminderNative:ReminderNativeOwner|undefined,reminders:ReminderService|undefined,reminderHttp:ReminderNativeHttp|ReminderHttp|undefined;
+  try{reminderNative=options.reminderNative?new ReminderNativeOwner(store,google,scheduler,options.reminderNative.automatic??false,{key:options.reminderNative.key,keyId:options.reminderNative.keyId,important:options.reminderNative.important,now:scheduler.now}):undefined;reminders=reminderNative?.service??(options.reminderFoundation?new ReminderService(store,{...options.reminderFoundation,now:options.reminderFoundation.now??scheduler.now}):undefined);reminderHttp=reminderNative?new ReminderNativeHttp(reminderNative):reminders?new ReminderHttp(reminders):undefined}catch(error){reminderNative?.close();reminders?.close();autoDraftGeneration?.close();trackingReads.close();trackingReads.dispose();trackingDelivery.close();trackingCollector?.close();store.close();throw error}
   const ai = new AiProvider(store, env, options.aiFetch);
   const personalization = new PersonalizationService(store, scheduler.now);
   const calendar = new GoogleCalendarProvider(store, google, env, google.fetcher, { now: scheduler.now });
@@ -112,7 +123,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const trackingConfirmationJobs=new Set<Promise<void>>();
   function confirmTracking(draft:Draft){const operationId=draft.composerSendId??draft.artifactSendId;if(!operationId||!trackingDelivery.isTracked(draft))return;const work=trackingDelivery.confirm({accountId:draft.accountId,source:draft.composerSendId?'composer':'artifact',operationId}).catch(()=>{});trackingConfirmationJobs.add(work);void work.finally(()=>trackingConfirmationJobs.delete(work));}
   const syncs = new Map<string, Promise<unknown>>();
-  const operations = new OperationQueue();
+  const operations = new OperationQueue();archiveActions=new ArchiveActionService(store,google,operations,{now:scheduler.now});
   const providerDrafts = new ProviderDraftService(store, options.providerDraftTransport ?? googleDraftTransport(google), { clock: scheduler, queue: operations, automatic: providerDraftAutomaticEffective, resume: providerDraftAutomaticEffective });
   const autoDraftInitializations=new Map<string,Promise<void>>(),autoDraftJobs=new Map<string,Promise<number>>();
   const autoDraftAccounts=(accountId?:string)=>store.list<Account>('account').filter(a=>a.provider==='google'&&(accountId===undefined||a.id===accountId));
@@ -315,6 +326,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   const frontendOrigin = env.WEB_ORIGIN || 'http://127.0.0.1:5173';
   const allowedOrigins = new Set([frontendOrigin, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000', 'http://127.0.0.1:3000']);
   const server = createServer(async (request, response) => {
+    if(closing)return json(response,503,{error:{code:'server_stopping',message:'Server is shutting down'}});
     const origin = request.headers.origin;
     if (origin && !allowedOrigins.has(origin) && origin !== `http://${request.headers.host}`) return json(response, 403, { error: { code: 'origin_not_allowed', message: 'Origin is not allowed' } });
     if (origin) { response.setHeader('access-control-allow-origin', origin); response.setHeader('vary', 'Origin'); response.setHeader('access-control-allow-headers', 'Content-Type'); response.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS'); }
@@ -324,6 +336,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname; const method = request.method;
+      if(path==='/api/reminder-actions'||path.startsWith('/api/reminder-actions/')||path==='/api/reminder-contexts'||/^\/api\/threads\/[^/]+\/reminder(?:\/native)?$/.test(path)){if(!reminderHttp)throw new HttpError(404,'Reminders not configured','reminder_not_found');const init:RequestInit&{duplex?:'half'}={method,headers:request.headers as HeadersInit};if(method!=='GET'&&method!=='HEAD'){init.body=Readable.toWeb(request) as ReadableStream<Uint8Array>;init.duplex='half'}const result=await reminderHttp.handle(new Request(new URL(request.url??'/', 'http://127.0.0.1'),init));response.writeHead(result.status,Object.fromEntries(result.headers));response.end(Buffer.from(await result.arrayBuffer()));return}
       if(path.startsWith('/api/auto-drafts/v2/')){if(!autoDraftGeneration)throw new HttpError(404,'Automatic draft generation is not configured','auto_draft_generation_not_found');const init:RequestInit&{duplex?:'half'}={method,headers:request.headers as HeadersInit};if(method!=='GET'&&method!=='HEAD'){init.body=Readable.toWeb(request) as ReadableStream<Uint8Array>;init.duplex='half'}const result=await autoDraftGeneration.handle(new Request(new URL(request.url??'/', 'http://127.0.0.1'),init));response.writeHead(result.status,Object.fromEntries(result.headers));response.end(Buffer.from(await result.arrayBuffer()));return}
       if(path.startsWith('/api/auto-drafts/')){
         const invalid=():never=>{throw new HttpError(400,'Invalid Auto Drafts request','auto_drafts_invalid_request')};
@@ -486,7 +499,7 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
       if (path === '/api/provider/status' && method === 'GET') return json(response, 200, { google: google.status(), calendar: calendar.status(store.preferences().activeAccountId), microsoft: { configured: false, implemented: false }, ai: ai.status() });
       if (path === '/api/bootstrap' && method === 'GET') {
         void wakeSnoozes().catch(() => {}); const preferences = store.preferences();
-        return json(response, 200, { accounts: store.list<Account>('account'), activeAccountId: preferences.activeAccountId, threads: url.searchParams.get('includeThreads') === 'false' ? [] : store.threads(preferences.activeAccountId, 'inbox'), labels: store.list<Label>('label'), drafts: store.list<Draft>('draft').filter(d => d.status !== 'sent'), preferences, providerStatus: { google: google.status(), calendar: calendar.status(preferences.activeAccountId), microsoft: { configured: false, implemented: false }, ai: ai.status() }, demo: store.required<Account>('account', preferences.activeAccountId).provider === 'demo' });
+        return archiveJson(response, 200, { accounts: store.list<Account>('account'),archiveAccountVersions:archiveActions!.accountVersions(), activeAccountId: preferences.activeAccountId, threads: url.searchParams.get('includeThreads') === 'false' ? [] : store.threads(preferences.activeAccountId, 'inbox'), labels: store.list<Label>('label'), drafts: store.list<Draft>('draft').filter(d => d.status !== 'sent'), preferences, providerStatus: { google: google.status(), calendar: calendar.status(preferences.activeAccountId), microsoft: { configured: false, implemented: false }, ai: ai.status() }, demo: store.required<Account>('account', preferences.activeAccountId).provider === 'demo' });
       }
       if (path === '/api/accounts' && method === 'GET') return json(response, 200, { accounts: store.list<Account>('account') });
       if (path === '/api/contacts/suggestions' && method === 'GET') return json(response, 200, store.recipientSuggestions({ accountId: url.searchParams.get('accountId') ?? store.preferences().activeAccountId, q: url.searchParams.get('q') ?? '', limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined }));
@@ -499,24 +512,28 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
         if (values.length > 1) throw new HttpError(400, 'Select one search time zone', 'invalid_search_time_zone');
         return normalizeSearchTimeZone(values[0]);
       };
-      if (path === '/api/threads' && method === 'GET') { const timeZone = searchTimeZone(); void wakeSnoozes().catch(() => {}); return json(response, 200, { threads: store.threads(url.searchParams.get('accountId') ?? store.preferences().activeAccountId, url.searchParams.get('folder') ?? 'inbox', url.searchParams.get('q') ?? '', timeZone) }); }
+      if (path === '/api/threads' && method === 'GET') { const timeZone = searchTimeZone(); void wakeSnoozes().catch(() => {}); return archiveJson(response, 200, { threads: store.threads(url.searchParams.get('accountId') ?? store.preferences().activeAccountId, url.searchParams.get('folder') ?? 'inbox', url.searchParams.get('q') ?? '', timeZone) }); }
       if (path === '/api/thread-summaries' && method === 'GET') {
         const timeZone = searchTimeZone();
         void wakeSnoozes().catch(() => {});
-        return json(response, 200, store.threadSummaries({ accountId: url.searchParams.get('accountId') ?? store.preferences().activeAccountId, folder: url.searchParams.get('folder') ?? 'inbox', q: url.searchParams.get('q') ?? '', split: (url.searchParams.get('split') ?? 'all') as ThreadListOptions['split'], limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined, cursor: url.searchParams.get('cursor'), timeZone }));
+        return archiveJson(response, 200, store.threadSummaries({ accountId: url.searchParams.get('accountId') ?? store.preferences().activeAccountId, folder: url.searchParams.get('folder') ?? 'inbox', q: url.searchParams.get('q') ?? '', split: (url.searchParams.get('split') ?? 'all') as ThreadListOptions['split'], limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined, cursor: url.searchParams.get('cursor'), timeZone }));
       }
+      const archiveOperation=path.match(/^\/api\/threads\/([^/]+)\/action-operations\/([^/]+)(?:\/(undo))?$/);
+      if(archiveOperation){const id=decodeURIComponent(archiveOperation[1]),key=decodeURIComponent(archiveOperation[2]);if(method==='GET'&&!archiveOperation[3]){if([...url.searchParams.keys()].some(k=>!['accountId','accountVersion'].includes(k))||url.searchParams.getAll('accountId').length!==1||url.searchParams.getAll('accountVersion').length!==1)throw new HttpError(400,'Choose one Archive scope','archive_invalid_request');const result=archiveActions!.get(id,url.searchParams.get('accountId')!,url.searchParams.get('accountVersion')!,key);return archiveJson(response,result.receipt.state==='pending'?202:200,result)}if(method==='POST'&&archiveOperation[3]==='undo'){if(url.search)throw new HttpError(400,'Unexpected Undo query','archive_invalid_request');return archiveJson(response,200,await archiveActions!.undo(id,key,await body(request,4096)))}throw new HttpError(405,'Use a scoped Archive status or Undo route','method_not_allowed')}
       const actionMatch = path.match(/^\/api\/threads\/([^/]+)\/actions$/);
       if (actionMatch && method === 'POST') {
-        const input = await body(request); const id = decodeURIComponent(actionMatch[1]); const accountId = store.required<Thread>('thread', id).accountId;
-        return json(response, 200, await operations.run(accountId, async () => { const { before, thread } = store.prepareAction(id, string(input.action), { until: input.until === undefined ? undefined : date(input.until), labelId: input.labelId === undefined ? undefined : string(input.labelId) }); if (store.required<Account>('account', before.accountId).provider === 'google') await google.updateThread(before, thread); return store.commitAction(before, thread); }));
+        const input = await body(request); const id = decodeURIComponent(actionMatch[1]);if('clientRequestId' in input||'expectedSourceVersion' in input||'accountVersion' in input){if(url.search)throw new HttpError(400,'Unexpected Archive query','archive_invalid_request');return archiveJson(response,200,await archiveActions!.archive(id,input))}const accountId = store.required<Thread>('thread', id).accountId;
+        return json(response, 200, await operations.run(accountId, async () => {if(['archive','unarchive','trash','spam','snooze'].includes(String(input.action)))archiveActions!.assertNotLocked(id);const { before, thread } = store.prepareAction(id, string(input.action), { until: input.until === undefined ? undefined : date(input.until), labelId: input.labelId === undefined ? undefined : string(input.labelId) }); if (store.required<Account>('account', before.accountId).provider === 'google') await google.updateThread(before, thread); return store.commitAction(before, thread); }));
       }
+      const hydrateMatch=path.match(/^\/api\/threads\/([^/]+)\/hydrate$/);
+      if(hydrateMatch&&method==='POST'){if(url.search)throw new HttpError(400,'Unexpected refresh query','message_source_invalid');const input=await body(request,4096);if(Object.keys(input).sort().join(',')!=='accountId,expectedVersion'||typeof input.accountId!=='string'||typeof input.expectedVersion!=='string'||!/^[a-f0-9]{64}$/.test(input.expectedVersion))throw new HttpError(400,'Invalid conversation refresh','message_source_invalid');const id=decodeURIComponent(hydrateMatch[1]),clientAbort=new AbortController(),aborted=()=>clientAbort.abort();request.once('aborted',aborted);response.once?.('close',()=>{if(!response.writableEnded)clientAbort.abort()});const work=operations.run(input.accountId,()=>google.hydrateThread(input.accountId as string,id,input.expectedVersion as string,{signal:AbortSignal.any([hydrationAbort.signal,clientAbort.signal]),beforeIssue:()=>{if(closing)throw new HttpError(503,'Application is stopping','message_source_stopping')}}));hydrationWork.add(work);void work.then(()=>hydrationWork.delete(work),()=>hydrationWork.delete(work));try{return archiveJson(response,200,{thread:trackingReads.annotate(await work)})}finally{request.removeListener('aborted',aborted)}}
       const threadMatch = path.match(/^\/api\/threads\/([^/]+)$/);
-      if (threadMatch && method === 'GET') return json(response, 200, { thread: trackingReads.annotate(store.required<Thread>('thread', decodeURIComponent(threadMatch[1]))) });
+      if (threadMatch && method === 'GET') return archiveJson(response, 200, { thread: trackingReads.annotate(store.required<Thread>('thread', decodeURIComponent(threadMatch[1]))) });
       const replyMatch = path.match(/^\/api\/threads\/([^/]+)\/reply$/);
       if (replyMatch && method === 'POST') { const input = await body(request); const mode = string(input.mode, 'reply'); if (!['reply', 'replyAll', 'forward'].includes(mode)) throw new HttpError(400, 'Invalid reply mode'); const draft=store.replyDraft(decodeURIComponent(replyMatch[1]), mode as 'reply' | 'replyAll' | 'forward'); return json(response,201,{draft,providerDraft:providerDrafts.status(draft.accountId,draft.id)}); }
       if (path === '/api/undo' && method === 'POST') {
-        const input = await body(request); const undoId = string(input.undoId); const accountId = store.pendingUndo(undoId).accountId;
-        return json(response, 200, await operations.run(accountId, async () => { const previous = store.pendingUndo(undoId); const current = store.required<Thread>('thread', previous.id); if (store.required<Account>('account', previous.accountId).provider === 'google') await google.updateThread(current, previous); return { thread: store.commitUndo(undoId, previous) }; }));
+        const input = await body(request); const undoId = string(input.undoId);if(archiveActions!.ownsUndo(undoId))throw new HttpError(409,'Use the scoped Archive Undo','archive_keyed_undo_required');const accountId = store.pendingUndo(undoId).accountId;
+        return json(response, 200, await operations.run(accountId, async () => { const previous = store.pendingUndo(undoId);archiveActions!.assertNotLocked(previous.id);const current = store.required<Thread>('thread', previous.id); if (store.required<Account>('account', previous.accountId).provider === 'google') await google.updateThread(current, previous); return { thread: store.commitUndo(undoId, previous) }; }));
       }
       if (path === '/api/labels' && method === 'GET') return json(response, 200, { labels: store.list<Label>('label').filter(l => !url.searchParams.get('accountId') || l.accountId === url.searchParams.get('accountId')) });
       if (path === '/api/labels' && method === 'POST') { const input = await body(request); const accountId = string(input.accountId, store.preferences().activeAccountId); const account = store.required<Account>('account', accountId); const name = string(input.name).trim(); if (!name || name.length > 100) throw new HttpError(400, 'Label name must be 1–100 characters'); let providerId: string | undefined; if (account.provider === 'google') { const label = await google.request(accountId, 'labels', { method: 'POST', body: JSON.stringify({ name }) }) as { id: string }; providerId = label.id; } const label: Label = { id: providerId ? `${accountId}:${providerId}` : randomUUID(), accountId, name, color: string(input.color, '#8c85df'), providerId }; return json(response, 201, { label: store.put('label', label.id, label) }); }
@@ -603,11 +620,12 @@ export function createApp(options: { databasePath?: string; env?: NodeJS.Process
   let closePromise: Promise<void> | undefined;
   const close = () => {
     if (closePromise) return closePromise;
-    closing = true;autoDraftGeneration?.close();trackingReads.close();trackingDelivery.close();
-    closePromise = (async () => { trackingCollector?.close(); syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close()), providerDrafts.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await waitAutoDraftIdle();await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs,...trackingConfirmationJobs]);await trackingDelivery.waitForIdle();await trackingReads.waitForIdle();trackingReads.dispose(); await calendar.close(); store.close(); })();
+    closing = true;archiveActions?.close();hydrationAbort.abort();reminderNative?.close();reminders?.close();autoDraftGeneration?.close();trackingReads.close();trackingDelivery.close();
+    closePromise = (async () => { trackingCollector?.close(); syncTimer?.cancel(); jobTimer?.cancel(); calendarTimer?.cancel(); await Promise.all([aiChat.close(), aiSend.close(), draftSend.close(), knowledge.close(), Promise.resolve().then(()=>automation.close()), providerDrafts.close()]); if (server.listening) await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await Promise.allSettled([...syncs.values(), ...(jobsPromise ? [jobsPromise] : []), ...(pendingWake ? [pendingWake] : [])]); await waitAutoDraftIdle();await Promise.allSettled([...operations.tails.values()]); await Promise.allSettled([...deliveryMetadataJobs,...trackingConfirmationJobs]);await trackingDelivery.waitForIdle();await trackingReads.waitForIdle();trackingReads.dispose(); await calendar.close();await reminderNative?.waitForIdle();await Promise.allSettled([...hydrationWork]);await google.waitForTokenIdle();store.close(); })();
     return closePromise;
   };
-  return { server, store, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, autoDrafts, autoDraftGeneration, initializeAutoDrafts, runAutoDraftJobs, waitAutoDraftIdle, providerDrafts, splitInboxes, tracking, trackingCollector,trackingDelivery,trackingReads, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
+  if(options.runJobs!==false)reminderNative?.start();
+  return { server, store, archiveActions, reminders, reminderNative, reminderHttp, google, calendar, aiChat, aiSend, draftSend, deliveryControl, knowledge, automation, autoDrafts, autoDraftGeneration, initializeAutoDrafts, runAutoDraftJobs, waitAutoDraftIdle, providerDrafts, splitInboxes, tracking, trackingCollector,trackingDelivery,trackingReads, close, runJobs, deliver, deliverComposer, wakeSnoozes, runSyncJobs, requestSync, syncStatus };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

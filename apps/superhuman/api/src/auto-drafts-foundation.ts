@@ -1,3 +1,4 @@
+import {projectStoredMessages} from './reminder-message-projection.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { Store } from './store.ts';
 import { HttpError, type Account, type Thread } from './types.ts';
@@ -141,7 +142,8 @@ export class AutoDraftFoundation {
   private save(proof: Proof, request: string | null, ownerPid: number | null) { assertGeneration(proof.generation); this.store.db.prepare('UPDATE auto_draft_jobs SET revision=?,owner_pid=?,request_utf8=?,proof=?,integrity=? WHERE id=?').run(proof.generation.revision, ownerPid, request, JSON.stringify(proof), hash(proof), proof.generation.id); this.event(proof); }
   private advance(proof: Proof, state: GenerationState, stamp: number): Proof { return { ...proof, generation: { ...proof.generation, state, revision: guardNext(proof.generation.revision), updatedAt: new Date(stamp).toISOString() } }; }
   private currentSource(basis: FoundationBasis) {
-    const row = this.store.db.prepare('SELECT input_version,source_ref FROM auto_draft_ingress WHERE account_id=? AND account_version=? AND thread_id=? ORDER BY sequence DESC LIMIT 1').get(basis.accountId, basis.accountVersion, basis.threadId);
+    let row = this.store.db.prepare('SELECT input_version,source_ref FROM auto_draft_ingress WHERE account_id=? AND account_version=? AND thread_id=? ORDER BY sequence DESC LIMIT 1').get(basis.accountId, basis.accountVersion, basis.threadId);
+    const thread=this.store.required<Thread>('thread',basis.threadId),projection=projectStoredMessages(this.store,thread);if(projection.presentation.coverage==='full'&&projection.assessment==='clear'&&projection.lastReal&&this.store.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='google_ingress_sources'").get())row=this.store.db.prepare('SELECT i.input_version,i.source_ref FROM auto_draft_ingress i JOIN google_ingress_sources s ON s.source_ref=i.source_ref AND s.account_id=i.account_id AND s.account_version=i.account_version WHERE i.account_id=? AND i.account_version=? AND i.thread_id=? AND s.provider_message_id=? ORDER BY i.sequence DESC LIMIT 1').get(basis.accountId,basis.accountVersion,basis.threadId,projection.lastReal.id);
     if (row?.input_version !== basis.inputVersion || row?.source_ref !== basis.sourceRef) fail(); this.guard.assertBasis(basis.accountId, basis.threadId, basis.target);
   }
   claim(accountId: string, id: string, expectedRevision: number) {

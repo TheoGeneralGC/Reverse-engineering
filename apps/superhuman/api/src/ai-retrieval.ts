@@ -1,3 +1,4 @@
+import {projectStoredMessages} from './reminder-message-projection.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import { Temporal } from '@js-temporal/polyfill';
 import { randomUUID } from 'node:crypto';
@@ -57,12 +58,12 @@ export function refreshAiMailIndex(store: Store, accountId?: string, limit = 25)
     for (const row of rows) {
       db.exec('SAVEPOINT ai_projection_record');
       try {
-      const thread = JSON.parse(String(row.data)) as Thread; const eligible = thread.messages.filter(m => !m.providerLabels?.includes('DRAFT')); let truncated = eligible.length > 50 || eligible.length !== thread.messages.length; const pieces: string[] = [];
+      const thread = JSON.parse(String(row.data)) as Thread; const eligible = projectStoredMessages(store,thread).visible.filter(m => !m.providerLabels?.includes('DRAFT')); let truncated = eligible.length > 50 || eligible.length !== thread.messages.length; const pieces: string[] = [];
       for (const m of eligible.slice(-50)) { const text = messageText(m); if (bytes(text) > 16000) truncated = true; pieces.push(clip(text, 16000), ...(m.attachments ?? []).slice(0, 20).map(a => clip(a.name, 256))); }
       const body = pieces.join('\n'); if (bytes(body) > 128000) truncated = true;
       const participants = clip((thread.participants ?? []).map(p => `${p.name} ${p.email}`).join('\n'), 8000);
       db.prepare('DELETE FROM ai_mail_fts WHERE rowid IN (SELECT rowid FROM ai_mail_documents WHERE thread_id=?)').run(thread.id);
-      const safeSnippet = thread.messages.at(-1)?.providerLabels?.includes('DRAFT') ? eligible.length ? clip(messageText(eligible.at(-1)!), 500) : '' : clip(thread.snippet, 500);
+      const latest=eligible.at(-1),safeSnippet=latest?.id===thread.messages.at(-1)?.id?clip(thread.snippet,500):latest?clip(messageText(latest),500):'';
       const document = db.prepare('INSERT OR REPLACE INTO ai_mail_documents VALUES(?,?,?,?,?,?)').run(thread.id, thread.accountId, thread.lastMessageAt, truncated ? 1 : 0, hash(thread), safeSnippet);
       db.prepare('INSERT INTO ai_mail_fts(rowid,thread_id,account_id,subject,participants,body) VALUES(?,?,?,?,?,?)').run(document.lastInsertRowid, thread.id, thread.accountId, clip(thread.subject, 2000), participants, clip(body, 128000));
       db.prepare('DELETE FROM ai_mail_pending WHERE thread_id=?').run(thread.id); db.exec('RELEASE ai_projection_record'); indexed++;
@@ -122,10 +123,10 @@ export class AiRetrieval {
     const turn = this.turn(); identifier(threadId);
     if (!reserved) this.reserve('fullThreadReads', 1, 8);
     const row = this.store.db.prepare("SELECT r.data FROM records r JOIN recipient_thread_flags f ON f.thread_id=r.id AND f.account_id=json_extract(r.data,'$.accountId') WHERE r.kind='thread' AND r.id=? AND json_extract(r.data,'$.accountId')=? AND f.draft_only=0").get(threadId, turn.accountId); if (!row) notFound();
-    const thread = JSON.parse(String(row.data)) as Thread; const eligible = thread.messages.filter(m => !m.providerLabels?.includes('DRAFT')); const omittedDraftMessageCount = thread.messages.length - eligible.length; let truncated = eligible.length > 10 || omittedDraftMessageCount > 0;
+    const thread = JSON.parse(String(row.data)) as Thread; const eligible = projectStoredMessages(this.store,thread).visible.filter(m => !m.providerLabels?.includes('DRAFT')); const omittedDraftMessageCount=thread.messages.filter(m=>m.providerLabels?.includes('DRAFT')).length,omittedSystemMessageCount=thread.messages.length-eligible.length-omittedDraftMessageCount; let truncated = eligible.length > 10 || omittedDraftMessageCount > 0;
     const messages = eligible.slice(-10).map(m => { const text = messageText(m); const validId = bytes(m.id) <= 1024 && !/[\x00-\x20\x7f]/.test(m.id); if (!validId || bytes(text) > 4500 || bytes(m.sender.name) > 200 || bytes(m.sender.email) > 320 || bytes(m.date) > 64 || (m.attachments ?? []).length > 10 || (m.attachments ?? []).some(a => bytes(a.name) > 256 || bytes(a.mimeType) > 128) || (m.html && bytes(m.html) > 500000)) truncated = true; return { id: validId ? m.id : '', from: { name: clip(m.sender.name, 200), email: clip(m.sender.email, 320) }, date: clip(m.date, 64), text: clip(text, 4500), attachments: (m.attachments ?? []).slice(0, 10).map(a => ({ name: clip(a.name, 256), mimeType: clip(a.mimeType, 128), size: a.size })) }; });
     const source = this.offer({ kind: 'mail', accountId: turn.accountId, threadId, messageIds: messages.map(m => m.id).filter(Boolean) }, basis, thread.subject, `${thread.sender.name} ${thread.lastMessageAt}`, messages.map(m => m.text).join('\n'), thread.lastMessageAt, truncated, false, hash(thread));
-    return { source, messages, omittedMessageCount: Math.max(0, eligible.length - 10), omittedDraftMessageCount, truncated };
+    return { source, messages, omittedMessageCount: Math.max(0, eligible.length - 10), omittedDraftMessageCount, omittedSystemMessageCount, truncated };
   }
   calendar(raw: unknown) {
     const arg = strictObject(raw, ['query', 'timeMin', 'timeMax', 'timeZone', 'calendarIds']); const turn = this.turn(); if (!turn.context.resources.includes('calendar')) invalid('Calendar search is not enabled for this turn');

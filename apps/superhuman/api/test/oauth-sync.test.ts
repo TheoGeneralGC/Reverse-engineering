@@ -58,6 +58,7 @@ test('failed account publication rolls back the token and selected account toget
 test('concurrent refresh is deduplicated and a rotated refresh token is durably retained', async () => {
   const store = new Store(':memory:'); let calls = 0;
   const provider = new GoogleProvider(store, env, (async (_input, init) => { calls++; assert.equal((init?.body as URLSearchParams).get('refresh_token'), 'old-refresh'); return reply({ ...successfulToken, access_token: 'new-access', refresh_token: 'rotated-refresh' }); }) as typeof fetch);
+  store.put<Account>('account','google:test',{id:'google:test',provider:'google',email:'test@example.test',name:'Synthetic refresh account',color:'#000'});
   provider.saveTokens('google:test', { access_token: 'expired-access', refresh_token: 'old-refresh', expires_at: Date.now() - 1000 });
   const [first, second] = await Promise.all([provider.tokens('google:test'), provider.tokens('google:test')]); assert.equal(calls, 1); assert.equal(first.access_token, 'new-access'); assert.deepEqual(first, second); const secret = store.db.prepare('SELECT value FROM secrets WHERE account_id=?').get('google:test')!; assert.equal(provider.unseal(String(secret.value)).refresh_token, 'rotated-refresh'); store.close();
 });

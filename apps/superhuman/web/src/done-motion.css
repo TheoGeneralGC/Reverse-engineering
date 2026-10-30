@@ -1,0 +1,9 @@
+/* Only explicit Done/Undo presence receives these classes. Cache refresh does
+   not animate arbitrary messages. Retained rows preserve their layout slot. */
+.thread-list{overflow-x:hidden}
+.mail-row.done-out-start{transform:translateX(0);transition:none}
+.mail-row.done-leaving{transform:var(--done-exit-transform);transition:transform var(--done-exit-ms) var(--done-ease);pointer-events:none}
+.mail-row.done-in-start{transform:var(--done-exit-transform);transition:none}
+.mail-row.done-returning{transform:translateX(0);transition:transform var(--done-enter-ms) var(--done-ease)}
+.mail-row[data-done-transition="out"]{pointer-events:none;user-select:none}
+@media(prefers-reduced-motion:reduce){.mail-row.done-leaving,.mail-row.done-out-start,.mail-row.done-in-start,.mail-row.done-returning{transform:none!important;transition:none!important}}

@@ -82,12 +82,9 @@ Folders: `inbox`, `important`, `other`, `done`, `snoozed`, `sent`, `trash`, `spa
 `starred`, `all`, or `label:<label-id>`. Local search supports phrases, `from:`,
 `to:`, `cc:`, `subject:`, `filename:`, `label:`, read/star/important flags,
 `has:attachment`, `in:`, `before:`/`after:` and `older:`/`newer:` aliases, with
-negation and AND/OR groups. Optional validated `timeZone` scopes slash-date
-boundaries and result cursors; the browser supplies its current IANA zone for
-nonempty queries. ISO dates and numeric seconds remain UTC/absolute; callers
-omitting the zone retain legacy UTC. After stays inclusive and before exclusive
-against the thread's latest message time. Only a bounded slash/ISO original
-comparison exists; broader provider date semantics remain unverified.
+negation and AND/OR groups. Date-only boundaries are UTC, inclusive after and
+exclusive before, against the thread's latest message time. These local choices
+are not yet verified against original provider date/time-zone semantics.
 Search runs over imported local data and does not claim Gmail search completeness.
 See [search behavior and evidence](../research/search.md) for the exact scope.
 Mailbox lists and `in:` searches share provider-label membership, so one
@@ -374,38 +371,12 @@ Legacy cached Gmail scope adoption is documented in [Mail grant migration](MAIL-
 
 See [SPLIT-INBOX.md](SPLIT-INBOX.md) for the private configurable Split Inbox API, strict supported query subset, account CAS/recovery and metadata coverage limits.
 
-See [TRACKING.md](TRACKING.md) for account preferences, server-only transport and
-operator-derived current capabilities. Configuration alone does not verify
-hosting. Main now loads matched operator configuration while account desires
-remain off/effectivefalse; the combined checkpoint records the actual boundary.
+See [TRACKING.md](TRACKING.md) for the isolated account preferences and server-only collector-client foundation; delivery integration and hosting remain unavailable.
 
-Mapped tracking delivery is documented in [TRACKING-DELIVERY.md](./TRACKING-DELIVERY.md)
-and the separate explicit local cache in [READ-IMPORT.md](./READ-IMPORT.md). The
-collector has separate synthetic hosted proof. One [controlled tracked-delivery/
-read case](../research/tracked-delivery-checkpoint-20261029.md) completed with
-recorded strict recipient differences; full original read-tracking parity and
-effective-ON Main behavior remain unverified.
+Internal mapped tracking delivery and its deliberately unavailable read/feed surfaces are documented in [TRACKING-DELIVERY.md](./TRACKING-DELIVERY.md). No live hosting or full original read-tracking parity is claimed.
 
+The bounded reminder presentation, FULL-header reply-source requirements and
+explicit conversation refresh contract are documented in [REMINDER-PROJECTION.md](REMINDER-PROJECTION.md).
+Its offline acceptance inventory is separate from original/live parity evidence.
 
-## Reviewed combined draft/runtime contract
-
-See [combined verification and rollout status](../research/final-combined-checkpoint-20261029.md).
-Existing `PATCH /api/drafts/:id` callers keep their behavior. Optional complete
-`{accountId,threadId,expectedRevision}` binds the canonical record and normal
-save/hooks in one SQLite unit. Explicit empty claim is exactly
-`{accountId,threadId,expectedRevision,action:'claim'}`; it forbids authored fields.
-Scope/revision/locked refusal happens before ownership/version writes. Unknown
-ACK uses current exact GET, not automatic PATCH or Send retry.
-
-[Auto Drafts](AUTO-DRAFTS.md) documents trusted `AUTO_DRAFTS_PERSISTENCE`:
-local/default versus explicit managed generated-only enrollment. This runtime
-choice is separate from the user's direct Responses switch and is not a Gmail
-save acknowledgement. Existing human drafts and uncertain delivery stay guarded.
-
-Optional `TRACKING_COLLECTOR_SOURCE_IDENTITY` and
-`TRACKING_OPERATOR_VERIFICATION_FILE` extend the existing private collector
-configuration. The latter requires the former and an exact bounded private0600
-record, matched to the current origin/configuration/source. It is a point-in-time
-operator statement, not an automatic network probe or uptime guarantee. Omit all
-tracking inputs to keep configuration off; present empty/partial values are
-invalid. Repository examples remain commented and contain no real record/key.
+See [optional keyed Archive and Undo](ARCHIVE-ACTIONS.md) for ordinary mailbox action metadata, durable receipt recovery and conservative native outcome handling. This separate candidate has offline controls; original/physical comparison remains pending.

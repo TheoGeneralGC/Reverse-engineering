@@ -1,3 +1,5 @@
+import {requireReplySource,presentationThread,type MessageWitnessAuthority} from './reminder-message-projection.ts';
+import type {Scope as ReminderMessageScope} from './reminder-message-classifier.ts';
 import {generatedHash,generatedScopeValid,type GeneratedPublicationScope,type DraftWriteContext,type ProviderDraftMetadataRequest,type ProviderMetadataVerifier,type ProviderMetadataWriter,type GeneratedMetadataPolicyVerifier,type ProviderAckWriteContext} from './generated-draft-policy.ts';
 import type { KeyedDeliveryIdentity, KeyedDeliveryObserver } from './keyed-delivery-hooks.ts';
 import { initializeSplitHeaders, refreshSplitHeaders } from './split-inbox-headers.ts';
@@ -28,7 +30,30 @@ export type DraftLifecycleHooks = {
   beforeDelivery?: (draft: Draft) => void;
   beforeNativeSend?: (draft: Draft) => void;
 };
+export interface ReminderLifecycleHooks {
+ threadWritten?(before: Thread|undefined, next: Thread):void;
+ accountWritten?(before: Account|undefined,next:Account):void;
+ beforeRemove?(kind:string,id:string):void;
+ legacyCommit?(before:Thread,next:Thread,undoId:string,action?:string):boolean;
+ assertUndo?(id:string,before:Thread,after:Thread,current:Thread):void;
+ commitUndo?(id:string,next:Thread):boolean;
+ ownsProjection?(accountId:string,threadId:string):boolean;
+}
 export class Store {
+  private readonly reminderHooks=new Set<ReminderLifecycleHooks>();
+  private readonly messageWitnessAuthorities=new Set<MessageWitnessAuthority>();
+  registerMessageWitnessAuthority(authority:MessageWitnessAuthority){this.messageWitnessAuthorities.add(authority);return()=>this.messageWitnessAuthorities.delete(authority)}
+  messageWitnesses(scope:ReminderMessageScope,thread:Thread){return [...this.messageWitnessAuthorities].flatMap(authority=>authority(scope,thread))}
+  publishProviderThread(thread:Thread){this.assertReminderOwner(thread.accountId,thread.id);this.reminderProjectionDepth++;try{return this.put('thread',thread.id,thread)}finally{this.reminderProjectionDepth--}}
+  replySource(threadId:string){return requireReplySource(this,this.required<Thread>('thread',threadId))}
+  private reminderProjectionDepth=0;
+  private readonly reminderPreparedActions=new WeakMap<Thread,string>();
+  private reminderState(accountId:string,threadId?:string){return !!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='reminder_slots'").get()&&!!this.db.prepare('SELECT 1 FROM reminder_slots WHERE account_id=?'+(threadId===undefined?'':' AND thread_id=?')+' LIMIT 1').get(...(threadId===undefined?[accountId]:[accountId,threadId]))}
+  private assertReminderOwner(accountId:string,threadId?:string){if(!this.reminderHooks.size&&this.reminderState(accountId,threadId))throw new HttpError(409,'Reminder authority unavailable','reminder_unavailable')}
+  private reminderThreadFields(t:Thread){return JSON.stringify([t.accountId,t.id,t.providerId,t.folder,t.snoozedUntil,t.snoozeRetryAt,t.snoozeError])}
+
+  registerReminderLifecycle(hook:ReminderLifecycleHooks){this.reminderHooks.add(hook);return{close:()=>{this.reminderHooks.delete(hook)},writeProjection:(thread:Thread)=>{if(!this.reminderHooks.has(hook))throw new HttpError(503,'Reminder owner stopped','reminder_stopping');this.reminderProjectionDepth++;try{return this.put('thread',thread.id,thread)}finally{this.reminderProjectionDepth--}}}}
+
   private readonly keyedDeliveryObservers = new Set<KeyedDeliveryObserver>();
   registerKeyedDeliveryObserver(observer:KeyedDeliveryObserver){this.keyedDeliveryObservers.add(observer);return()=>this.keyedDeliveryObservers.delete(observer)}
   trackingDeliveryIdentity(accountId:string,source:'composer'|'artifact',operationId:string){if(!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracking_delivery_bindings'").get())return undefined;const table=source==='composer'?'draft_send_operations':'ai_draft_sends',required=this.db.prepare(`SELECT tracking_required FROM ${table} WHERE account_id=? AND id=?`).get(accountId,operationId);return required?.tracking_required===1||this.db.prepare('SELECT 1 FROM tracking_delivery_bindings WHERE account_id=? AND source=? AND operation_id=?').get(accountId,source,operationId)?{accountId,source,operationId}:undefined}
@@ -147,7 +172,11 @@ export class Store {
   list<T>(kind: string): T[] { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(String(r.data))); }
   get<T>(kind: string, id: string): T | undefined { const row = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return row ? JSON.parse(String(row.data)) : undefined; }
   put<T>(kind: string, id: string, data: T): T {
+    if(kind==='thread'&&Array.isArray((data as Thread)?.messages)&&(data as Thread).messages.some(m=>m.reminderHeaderFacts))data=presentationThread(this,data as Thread) as T;
     const oldDraft = kind === 'draft' ? this.get<Draft>('draft', id) : undefined;
+    const oldThread=kind==='thread'?this.get<Thread>('thread',id):undefined;const oldAccount=kind==='account'?this.get<Account>('account',id):undefined;const accountHooked=kind==='account'&&this.reminderHooks.size>0;if(accountHooked)this.db.exec('SAVEPOINT reminder_account_write');
+    if(oldThread&&!this.reminderHooks.size&&this.reminderThreadFields(oldThread)!==this.reminderThreadFields(data as Thread))this.assertReminderOwner(oldThread.accountId,oldThread.id);
+    if(oldAccount&&!this.reminderHooks.size&&JSON.stringify([oldAccount.id,oldAccount.provider,oldAccount.email.toLowerCase()])!==JSON.stringify([(data as Account).id,(data as Account).provider,(data as Account).email?.toLowerCase()]))this.assertReminderOwner(oldAccount.id);
     if (oldDraft && !this.deliveryWriteDepth) this.assertDraftMutable(oldDraft);
     const draftHooked = kind === 'draft' && this.draftLifecycleHooks.size > 0;
     if (kind === 'thread') this.db.exec('SAVEPOINT recipient_record_write');
@@ -156,15 +185,19 @@ export class Store {
       if (draftHooked && !this.deliveryWriteDepth) for (const hook of this.draftLifecycleHooks) hook.beforeWrite?.(oldDraft, data as Draft, {lane:'authored'});
       this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind, id, JSON.stringify(data));
       if (draftHooked) { for (const hook of this.draftLifecycleHooks) hook.written?.(oldDraft, data as Draft, {lane:'authored'}); this.db.exec('RELEASE provider_draft_record_write'); }
+      if(kind==='thread'&&!this.reminderProjectionDepth)for(const hook of this.reminderHooks)hook.threadWritten?.(oldThread,data as Thread);
+      if(accountHooked){for(const hook of this.reminderHooks)hook.accountWritten?.(oldAccount,data as Account);this.db.exec('RELEASE reminder_account_write')}
       if (kind === 'thread') { refreshRecipientContacts(this.db, { threadId: id }); refreshSplitHeaders(this.db, { threadId: id }); this.db.exec('RELEASE recipient_record_write'); }
       return data;
-    } catch (error) { if (kind === 'thread') this.db.exec('ROLLBACK TO recipient_record_write; RELEASE recipient_record_write'); if (draftHooked) this.db.exec('ROLLBACK TO provider_draft_record_write; RELEASE provider_draft_record_write'); throw error; }
+    } catch (error) { if(accountHooked)this.db.exec('ROLLBACK TO reminder_account_write; RELEASE reminder_account_write'); if (kind === 'thread') this.db.exec('ROLLBACK TO recipient_record_write; RELEASE recipient_record_write'); if (draftHooked) this.db.exec('ROLLBACK TO provider_draft_record_write; RELEASE provider_draft_record_write'); throw error; }
   }
   remove(kind: string, id: string, context?: { providerDiscardId?: string }) {
+    if(!this.reminderHooks.size){if(kind==='account')this.assertReminderOwner(id);else if(kind==='thread'){const t=this.get<Thread>('thread',id);if(t)this.assertReminderOwner(t.accountId,id)}}
+    const reminderHooked=['account','thread'].includes(kind)&&this.reminderHooks.size>0;if(reminderHooked)this.db.exec('SAVEPOINT reminder_record_remove');
     const hooked = kind === 'draft' && this.draftLifecycleHooks.size > 0;
     if (hooked) this.db.exec('SAVEPOINT provider_draft_remove');
-    try { if (kind === 'draft') { const draft = this.get<Draft>('draft', id); if (draft) { this.assertDraftMutable(draft); for (const hook of this.draftLifecycleHooks) hook.beforeRemove?.(draft, context); } } this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id); if (hooked) this.db.exec('RELEASE provider_draft_remove'); }
-    catch (error) { if (hooked) this.db.exec('ROLLBACK TO provider_draft_remove; RELEASE provider_draft_remove'); throw error; }
+    try { if(reminderHooked)for(const hook of this.reminderHooks)hook.beforeRemove?.(kind,id); if (kind === 'draft') { const draft = this.get<Draft>('draft', id); if (draft) { this.assertDraftMutable(draft); for (const hook of this.draftLifecycleHooks) hook.beforeRemove?.(draft, context); } } this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id); if (hooked) this.db.exec('RELEASE provider_draft_remove');if(reminderHooked)this.db.exec('RELEASE reminder_record_remove'); }
+    catch (error) { if (hooked) this.db.exec('ROLLBACK TO provider_draft_remove; RELEASE provider_draft_remove');if(reminderHooked)this.db.exec('ROLLBACK TO reminder_record_remove;RELEASE reminder_record_remove'); throw error; }
   }
   required<T>(kind: string, id: string): T { const row = this.get<T>(kind, id); if (!row) throw new HttpError(404, `${kind} not found`, 'not_found'); return row; }
   preferences(): Preferences { return this.get<Preferences>('preferences', 'global')!; }
@@ -187,6 +220,7 @@ export class Store {
   prepareAction(id: string, action: string, value: { until?: string; labelId?: string } = {}) {
     const before = this.required<Thread>('thread', id);
     const thread: Thread = structuredClone(before);
+    if(['archive','unarchive','trash','spam','snooze'].includes(action))this.assertReminderOwner(before.accountId,before.id);
     switch (action) {
       case 'archive': thread.folder = 'done'; delete thread.snoozedUntil; break;
       case 'unarchive': thread.folder = 'inbox'; delete thread.snoozedUntil; delete thread.snoozeRetryAt; delete thread.snoozeError; break;
@@ -211,21 +245,23 @@ export class Store {
       if (action === 'label' && value.labelId) { const providerId = this.required<Label>('label', value.labelId).providerId; if (providerId) thread.labels.includes(value.labelId) ? labels.add(providerId) : labels.delete(providerId); }
       thread.providerLabels = [...labels];
     }
-    return { before, thread };
+    this.reminderPreparedActions.set(thread,action);return { before, thread };
   }
-  commitAction(before: Thread, thread: Thread) {
+  commitAction(before: Thread, thread: Thread, accepted?: (result:{thread:Thread;undoId:string})=>void, fresh?:()=>{before:Thread;thread:Thread}) {
     const undoId = randomUUID();
     this.db.exec('BEGIN');
-    try { this.put('thread', thread.id, thread); this.db.prepare('INSERT INTO undo(id,thread_id,data,expires,after_data) VALUES(?,?,?,?,?)').run(undoId, thread.id, JSON.stringify(before), Date.now() + 300_000, JSON.stringify(thread)); this.db.exec('COMMIT'); }
+    try {if(fresh){const current=fresh();before=current.before;thread=current.thread}const handled=[...this.reminderHooks].map(h=>h.legacyCommit?.(before,thread,undoId,this.reminderPreparedActions.get(thread))).some(Boolean);if(handled)this.reminderProjectionDepth++;try{this.put('thread',thread.id,thread)}finally{if(handled)this.reminderProjectionDepth--} this.db.prepare('INSERT INTO undo(id,thread_id,data,expires,after_data) VALUES(?,?,?,?,?)').run(undoId, thread.id, JSON.stringify(before), Date.now() + 300_000, JSON.stringify(thread)); accepted?.({thread,undoId});this.db.exec('COMMIT'); }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return { thread, undoId };
   }
   pendingUndo(id: string): Thread {
-    const row = this.db.prepare('SELECT data,expires,after_data FROM undo WHERE id=?').get(id);
+    const row = this.db.prepare('SELECT thread_id,data,expires,after_data FROM undo WHERE id=?').get(id);
     if (!row || Number(row.expires) < Date.now()) throw new HttpError(410, 'Undo expired', 'undo_expired');
     const before: Thread = JSON.parse(String(row.data));
     if (!row.after_data) throw new HttpError(409, 'This older undo record cannot safely be restored', 'undo_conflict');
-    const after: Thread = JSON.parse(String(row.after_data)); const current = this.required<Thread>('thread', before.id);
+    const after: Thread = JSON.parse(String(row.after_data));if(!before||!after||before.id!==row.thread_id||after.id!==row.thread_id||before.accountId!==after.accountId)throw new HttpError(409,'Undo scope changed','undo_conflict'); const current = this.required<Thread>('thread', before.id);if(current.id!==before.id||current.accountId!==before.accountId)throw new HttpError(409,'Undo scope changed','undo_conflict');
+    if(!this.reminderHooks.size&&this.reminderThreadFields(before)!==this.reminderThreadFields(after))this.assertReminderOwner(current.accountId,current.id);
+    for(const hook of this.reminderHooks)hook.assertUndo?.(id,before,after,current);
     const next = { ...current } as Thread & Record<string, unknown>;
     // Restore only fields changed by this operation, preserving later unrelated
     // mutations and refusing to overwrite a newer mutation of the same field.
@@ -244,14 +280,27 @@ export class Store {
     }
     return next;
   }
-  commitUndo(id: string, thread: Thread) { this.db.exec('BEGIN'); try { this.put('thread', thread.id, thread); this.db.prepare('DELETE FROM undo WHERE id=?').run(id); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; } return thread; }
+  commitUndo(id: string, prepared: Thread, committed?: (thread:Thread)=>void) {
+    this.db.exec('BEGIN');
+    try {
+      // Provider preparation may have awaited since pendingUndo. Reapply the
+      // immutable operation delta to the current record inside this transaction.
+      // pendingUndo performs field/label CAS and semantic reminder ownership checks.
+      const thread=this.pendingUndo(id);
+      if(!prepared||prepared.id!==thread.id||prepared.accountId!==thread.accountId)throw new HttpError(409,'Undo scope changed','undo_conflict');
+      const handled=[...this.reminderHooks].map(h=>h.commitUndo?.(id,thread)).some(Boolean);
+      if(handled)this.reminderProjectionDepth++;
+      try{this.put('thread',thread.id,thread)}finally{if(handled)this.reminderProjectionDepth--}
+      this.db.prepare('DELETE FROM undo WHERE id=?').run(id);committed?.(thread);this.db.exec('COMMIT');return thread;
+    } catch(error){this.db.exec('ROLLBACK');throw error}
+  }
   dueSnoozes(now = Date.now(), limit = 10) {
     // ORDER BY rowid can otherwise tempt SQLite to scan its broad kind index;
     // force the matching partial index so ordinary mail is never visited here.
     const candidates = this.db.prepare("SELECT data FROM records INDEXED BY thread_snooze_candidates WHERE kind='thread' AND json_type(data,'$.snoozedUntil')='text' AND json_extract(data,'$.snoozedUntil')<>'' ORDER BY rowid").all().map(row => JSON.parse(String(row.data)) as Thread);
     // Do not lexically compare timestamps in SQL: existing offset/noncanonical
     // values and retry times retain the established JavaScript Date.parse rules.
-    return candidates.filter(thread => Date.parse(thread.snoozedUntil!) <= now && (!thread.snoozeRetryAt || Date.parse(thread.snoozeRetryAt) <= now)).sort((left, right) => left.snoozedUntil!.localeCompare(right.snoozedUntil!)).slice(0, limit);
+    return candidates.filter(thread => (this.reminderHooks.size>0||!this.reminderState(thread.accountId,thread.id)) && ![...this.reminderHooks].some(h=>h.ownsProjection?.(thread.accountId,thread.id)) && Date.parse(thread.snoozedUntil!) <= now && (!thread.snoozeRetryAt || Date.parse(thread.snoozeRetryAt) <= now)).sort((left, right) => left.snoozedUntil!.localeCompare(right.snoozedUntil!)).slice(0, limit);
   }
   wakeSnoozes(now = Date.now()) {
     // Real providers must wake through the server's account queue before local
@@ -401,16 +450,17 @@ export class Store {
   removeAttachment(draftId: string, attachmentId: string) { const draft = this.required<Draft>('draft', draftId); if (draft.status !== 'draft' && draft.status !== 'failed') throw new HttpError(409, 'Cancel scheduling before editing attachments'); this.attachmentBytes(draftId, attachmentId); this.db.exec('BEGIN'); try { this.db.prepare('DELETE FROM draft_attachments WHERE id=? AND draft_id=?').run(attachmentId, draftId); const next = this.saveDraft({ id: draftId, attachments: (draft.attachments ?? []).filter(item => item.id !== attachmentId) }); this.db.exec('COMMIT'); return next; } catch (error) { this.db.exec('ROLLBACK'); throw error; } }
   deleteDraft(id: string, context?: { providerDiscardId?: string }) { this.assertDraftMutable(this.required<Draft>('draft', id)); this.db.exec('SAVEPOINT owned_draft_delete'); try { this.db.prepare('DELETE FROM draft_attachments WHERE draft_id=?').run(id); this.remove('draft', id, context); this.db.exec('RELEASE owned_draft_delete'); } catch (error) { this.db.exec('ROLLBACK TO owned_draft_delete; RELEASE owned_draft_delete'); throw error; } }
   replyDraft(threadId: string, mode: 'reply' | 'replyAll' | 'forward') {
-    const thread = this.required<Thread>('thread', threadId); const account = this.required<Account>('account', thread.accountId); const message = thread.messages.at(-1); if (!message) throw new HttpError(400, 'Conversation has no messages');
+    const thread = this.required<Thread>('thread', threadId); const account = this.required<Account>('account', thread.accountId); const message = requireReplySource(this,thread);
+    const sourceSubject=message.reminderHeaderFacts?.coverage==='full'?message.reminderHeaderFacts.subject??thread.subject:thread.subject;
     const own = account.email.toLowerCase(); const unique = (people: { name: string; email: string }[]) => [...new Map(people.filter(p => p.email.toLowerCase() !== own).map(p => [p.email.toLowerCase(), p.email])).values()];
     const primary = unique(message.sender.email.toLowerCase() === own ? message.to : [message.sender]);
     const to = mode === 'forward' ? [] : mode === 'reply' ? primary : unique([...(message.sender.email.toLowerCase() === own ? [] : [message.sender]), ...message.to]);
     const cc = mode === 'replyAll' ? unique(message.cc ?? []).filter(email => !to.some(p => p.toLowerCase() === email.toLowerCase())) : [];
-    const forwardHeading = `\n\n---------- Forwarded message ----------\nFrom: ${message.sender.name} <${message.sender.email}>\nDate: ${message.date}\nSubject: ${thread.subject}\nTo: ${message.to.map(p => p.email).join(', ')}`;
+    const forwardHeading = `\n\n---------- Forwarded message ----------\nFrom: ${message.sender.name} <${message.sender.email}>\nDate: ${message.date}\nSubject: ${sourceSubject}\nTo: ${message.to.map(p => p.email).join(', ')}`;
     const forwardText = mode === 'forward' ? message.text || (message.html ? plainTextFromHtml(sanitizeDraftHtml(message.html)) : '') : '';
     const body = mode === 'forward' ? `${forwardHeading}\n\n${forwardText}` : '';
     const html = mode === 'forward' && message.html ? `${plainTextToHtml(forwardHeading)}<blockquote>${sanitizeDraftHtml(message.html)}</blockquote>` : undefined;
-    return this.saveDraft({ accountId: account.id, ...(mode !== 'forward' ? { threadId } : {}), to: to.join(', '), cc: cc.join(', '), subject: `${mode === 'forward' ? /^fwd?:/i.test(thread.subject) ? '' : 'Fwd: ' : /^re:/i.test(thread.subject) ? '' : 'Re: '}${thread.subject}`, body, ...(html !== undefined ? { html } : {}) }, mode === 'forward' ? 'forward' : 'reply');
+    return this.saveDraft({ accountId: account.id, ...(mode !== 'forward' ? { threadId,deliveryReplyContext:{id:message.id,internetMessageId:message.internetMessageId,references:message.references,providerThreadId:thread.providerId} } : {}), to: to.join(', '), cc: cc.join(', '), subject: `${mode === 'forward' ? /^fwd?:/i.test(sourceSubject) ? '' : 'Fwd: ' : /^re:/i.test(sourceSubject) ? '' : 'Re: '}${sourceSubject}`, body, ...(html !== undefined ? { html } : {}) }, mode === 'forward' ? 'forward' : 'reply');
   }
   seed() {
     const account: Account = { id: 'demo', email: 'alex@demo.local', name: 'Alex Morgan', provider: 'demo', color: '#6e65cc' };

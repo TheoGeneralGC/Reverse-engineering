@@ -1,3 +1,4 @@
+import {messageSourceValue} from './reminder-message-projection.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {Store} from './store.ts';
 import {HttpError,type Account,type Message,type Thread} from './types.ts';
@@ -98,7 +99,7 @@ export class GoogleIngressAdapter{
   if(proof){const stored=this.store.db.prepare('SELECT data,integrity FROM google_ingress_pages WHERE id=?').get(proof.id);if(!stored||stored.data!==JSON.stringify(proof)||stored.integrity!==sha(proof)||proof.accountId!==lease.accountId||proof.accountVersion!==lease.accountVersion||proof.baselineVersion!==r.baseline_version)fail('google_ingress_corrupt',500)}
   const occurrences:IngressVersion[]=[];let sequence=r.sequence;
   for(const message of thread.messages){
-   const sourceRef=this.source(lease,message.id,thread.providerId),{providerLabels:_labels,...content}=message,replyMetadata=headers.get(message.id)??{headersComplete:false,replyTo:null};
+   const sourceRef=this.source(lease,message.id,thread.providerId),content=messageSourceValue(message),replyMetadata=headers.get(message.id)??{headersComplete:false,replyTo:null};
    const inputVersion=sha({message:content,replyMetadata}),facts=sha({providerThreadId:thread.providerId,message:content,replyMetadata});
    const source:GoogleSourceVersion={accountId:lease.accountId,accountVersion:lease.accountVersion,sourceRef,inputVersion,providerMessageId:message.id,providerThreadId:thread.providerId,message:content,replyMetadata,immutableFactsHash:facts};
    this.store.db.prepare('INSERT INTO google_ingress_versions VALUES(?,?,?,?) ON CONFLICT DO NOTHING').run(sourceRef,inputVersion,JSON.stringify(source),sha(source));

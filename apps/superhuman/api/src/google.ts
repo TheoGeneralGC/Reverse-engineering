@@ -1,3 +1,7 @@
+import {captureCredentialMaintenance,assertCredentialMaintenance,initializeCredentialMaintenance,credentialGrantMutationEpoch} from './google-credential-maintenance.ts';
+import {AccountIncarnationAuthority,currentAccountIncarnation} from './account-incarnation.ts';
+import {captureFullHeaderFacts,presentationThread,projectStoredMessages,threadSourceVersion,mailHeaderGrant} from './reminder-message-projection.ts';
+import {prepareGoogleReminderCommand,type GoogleReminderCommand,type GoogleReminderGuard} from './google-reminder-command.ts';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Store } from './store.ts';
 import type { Account, Attachment, Draft, Label, Message, Person, Thread, DeliveryAttempt, DeliveryReconciliation } from './types.ts';
@@ -23,6 +27,7 @@ type HistoryPage = { historyId: string; nextPageToken?: string; history?: { mess
 export type ProviderStatus = { provider: string; configured: boolean; missing: string[]; redirectUri: string; deliveryEnabled: boolean; approvedTestRecipients: string[]; approvedTestSenders: string[]; capabilities: string[]; limitations: string[] };
 export interface MailProvider { status(): ProviderStatus; sync(accountId: string, limits?: SyncLimits): Promise<unknown>; updateThread(before: Thread, after: Thread): Promise<void>; send(draft: Draft): Promise<unknown> }
 
+const hexHeaderVersion=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 function person(raw = ''): Person { const m = raw.match(/^(.*?)\s*<([^>]+)>$/); return m ? { name: m[1].replaceAll('"', '').trim() || m[2], email: m[2].trim() } : { name: raw.trim(), email: raw.trim() }; }
 function decode(raw = '') { return Buffer.from(raw, 'base64url').toString('utf8'); }
 function header(payload: GmailPart, name: string) { return payload.headers?.find(h => h.name.toLowerCase() === name.toLowerCase())?.value ?? ''; }
@@ -99,7 +104,28 @@ export class GoogleProvider implements MailProvider {
   readTails = new Map<string, Promise<void>>();
   refreshes = new Map<string, Promise<Tokens>>();
   readonly ingress?:GoogleIngressAdapter;
-  constructor(store: Store, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch, timing: Partial<GoogleTiming> = {}, ingress?:GoogleIngressAdapter) { this.ingress=ingress;this.store = store; this.env = env; this.fetcher = fetcher; this.timing = { now: Date.now, sleep, random: Math.random, ...timing }; }
+  constructor(store: Store, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch, timing: Partial<GoogleTiming> = {}, ingress?:GoogleIngressAdapter) { this.ingress=ingress;this.store = store; initializeCredentialMaintenance(store); this.env = env; this.fetcher = fetcher; this.timing = { now: Date.now, sleep, random: Math.random, ...timing }; }
+  private headerBasis(accountId:string){
+   const account=this.store.required<Account>('account',accountId);if(account.provider!=='google'||!mailHeaderGrant(this.store,accountId))return null;const grant=this.store.required<any>('googleGrant','mail:'+accountId);let version:string|null=null;try{version=currentAccountIncarnation(this.store,accountId)}catch{}
+   const registry=this.store.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='auto_draft_ready_accounts'").get(),authority=registry?this.store.db.prepare('SELECT incarnation,epoch,facts,present FROM auto_draft_ready_accounts WHERE account_id=?').get(accountId)??null:null,grantRegistry=this.store.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='auto_draft_ready_grants'").get(),grantEpoch=grantRegistry?this.store.db.prepare('SELECT epoch,present,facts FROM auto_draft_ready_grants WHERE account_id=?').get(accountId)??null:null;
+   // Same-scope native refresh metadata is harmless. Existing durable semantic
+   // grant epochs still fence real scope changes, including ABA when available.
+   return{accountId,identity:JSON.stringify({id:account.id,provider:account.provider,email:account.email.toLowerCase()}),grant:JSON.stringify({accountId:grant.accountId,service:grant.service,outcomeValid:['granted','partial'].includes(grant.outcome),sourceValid:['response','requested','token-cache'].includes(grant.scopeSource),scopes:[...new Set(grant.grantedScopes)].sort()}),grantEpoch:JSON.stringify(grantEpoch),credentialGrant:credentialGrantMutationEpoch(this.store,'mail:'+accountId),authorityStamp:JSON.stringify(authority),version};
+  }
+  private assertHeaderBasis(basis:NonNullable<ReturnType<GoogleProvider['headerBasis']>>){const current=this.headerBasis(basis.accountId);if(!current||current.identity!==basis.identity||current.grant!==basis.grant||current.grantEpoch!==basis.grantEpoch||current.credentialGrant!==basis.credentialGrant||current.authorityStamp!==basis.authorityStamp||current.version!==basis.version)throw new HttpError(409,'The message source account changed','message_source_changed')}
+  normalizeFullMessage(accountId:string,accountVersion:string|null,raw:GmailMessage,staged?:{id:string;record:AttachmentRecord}[]):Message{const message=this.normalizeMessage(raw,accountId,staged);return{...message,reminderHeaderFacts:captureFullHeaderFacts({accountId,accountVersion,providerThreadId:raw.threadId},raw,message)}}
+  private headerRead(accountId:string,path:string,guard:GoogleReadGuard){const signal=AbortSignal.any([guard.signal,AbortSignal.timeout(25000)]);signal.throwIfAborted();const pending=this.guardedRead(accountId,path,{redirect:'error'}, {signal,beforeIssue:guard.beforeIssue},4194304);return new Promise<unknown>((resolve,reject)=>{const stop=()=>{cleanup();reject(signal.reason)},cleanup=()=>signal.removeEventListener('abort',stop);pending.then(value=>{cleanup();signal.aborted?reject(signal.reason):resolve(value)},error=>{cleanup();reject(error)});if(signal.aborted){stop();return}signal.addEventListener('abort',stop,{once:true})})}
+  /** Explicit exact-thread read intent. It is not live-history ingress, does not
+   * reset a barrier or dispatch a model, and cannot use cached rows as proof. */
+  async hydrateThread(accountId:string,threadId:string,expectedVersion:string,guard:GoogleReadGuard){
+   if(!guard||!(guard.signal instanceof AbortSignal)||typeof guard.beforeIssue!=='function'||!hexHeaderVersion(expectedVersion))throw new HttpError(400,'Invalid conversation refresh','message_source_invalid');
+   const before=this.store.required<Thread>('thread',threadId),account=this.store.required<Account>('account',accountId);if(before.accountId!==accountId||account.provider!=='google'||!before.providerId||!/^[A-Za-z0-9_-]{1,256}$/.test(before.providerId)||!mailHeaderGrant(this.store,accountId))throw new HttpError(409,'Conversation source is unavailable','reply_source_unavailable');const authority=new AccountIncarnationAuthority(this.store),basis=this.headerBasis(accountId)!;if(projectStoredMessages(this.store,before).presentation.versionHash!==expectedVersion)throw new HttpError(409,'Conversation changed before refresh','message_source_changed');
+   const sourceVersion=threadSourceVersion(before),check=()=>{guard.signal.throwIfAborted();guard.beforeIssue();this.assertHeaderBasis(basis);const current=this.store.required<Thread>('thread',threadId);if(current.accountId!==accountId||current.providerId!==before.providerId||threadSourceVersion(current)!==sourceVersion)throw new HttpError(409,'Conversation changed during refresh','message_source_changed')};check();
+   const profile=await this.headerRead(accountId,'profile',{signal:guard.signal,beforeIssue:check})as{emailAddress?:unknown};check();if(typeof profile.emailAddress!=='string'||profile.emailAddress.toLowerCase()!==account.email.toLowerCase())throw new HttpError(409,'Google identity did not match this account','message_source_changed');if(basis.version===null){authority.adoptAccount(accountId);const adopted=this.headerBasis(accountId)!;if(adopted.identity!==basis.identity||adopted.grant!==basis.grant||adopted.grantEpoch!==basis.grantEpoch)throw new HttpError(409,'The message source account changed','message_source_changed');basis.version=adopted.version;basis.authorityStamp=adopted.authorityStamp}check();
+   const data=await this.headerRead(accountId,`threads/${encodeURIComponent(before.providerId)}?format=full`,{signal:guard.signal,beforeIssue:check})as{id:string;messages?:GmailMessage[]};check();if(data.id!==before.providerId||!Array.isArray(data.messages)||data.messages.length===0||data.messages.some(m=>m.threadId!==before.providerId))throw new HttpError(502,'Google returned another conversation','invalid_google_thread');
+   const staged:{id:string;record:AttachmentRecord}[]=[],raw=[...data.messages].sort((a,b)=>Number(a.internalDate)-Number(b.internalDate)),messages=raw.map(m=>this.normalizeFullMessage(accountId,basis.version,m,staged)),latest=messages.at(-1)!,lastRaw=raw.at(-1)!,labels=[...new Set(raw.flatMap(m=>m.labelIds??[]))];
+   return this.syncUnit(undefined,()=>{check();const current=this.store.required<Thread>('thread',threadId),next=presentationThread(this.store,{...current,subject:header(lastRaw.payload,'subject')||'(no subject)',snippet:gmailSnippetToText(typeof lastRaw.snippet==='string'?lastRaw.snippet:''),sender:latest.sender,lastMessageAt:latest.date,messages,participants:[...new Map(messages.flatMap(m=>[m.sender,...m.to,...m.cc??[]]).map(p=>[p.email,p])).values()],providerLabels:labels,unread:current.unread,starred:current.starred});for(const item of staged)this.store.put('messageAttachment',item.id,item.record);return this.store.publishProviderThread(next)});
+  }
   get redirectUri() { return this.env.GOOGLE_REDIRECT_URI || 'http://127.0.0.1:3001/api/auth/google/callback'; }
   status(): ProviderStatus {
     const missing = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'TOKEN_ENCRYPTION_KEY'].filter(k => !this.env[k]);
@@ -118,19 +144,23 @@ export class GoogleProvider implements MailProvider {
     return migrateLegacyMailGrantMetadata(this.store, value => this.unseal(value), this.timing.now);
   }
   saveTokens(accountId: string, tokens: Tokens, service: GoogleService = 'mail') { this.store.db.prepare('INSERT INTO secrets VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET value=excluded.value').run(this.tokenKey(accountId, service), this.seal(tokens)); }
-  private readTokens(accountId: string, service: GoogleService = 'mail') { const row = this.store.db.prepare('SELECT value FROM secrets WHERE account_id=?').get(this.tokenKey(accountId, service)); if (!row) throw new HttpError(401, 'Reconnect this Google service', 'reconnect_required'); return this.unseal(String(row.value)); }
+  private tokenSlot(accountId:string,service:GoogleService){const row=this.store.db.prepare('SELECT value FROM secrets WHERE account_id=?').get(this.tokenKey(accountId,service));if(!row)throw new HttpError(401,'Reconnect this Google service','reconnect_required');return String(row.value)}
+  private readTokens(accountId: string, service: GoogleService = 'mail') {return this.unseal(this.tokenSlot(accountId,service))}
   async tokens(accountId: string, service: GoogleService = 'mail'): Promise<Tokens> {
-    const current = this.readTokens(accountId, service); if (current.expires_at > Date.now() + 60_000) return current;
+    const sealed=this.tokenSlot(accountId,service),current=this.unseal(sealed); if (current.expires_at > Date.now() + 60_000) return current;
     const key = this.tokenKey(accountId, service); const existing = this.refreshes.get(key); if (existing) return existing;
     const refresh = (async () => {
       if (!current.refresh_token) throw new HttpError(401, 'Reconnect this Google service', 'reconnect_required');
+      const basis=captureCredentialMaintenance(this.store,accountId,service,sealed);
       const result = await this.tokenRequest({ grant_type: 'refresh_token', refresh_token: current.refresh_token }, service);
       const next = { ...current, access_token: result.access_token, refresh_token: result.refresh_token ?? current.refresh_token, expires_at: Date.now() + result.expires_in * 1000, ...(result.scope !== undefined ? { grantedScopes: result.scope.split(/\s+/).filter(Boolean) } : {}) };
-      this.store.db.exec('BEGIN IMMEDIATE'); try { this.saveTokens(accountId, next, service); const grant = this.grant(accountId, service); if (grant && result.scope !== undefined) this.persistGrant(accountId, { service, requestedScopes: grant.requestedScopes }, result); this.store.db.exec('COMMIT'); } catch (error) { this.store.db.exec('ROLLBACK'); throw error; }
+      this.store.db.exec('BEGIN IMMEDIATE'); try { assertCredentialMaintenance(this.store,basis); this.saveTokens(accountId, next, service); const grant = this.grant(accountId, service); if (grant && result.scope !== undefined) this.persistGrant(accountId, { service, requestedScopes: grant.requestedScopes }, result); this.store.db.exec('COMMIT'); } catch (error) { this.store.db.exec('ROLLBACK'); throw error; }
       return next;
     })();
     this.refreshes.set(key, refresh); try { return await refresh; } finally { this.refreshes.delete(key); }
   }
+  /** Application shutdown first stops owned issue, then drains shared refreshes. */
+  async waitForTokenIdle(){for(;;){const work=[...this.refreshes.values()];if(work.length){await Promise.allSettled(work);continue}await Promise.resolve();if(this.refreshes.size===0)return}}
   private async tokenRequest(values: Record<string, string>, service: GoogleService = 'mail'): Promise<TokenResponse> {
     if (!this.status().configured) throw new HttpError(503, 'Google integration is not configured', 'provider_not_configured');
     const result = await this.fetcher('https://oauth2.googleapis.com/token', { method: 'POST', signal: AbortSignal.timeout(20_000), headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: this.env.GOOGLE_CLIENT_ID!, client_secret: this.env.GOOGLE_CLIENT_SECRET!, ...values }) });
@@ -231,13 +261,34 @@ export class GoogleProvider implements MailProvider {
     }
     throw new HttpError(502, 'Google read attempts exhausted');
   }
+  /** Dedicated reminder capability. Existing fourth Send/fifth SendAs/sync gates
+   * are unchanged. Every command is captured before await and issued at most once. */
+  async reminderRequest(accountId:string,command:GoogleReminderCommand,guard:GoogleReminderGuard){
+    const prepared=prepareGoogleReminderCommand(command);
+    if(!guard||!(guard.signal instanceof AbortSignal)||typeof guard.assertLive!=='function'||typeof guard.beforeIssue!=='function')throw new HttpError(400,'Invalid reminder native guard','reminder_native_invalid');
+    const signal=AbortSignal.any([guard.signal,AbortSignal.timeout(20000)]),assertLive=guard.assertLive,beforeIssue=guard.beforeIssue;
+    const bounded=<T>(promise:Promise<T>)=>new Promise<T>((resolve,reject)=>{if(signal.aborted){reject(signal.reason);return}const abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});promise.then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort))});
+    const check=()=>{signal.throwIfAborted();assertLive()};check();const token=await this.tokens(accountId);check();
+    if(prepared.method==='GET'){await this.paceRead(accountId,readCost(prepared.path).units);check()}
+    let response:Response;
+    check();beforeIssue();signal.throwIfAborted();try{response=await bounded(this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/${prepared.path}`,{method:prepared.method,body:prepared.body,redirect:'error',signal,headers:{'content-type':'application/json',authorization:`Bearer ${token.access_token}`}}))}catch{throw new HttpError(502,'Reminder native result is unconfirmed','reminder_native_unknown')}
+    // A received write ACK may still be recorded after cancellation/Stop; it is
+    // never permission to publish a return for a replacement generation.
+    if(prepared.method==='GET')check();
+    if(!response.ok)throw new HttpError(502,'Reminder native result is unconfirmed','reminder_native_unknown');
+    const length=response.headers.get('content-length');if(length!==null&&(!/^\d+$/.test(length)||Number(length)>4194304))throw new HttpError(502,'Reminder response exceeds its bound','reminder_native_unknown');
+    const reader=response.body?.getReader();let size=0;const chunks:Uint8Array[]=[];
+    try{if(reader)for(;;){signal.throwIfAborted();const part=await bounded(reader.read());if(part.done)break;size+=part.value.byteLength;if(size>4194304)throw Error('bounded response');chunks.push(part.value)}}catch{throw new HttpError(502,'Reminder response is unconfirmed','reminder_native_unknown')}finally{if(reader)await bounded(reader.cancel()).catch(()=>{})}
+    let value:unknown;try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks))||'{}')}catch{throw new HttpError(502,'Reminder response is invalid','reminder_native_unknown')}
+    if(prepared.method==='GET')check();return value;
+  }
   private async guardedSendAsRead(accountId:string,path:string,options:RequestInit,nativeGate:(()=>void)|undefined,readGuard:GoogleReadGuard) {
     if (nativeGate !== undefined || (options.method??'GET').toUpperCase()!=='GET' || path!=='settings/sendAs?fields=sendAs(sendAsEmail,isPrimary,verificationStatus)' || options.body!=null || !readGuard || !(readGuard.signal instanceof AbortSignal) || typeof readGuard.beforeIssue!=='function') throw new HttpError(400,'Identity read guard requires the fixed SendAs GET','invalid_google_read_guard');
     return this.guardedRead(accountId,path,options,readGuard);
   }
   /** Internal read path shared by fixed SendAs and a producer-owned sync lease.
    * Public fifth-argument guard remains restricted to the fixed SendAs GET. */
-  private async guardedRead(accountId:string,path:string,options:RequestInit,readGuard:GoogleReadGuard) {
+  private async guardedRead(accountId:string,path:string,options:RequestInit,readGuard:GoogleReadGuard,maxResponseBytes?:number) {
     // Capture the trusted guard before any await. Default request families and
     // the fourth-argument tracked Send permit keep their existing path above.
     const caller=readGuard.signal,beforeIssue=readGuard.beforeIssue;
@@ -254,6 +305,7 @@ export class GoogleProvider implements MailProvider {
       try { check();signal.throwIfAborted();response=await this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`,{...requestOptions,method:'GET',signal,headers:{'content-type':'application/json',...requestOptions.headers,authorization:`Bearer ${token.access_token}`}}); }
       catch { check();signal.throwIfAborted();if(attempt<3){await this.timing.sleep(1000*2**attempt+Math.floor(this.timing.random()*1000));check();continue}throw new GoogleRequestError(502,'Google transport failed; the operation could not be confirmed','google_request_failed',{pathFamily:pathFamily(path,'GET'),httpStatus:0,reasons:[]}) }
       check();signal.throwIfAborted();
+      if(maxResponseBytes!==undefined&&response.status!==204){const bytes=await this.headerResponseBytes(response,signal,check,maxResponseBytes);response=new Response(bytes,{status:response.status,headers:response.headers})}
       if(response.ok){const value=response.status===204?{}:await response.json();check();signal.throwIfAborted();return value}
       const failure=await this.failure(response,path,'GET');check();signal.throwIfAborted();
       const retryable=failure.code==='google_rate_limited'||[500,502,503,504].includes(response.status),delay=Math.max(1000*2**attempt+Math.floor(this.timing.random()*1000),(failure.diagnostic.retryAfterSeconds??0)*1000);
@@ -261,6 +313,7 @@ export class GoogleProvider implements MailProvider {
     }
     throw new HttpError(502,'Google read attempts exhausted');
   }
+  private async headerResponseBytes(response:Response,signal:AbortSignal,check:()=>void,max:number){const declared=response.headers.get('content-length');if(declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>max)){void response.body?.cancel().catch(()=>{});throw new HttpError(502,'Conversation is too large to refresh','message_source_limit')}const reader=response.body?.getReader(),chunks:Uint8Array[]=[];let size=0;const cancel=()=>{if(reader)void reader.cancel().catch(()=>{})};signal.addEventListener('abort',cancel,{once:true});try{if(reader)for(;;){check();signal.throwIfAborted();const part=await reader.read();check();signal.throwIfAborted();if(part.done)break;size+=part.value.byteLength;if(size>max)throw new HttpError(502,'Conversation is too large to refresh','message_source_limit');chunks.push(part.value)}return Buffer.concat(chunks)}finally{signal.removeEventListener('abort',cancel);cancel()}}
   private paceRead(accountId: string, units: number) {
     const previous = this.readTails.get(accountId) ?? Promise.resolve();
     const turn = previous.then(async () => {
@@ -381,21 +434,23 @@ export class GoogleProvider implements MailProvider {
     }
     return { state, threadReads };
   }
-  private async beginInitialSync(accountId:string,lease?:GoogleReadLease):Promise<SyncState>{if(lease)this.ingress!.invalidate(lease);const profile=await this.syncRead(accountId,'profile',lease) as {historyId:string};if(!profile.historyId)throw new HttpError(502,'Google profile omitted history cursor');const state:SyncState={phase:'initial',historyId:profile.historyId,generation:randomBytes(16).toString('hex'),partial:true};return this.syncUnit(lease,()=>this.store.put('sync',accountId,state))}
+  private async beginInitialSync(accountId:string,lease?:GoogleReadLease):Promise<SyncState>{if(lease)this.ingress!.invalidate(lease);const preBasis=this.headerBasis(accountId);if(preBasis&&preBasis.version===null)new AccountIncarnationAuthority(this.store);const basis=this.headerBasis(accountId),profile=await this.syncRead(accountId,'profile',lease) as {historyId:string;emailAddress?:string};if(basis){this.assertHeaderBasis(basis);const account=this.store.required<Account>('account',accountId);if(profile.emailAddress?.toLowerCase()===account.email.toLowerCase()&&basis.version===null)new AccountIncarnationAuthority(this.store).adoptAccount(accountId)}if(!profile.historyId)throw new HttpError(502,'Google profile omitted history cursor');const state:SyncState={phase:'initial',historyId:profile.historyId,generation:randomBytes(16).toString('hex'),partial:true};return this.syncUnit(lease,()=>this.store.put('sync',accountId,state))}
   syncStatus(accountId: string) { this.store.required<Account>('account', accountId); const state = this.store.get<SyncState>('sync', accountId); const health = this.store.get<{ status: 'queued' | 'running' | 'ready' | 'error'; error?: string; code?: string; updatedAt?: string }>('syncHealth', accountId); return { ...(state ? { phase: state.phase, partial: state.partial, lastCompletedAt: state.lastCompletedAt, resultSizeEstimate: state.resultSizeEstimate } : { phase: 'not-started', partial: true }), catchupAt: state?.catchup?.lastCompletedAt, catchupPending: state?.catchup?.pending?.ids.length, lastResetReason: state?.lastResetReason, status: health?.status ?? 'idle', error: health?.error, code: health?.code, updatedAt: health?.updatedAt }; }
   private async syncThread(account: Account, threadId: string, generation: string,lease?:GoogleReadLease,provenance?:GooglePageProof,origin:'initial'|'repair'='repair') {
+    const basis=this.headerBasis(account.id);
     let data: { id: string; messages?: GmailMessage[] };
     try { data = await this.syncRead(account.id, `threads/${encodeURIComponent(threadId)}?format=full`,lease) as typeof data; }
     catch (error) { if (error instanceof HttpError && error.code === 'google_not_found') { this.syncUnit(lease,()=>this.store.remove('thread', `${account.id}:${threadId}`)); return; } throw error; }
+    if(basis)this.assertHeaderBasis(basis);
     if(data.id!==threadId||(data.messages??[]).some(message=>message.threadId!==threadId))throw new HttpError(502,'Google returned another thread','invalid_google_thread');
     const staged:{id:string;record:AttachmentRecord}[]=[];
     const raw = [...(data.messages ?? [])].sort((a, b) => Number(a.internalDate) - Number(b.internalDate));
-    const messages = raw.map(message => this.normalizeMessage(message,account.id,staged)); if (!messages.length) { this.syncUnit(lease,()=>this.store.remove('thread', `${account.id}:${threadId}`)); return; }
+    const messages = raw.map(message => this.normalizeFullMessage(account.id,basis?.version??null,message,staged)); if (!messages.length) { this.syncUnit(lease,()=>this.store.remove('thread', `${account.id}:${threadId}`)); return; }
     const latest = messages.at(-1)!; const lastRaw = raw.at(-1)!; const labels = [...new Set(raw.flatMap(message => message.labelIds ?? []))];
     const id = `${account.id}:${data.id}`; const existing = this.store.get<Thread>('thread', id);
     const folder = labels.includes('INBOX') ? 'inbox' : raw.every(message => message.labelIds?.includes('TRASH')) ? 'trash' : raw.every(message => message.labelIds?.includes('SPAM')) ? 'spam' : raw.every(message => message.labelIds?.includes('DRAFT')) ? 'drafts' : labels.includes('SENT') ? 'sent' : 'done';
     const thread:Thread={ id, accountId: account.id, providerId: data.id, subject: header(lastRaw.payload, 'subject') || '(no subject)', snippet: gmailSnippetToText(lastRaw.snippet), sender: latest.sender, participants: [...new Map(messages.flatMap(message => [message.sender, ...message.to, ...(message.cc ?? [])]).map(p => [p.email, p])).values()], lastMessageAt: latest.date, unread: labels.includes('UNREAD'), starred: labels.includes('STARRED'), important: labels.includes('IMPORTANT'), folder, labels: labels.filter(label => !/^[A-Z_]+$/.test(label)).map(label => `${account.id}:${label}`), messages, snoozedUntil: existing?.snoozedUntil, snoozeRetryAt: existing?.snoozeRetryAt, snoozeError: existing?.snoozeError, muted: existing?.muted, syncGeneration: generation, providerLabels: labels };
-    this.syncUnit(lease,()=>{for(const entry of staged)this.store.put('messageAttachment',entry.id,entry.record);this.store.put('thread',id,thread);if(lease)this.ingress!.publish(lease,thread,provenance,origin,new Map(raw.map(m=>[m.id,this.replyMetadata(m.payload)])))});
+    this.syncUnit(lease,()=>{for(const entry of staged)this.store.put('messageAttachment',entry.id,entry.record);this.store.publishProviderThread(presentationThread(this.store,thread));if(lease)this.ingress!.publish(lease,this.store.required<Thread>('thread',id),provenance,origin,new Map(raw.map(m=>[m.id,this.replyMetadata(m.payload)])))});
   }
   private replyMetadata(payload:GmailPart):GoogleReplyMetadata{
     const headers=payload.headers;if(!Array.isArray(headers)||headers.length>1000||headers.some(h=>typeof h.name!=='string'||typeof h.value!=='string'||h.name.length>256||Buffer.byteLength(h.value)>16384||/[\r\n\0]/.test(h.name+h.value)))return{headersComplete:false,replyTo:null};
@@ -426,7 +481,7 @@ export class GoogleProvider implements MailProvider {
   mime(draft: Draft) {
     const account = this.store.required<Account>('account', draft.accountId);
     const thread = draft.threadId ? this.store.get<Thread>('thread', draft.threadId) : undefined;
-    const raw = Buffer.from(buildMime(draft, account, draft.deliveryReplyContext ?? thread?.messages.at(-1), (draft.attachments ?? []).map(metadata => ({ metadata, bytes: this.store.attachmentBytes(draft.id, metadata.id) })))).toString('base64url');
+    const raw = Buffer.from(buildMime(draft, account, draft.deliveryReplyContext ?? (thread?this.store.replySource(thread.id):undefined), (draft.attachments ?? []).map(metadata => ({ metadata, bytes: this.store.attachmentBytes(draft.id, metadata.id) })))).toString('base64url');
     const providerThreadId = draft.deliveryReplyContext ? draft.deliveryReplyContext.providerThreadId : thread?.providerId;
     return { raw, ...(providerThreadId ? { threadId: providerThreadId } : {}) };
   }

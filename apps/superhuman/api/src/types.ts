@@ -1,3 +1,4 @@
+import type {MessagePresentation,ThreadPresentation,ReminderHeaderFacts} from './message-presentation.ts';
 export type Person = { name: string; email: string };
 export type ContactSuggestion = Person & { formatted: string };
 export type ContactSuggestionOptions = { accountId: string; q: string; limit?: number };
@@ -6,12 +7,12 @@ export type ContactContextOptions = { accountId: string; email: string; excludeT
 export type ContactContextPage = { contact: Person; matched: boolean; threads: ThreadSummary[]; source: 'local-message-participants'; limited: true };
 export type Account = { id: string; email: string; name: string; provider: 'demo' | 'google'; color: string; lastSyncedAt?: string };
 export type Attachment = { id: string; name: string; mimeType: string; size: number; messageId?: string; partId?: string; source?: 'provider' | 'embedded' | 'unavailable'; contentId?: string };
-export type Message = { trackingRead?: {messageRef:string}; id: string; sender: Person; to: Person[]; cc?: Person[]; date: string; text: string; html?: string; attachments: Attachment[]; internetMessageId?: string; references?: string; providerLabels?: string[] };
+export type Message = { /** Server-only; omitted by wire projection. */ reminderHeaderFacts?:ReminderHeaderFacts;reminderContactEligible?:boolean;reminderPresentation?:MessagePresentation;trackingRead?: {messageRef:string}; id: string; sender: Person; to: Person[]; cc?: Person[]; date: string; text: string; html?: string; attachments: Attachment[]; internetMessageId?: string; references?: string; providerLabels?: string[] };
 export type Thread = {
   id: string; accountId: string; providerId?: string; subject: string; snippet: string;
   sender: Person; participants: Person[]; lastMessageAt: string; unread: boolean;
   starred: boolean; important: boolean; folder: string; labels: string[];
-  messages: Message[]; snoozedUntil?: string; snoozeRetryAt?: string; snoozeError?: string; split?: string; muted?: boolean; syncGeneration?: string; providerLabels?: string[];
+  messages: Message[];/** Private contact projection date, omitted on wire. */ reminderContactAt?:string;reminderContactEligible?:boolean;reminderPresentation?:ThreadPresentation; snoozedUntil?: string; snoozeRetryAt?: string; snoozeError?: string; split?: string; muted?: boolean; syncGeneration?: string; providerLabels?: string[];
 };
 export type ThreadSummary = Pick<Thread, 'id' | 'accountId' | 'providerId' | 'subject' | 'snippet' | 'sender' | 'participants' | 'lastMessageAt' | 'unread' | 'starred' | 'important' | 'folder' | 'labels' | 'snoozedUntil' | 'snoozeRetryAt' | 'snoozeError' | 'split' | 'muted' | 'providerLabels'> & { messageCount: number; hasAttachments: boolean };
 export type ThreadListOptions = { accountId: string; folder?: string; q?: string; split?: 'important' | 'other' | 'calendar' | 'all'; limit?: number; cursor?: string | null; timeZone?: string };

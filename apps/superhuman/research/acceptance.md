@@ -1,5 +1,15 @@
 # Acceptance scenarios
 
+The [applied Done checkpoint](done-applied-checkpoint-20261030.md) records bounded
+DM-01–07 results and gaps; DM-08 and full interaction parity remain open.
+
+The [Done interaction record](done-motion-observation-20261029.md) adds DM-01–08
+for immediate repeated E, retained row transitions, latest-notification Undo,
+uncertain responses, account/view changes, motion policy, hydrated row coherence
+and other eligible dismissals. Its original three-key observation is bounded;
+the bounded replica41/93-action cases are recorded separately. Moving pixels,
+exact timing, geometry and full interaction comparison remain pending.
+
 The later [controlled managed Gmail response](generated-cloud-reply-checkpoint-20261029.md)
 adds GC-01–05: one model/unsent cloud CREATE/readback, authored-only facts and
 exact quote/reply MIME, preserved failures and qualified protection, same-question

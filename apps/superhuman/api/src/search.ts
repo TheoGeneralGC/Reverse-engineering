@@ -1,3 +1,4 @@
+import {visibleMessages} from './message-presentation.ts';
 import { Temporal } from '@js-temporal/polyfill';
 import { HttpError, type Label, type Person, type Thread } from './types.ts';
 
@@ -111,21 +112,21 @@ export function createSearchMatcher(query: string, context: SearchContext = {}):
   const timeZone = normalizeSearchTimeZone(context.timeZone);
   const root = parseSearchQuery(query);
   return (thread: Thread) => {
-    const own = context.accountEmail?.(thread.accountId)?.toLowerCase();
+    const own = context.accountEmail?.(thread.accountId)?.toLowerCase(),messages=visibleMessages(thread);
     const labelMatches = (value: string) => thread.labels.some(id => id.toLowerCase() === value || (context.labels ?? []).some(label => label.accountId === thread.accountId && label.id === id && (label.name.toLowerCase() === value || label.providerId?.toLowerCase() === value)));
     const peopleMatch = (people: Person[], value: string) => people.some(person => value === 'me' && own ? person.email.toLowerCase() === own : `${person.name} ${person.email}`.toLowerCase().includes(value));
-    const haystack = `${thread.subject} ${thread.snippet} ${thread.sender.name} ${thread.sender.email} ${thread.messages.map(message => message.text).join(' ')}`.toLowerCase();
+    const haystack = `${thread.subject} ${thread.snippet} ${thread.sender.name} ${thread.sender.email} ${messages.map(message => message.text).join(' ')}`.toLowerCase();
     function term(field: string | undefined, raw: string): boolean {
       const value = raw.toLowerCase();
       if (!field) return haystack.includes(value);
-      if (field === 'from') return peopleMatch(thread.messages.map(message => message.sender), value);
-      if (field === 'to') return peopleMatch(thread.messages.flatMap(message => message.to), value);
-      if (field === 'cc') return peopleMatch(thread.messages.flatMap(message => message.cc ?? []), value);
+      if (field === 'from') return peopleMatch(messages.map(message => message.sender), value);
+      if (field === 'to') return peopleMatch(messages.flatMap(message => message.to), value);
+      if (field === 'cc') return peopleMatch(messages.flatMap(message => message.cc ?? []), value);
       if (field === 'subject') return thread.subject.toLowerCase().includes(value);
-      if (field === 'filename') return thread.messages.some(message => message.attachments.some(attachment => attachment.name.toLowerCase().includes(value)));
+      if (field === 'filename') return messages.some(message => message.attachments.some(attachment => attachment.name.toLowerCase().includes(value)));
       if (field === 'label' || field === 'l') return labelMatches(value);
       if (field === 'in') return threadHasFolder(thread, value) || labelMatches(value);
-      if (field === 'has' && ['attachment', 'attachments'].includes(value)) return thread.messages.some(message => message.attachments.length > 0);
+      if (field === 'has' && ['attachment', 'attachments'].includes(value)) return messages.some(message => message.attachments.length > 0);
       if (field === 'is') {
         const flags: Record<string, boolean> = { unread: thread.unread, read: !thread.unread, starred: thread.starred, flagged: thread.starred, important: thread.important, unimportant: !thread.important, muted: !!thread.muted, snoozed: !!thread.snoozedUntil };
         if (value in flags) return flags[value];

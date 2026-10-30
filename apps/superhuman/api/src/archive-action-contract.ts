@@ -1,0 +1,37 @@
+import {createHash} from 'node:crypto';
+import {HttpError} from './types.ts';
+export type ArchiveBasis={version:1;
+accountVersion:string;
+sourceVersion:string};
+export type ArchiveRequest={action:'archive';
+accountId:string;
+accountVersion:string;
+expectedSourceVersion:string;
+clientRequestId:string};
+export type ArchiveState='pending'|'confirmed'|'unknown'|'refused';
+export type ArchiveReceipt={version:1;
+clientRequestId:string;
+accountId:string;
+accountVersion:string;
+threadId:string;
+action:'archive';
+state:ArchiveState;
+undoId:string|null;
+reason:string|null};
+export type ArchiveUndoRequest={accountId:string;
+accountVersion:string;
+clientRequestId:string};
+export type ArchiveUndoStatus={version:1;
+clientRequestId:string;
+state:ArchiveState;
+reason:string|null};
+export const archiveStable=(value:unknown)=>JSON.stringify(value,(_k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
+export const archiveHash=(value:unknown)=>createHash('sha256').update(archiveStable(value)).digest('hex');
+export const archiveHex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
+export const archiveKey=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v);
+export const archiveId=(v:unknown):v is string=>typeof v==='string'&&v.length>0&&v.length<=512&&!/[\x00-\x1f\x7f]/.test(v);
+const exact=(v:unknown,keys:string[]):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===keys.sort().join(',');
+export function parseArchiveRequest(value:unknown):ArchiveRequest{if(!exact(value,['action','accountId','accountVersion','expectedSourceVersion','clientRequestId'])||value.action!=='archive'||!archiveId(value.accountId)||!archiveHex(value.accountVersion)||!archiveHex(value.expectedSourceVersion)||!archiveKey(value.clientRequestId))throw new HttpError(400,'Invalid keyed Archive request','archive_invalid_request');
+return value as ArchiveRequest}
+export function parseArchiveUndo(value:unknown):ArchiveUndoRequest{if(!exact(value,['accountId','accountVersion','clientRequestId'])||!archiveId(value.accountId)||!archiveHex(value.accountVersion)||!archiveKey(value.clientRequestId))throw new HttpError(400,'Invalid keyed Undo request','archive_invalid_request');
+return value as ArchiveUndoRequest}

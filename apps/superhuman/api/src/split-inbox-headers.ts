@@ -8,16 +8,18 @@ function snapshot(data:string){
  const sender=`CASE WHEN json_type(${doc},'$.sender')='object' THEN json_extract(${doc},'$.sender') ELSE '{}' END`;
  const recipient="CASE WHEN p.type='object' THEN p.value ELSE '{}' END";
  const list=(field:string)=>`CASE WHEN json_type(${doc},'$.${field}')='array' THEN json_extract(${doc},'$.${field}') ELSE '[]' END`;
+ const visible=`NOT(COALESCE(json_extract(${doc},'$.reminderPresentation.version'),0)=1 AND COALESCE(json_extract(${doc},'$.reminderPresentation.coverage'),'')='full' AND COALESCE(json_extract(${doc},'$.reminderPresentation.hidden'),0)=1 AND COALESCE(json_extract(${doc},'$.reminderPresentation.kind'),'') IN ('system-original','system-owned'))`;
  const person=(p:string,invalid='0')=>`json_object('email',substr(${text(p,'email')},1,1025),'name',substr(${text(p,'name')},1,2049),'clipped',(${invalid}) OR length(${text(p,'email')})>1024 OR length(${text(p,'name')})>2048)`;
- const people=`SELECT 'message:'||m.key AS message_key,'from' AS role,0 AS ordinal,${person(sender,`m.type<>'object' OR COALESCE(json_type(${doc},'$.sender'),'null')<>'object'`)} AS person FROM json_each(${messages}) m
- UNION ALL SELECT 'message:'||m.key,'to',p.key,${person(recipient,"p.type<>'object'")} FROM json_each(${messages}) m JOIN json_each(${list('to')}) p
- UNION ALL SELECT 'message:'||m.key,'cc',p.key,${person(recipient,"p.type<>'object'")} FROM json_each(${messages}) m JOIN json_each(${list('cc')}) p
+ const people=`SELECT 'message:'||m.key AS message_key,'from' AS role,0 AS ordinal,${person(sender,`m.type<>'object' OR COALESCE(json_type(${doc},'$.sender'),'null')<>'object'`)} AS person FROM json_each(${messages}) m WHERE ${visible}
+ UNION ALL SELECT 'message:'||m.key,'to',p.key,${person(recipient,"p.type<>'object'")} FROM json_each(${messages}) m JOIN json_each(${list('to')}) p WHERE ${visible}
+ UNION ALL SELECT 'message:'||m.key,'cc',p.key,${person(recipient,"p.type<>'object'")} FROM json_each(${messages}) m JOIN json_each(${list('cc')}) p WHERE ${visible}
  UNION ALL SELECT 'fallback','from',0,${person(`CASE WHEN json_type(${data},'$.sender')='object' THEN json_extract(${data},'$.sender') ELSE '{}' END`)} WHERE json_array_length(${messages})=0`;
  const invalid=`COALESCE(json_type(${data},'$.subject'),'null')<>'text' OR COALESCE(json_type(${data},'$.messages'),'array')<>'array' OR EXISTS(SELECT 1 FROM json_each(${messages}) m WHERE m.type<>'object' OR COALESCE(json_type(${doc},'$.to'),'array')<>'array' OR COALESCE(json_type(${doc},'$.cc'),'array')<>'array')`;
  return `json_object('subject',substr(${text(data,'subject')},1,32769),'subjectClipped',length(${text(data,'subject')})>32768,'metadataInvalid',${invalid},'people',json(COALESCE((SELECT json_group_array(json_object('message',message_key,'role',role,'ordinal',ordinal,'person',json(person))) FROM (SELECT * FROM (${people}) LIMIT 2049)),'[]')))`;
 }
 export function initializeSplitHeaders(db:DatabaseSync){
  db.exec('BEGIN IMMEDIATE');try{
+  const reminderProjection=!db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('split-header-reminder-visible-v1');if(reminderProjection)db.exec('DROP TRIGGER IF EXISTS split_headers_insert;DROP TRIGGER IF EXISTS split_headers_update');
   db.exec(`CREATE TABLE IF NOT EXISTS split_source_generations(account_id TEXT PRIMARY KEY NOT NULL,generation INTEGER NOT NULL);
    CREATE TABLE IF NOT EXISTS split_header_pending(thread_id TEXT PRIMARY KEY,account_id TEXT NOT NULL,metadata TEXT NOT NULL);
    CREATE INDEX IF NOT EXISTS split_header_pending_account ON split_header_pending(account_id,thread_id);
@@ -58,6 +60,7 @@ export function initializeSplitHeaders(db:DatabaseSync){
    while(refreshSplitHeaders(db,{limit:64})){/* Derived metadata only; no source record/configuration writes. */}
    db.prepare('INSERT INTO schema_migrations VALUES(?)').run('split-header-metadata-v1');
   }
+  if(reminderProjection)db.prepare('INSERT INTO schema_migrations VALUES(?)').run('split-header-reminder-visible-v1');
   db.exec('COMMIT');
  }catch(error){db.exec('ROLLBACK');throw error}
 }

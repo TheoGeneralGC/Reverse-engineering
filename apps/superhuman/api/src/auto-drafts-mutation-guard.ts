@@ -1,3 +1,4 @@
+import {messageSourceValue} from './reminder-message-projection.ts';
 import type {DraftWriteContext} from './generated-draft-policy.ts';
 import { Store } from './store.ts';
 import { createHash } from 'node:crypto';
@@ -10,7 +11,7 @@ const corrupt = (): never => { throw new HttpError(500, 'Automatic draft guard d
 export const guardId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && Buffer.byteLength(v, 'utf8') <= 1024 && !/[\s\p{Cc}\p{Cf}\p{Surrogate}]/u.test(v);
 export const guardHash = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 export function guardNext(v: number) { if (!Number.isSafeInteger(v) || v < 0) return corrupt(); if (v === Number.MAX_SAFE_INTEGER) return conflict(); return v + 1; }
-export function threadInputVersion(thread: Thread) { return createHash('sha256').update(JSON.stringify({ id: thread.id, accountId: thread.accountId, providerId: thread.providerId ?? null, subject: thread.subject, messages: thread.messages.map(({ providerLabels: _labels, trackingRead: _tracking, ...message }) => message) })).digest('hex'); }
+export function threadInputVersion(thread: Thread) { return createHash('sha256').update(JSON.stringify({ id: thread.id, accountId: thread.accountId, providerId: thread.providerId ?? null, subject: thread.subject, messages: thread.messages.map(messageSourceValue) })).digest('hex'); }
 
 /** Internal observer only. No scan/enrollment, timers, transport or generation. */
 export class AutoDraftMutationGuard {

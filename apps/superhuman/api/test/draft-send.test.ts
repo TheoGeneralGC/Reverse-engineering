@@ -1,3 +1,4 @@
+import {syntheticFullThread} from './reminder-projection-fixture.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
@@ -158,7 +159,7 @@ test('accepted reply parent stays immutable while new inbox messages arrive befo
   const f = fixture(':memory:', 0); try {
     const first = { id: 'first', sender: { name: 'Sender', email: 'recipient@example.test' }, to: [{ name: 'Me', email: 'sender@example.test' }], date: '2026-10-28T00:00:00Z', text: 'Fictional context', attachments: [], internetMessageId: '<first@example.test>', references: '<parent@example.test>' };
     const thread = { id: 'synthetic-reply', accountId: f.accountId, providerId: 'provider-thread', subject: 'Fictional reply', snippet: '', sender: first.sender, participants: [first.sender], lastMessageAt: first.date, unread: false, starred: false, important: false, folder: 'inbox', labels: [], messages: [first] };
-    f.app.store.put('thread', thread.id, thread); f.app.store.saveDraft({ id: f.draft.id, threadId: thread.id });
+    f.app.store.put('thread', thread.id, syntheticFullThread(f.app.store,thread)); f.app.store.saveDraft({ id: f.draft.id, threadId: thread.id });
     const op = f.app.draftSend.submit(f.draft.id, f.request()).snapshot.operation!;
     const second = { ...first, id: 'new-arrival', internetMessageId: '<new-arrival@example.test>' };
     f.app.store.put('thread', thread.id, { ...thread, providerId: 'changed-provider-thread', messages: [first, second] });

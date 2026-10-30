@@ -1,3 +1,4 @@
+import {projectStoredMessages} from './reminder-message-projection.ts';
 import { Store } from './store.ts';
 import { HttpError } from './types.ts';
 import type { Thread } from './types.ts';
@@ -43,10 +44,13 @@ export class AiProvider {
     if (input.threadId && !row) throw new HttpError(404, 'AI context not found', 'ai_context_not_found');
     const thread = row ? JSON.parse(String(row.data)) as Thread : undefined;
     if (input.mode === 'summarize' && !thread) throw new HttpError(400, 'Select a thread to summarize');
+    // Explicit user context may include ambiguous content, but known system
+    // carriers are never part of the visible conversation.
+    const visible=thread?projectStoredMessages(this.store,thread).visible:[];
     // Bound content before serialization so truncation cannot cut the JSON syntax.
     const context = thread ? {
-      subject: thread.subject.slice(0, 1000), totalMessageCount: thread.messages.length, omittedMessageCount: Math.max(0, thread.messages.length - 10),
-      messages: thread.messages.slice(-10).map(message => {
+      subject: thread.subject.slice(0, 1000), totalMessageCount: visible.length, omittedMessageCount: Math.max(0, visible.length - 10),
+      messages: visible.slice(-10).map(message => {
         const htmlOnly = !message.text.trim() && !!message.html;
         const text = htmlOnly ? plainTextFromHtml(sanitizeDraftHtml(message.html!.slice(0, 500_000))) : message.text;
         return {

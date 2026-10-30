@@ -1,3 +1,4 @@
+import {syntheticFullThread} from './reminder-projection-fixture.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, createHash } from 'node:crypto';
@@ -62,7 +63,7 @@ test('actual keyed immediate and scheduled acceptance/Undo use composed delivery
   f.store.put('googleGrant', 'mail:a', { accountId: 'a', service: 'mail', grantedScopes: ['https://www.googleapis.com/auth/gmail.modify'] }); f.store.db.prepare('INSERT INTO secrets VALUES(?,?)').run('a', 'synthetic-never-read-token');
   const service = new DraftSendService(f.store, google, f.now, undefined, { schedule: () => ({ cancel() {} }) });
   try {
-    f.store.put('thread', f.thread.id, f.thread);
+    f.store.put('thread', f.thread.id, syntheticFullThread(f.store,f.thread));
     for (const scheduled of [false, true]) {
       const d = f.draft(), snapshot = service.current('a', d.id), before = f.engine.guard.version('a', f.thread.id);
       const accepted = service.submit(d.id, { accountId: 'a', clientRequestId: randomUUID(), expectedDraftRevision: snapshot.draftRevision, expectedContentHash: snapshot.contentHash, expectedGeneration: snapshot.eligibility.generation, ...(scheduled ? { scheduledAt: new Date(f.now() + 60_000).toISOString() } : {}) });

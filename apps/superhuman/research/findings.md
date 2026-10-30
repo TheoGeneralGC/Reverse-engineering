@@ -46,3 +46,18 @@ private. Details and preserved coverage limits are in [Gmail checks](gmail-live-
 | ID | Finding | Basis | Limits / next probe |
 | --- | --- | --- | --- |
 | REMINDER-ORIGINAL-001 | One owned reminder showed a schedule toast, later Inbox return and an added message whose original-specific trigger header exactly anchors the old provider message ID | [Bounded record](reminder-return-observation-20261029.md); submission `ev_2c5ec707e2f64151bcf1a95fe73cd9253945531f0000e03782448930b82659e9`, return `ev_2e0f394c93e7f454073d0bc295f573c5dcd9c5578ddf6473984336a1115af92b` and one exact GET-only raw read | Missing events/equalityfalse; no create-request ACK or global draft audit. USER/UUID-like/due-date marker is system evidence, not human reply; SMTP versus provider insertion, reply cancellation, restart/Undo/resnooze and paired implementation remain open. SH-008 stays in progress |
+
+## Original Done interaction
+
+| ID | Finding | Basis | Limits / next probe |
+| --- | --- | --- | --- |
+| DONE-ORIGINAL-001 | Three consecutive E actions retain distinct departing rows and advance highlight immediately; Z restores the latest notification's action | [Controlled record](done-motion-observation-20261029.md), original runtime and retained static notification logic | Second Undo guard stopped the scenario; no full capture success. Message IDs/labels restored separately, internal reminder/history state not compared. Motion pixels and held-key repeat remain open; later bounded replica comparison is recorded separately |
+| DONE-STATIC-001 | Selected styles declare 200 ms left exit and 400 ms return; list cleanup retains rows briefly and omits individual transitions for at least 30 dismissals | [Static declarations and acceptance](done-motion-observation-20261029.md) on the identified original build | Static parsing is separate from the failed REA helper attempt and does not prove runtime timing, all actions or reduced-motion parity |
+
+## Applied Done and hydration
+
+| ID | Finding | Evidence | Limits |
+| --- | --- | --- | --- |
+| DONE-LOCAL-001 | Consecutive E reserves distinct rows before the first ACK and uses declared left exit/return transitions | [Applied checkpoint](done-applied-checkpoint-20261030.md); physical41-action replica and bounded original observation | No exact moving-pixel, OS held-key repeat, other-dismissal or family parity claim |
+| DONE-LOCAL-002 | Real isolated Gmail Done/Undo restores the selected message IDs and label sets | [Applied checkpoint](done-applied-checkpoint-20261030.md); four GETs/two modify POSTs with known ACKs | One owned synthetic conversation on a consistent-copy DB; Main untouched by that proof |
+| HYDRATION-LOCAL-001 | Guarded FULL hydration preserves current editor/focus and refreshes allowed summary fields without resurrecting dismissed rows | [Applied checkpoint](done-applied-checkpoint-20261030.md);93-action synthetic case | Fake Google transport; complete header/history/provider parity remains open |
