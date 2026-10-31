@@ -67,7 +67,7 @@ export class AiDraftSendService {
   private latest(scope: AiDraftScope, previewId: string, generation: number) { const row = this.store.db.prepare('SELECT data FROM ai_draft_sends WHERE account_id=? AND session_id=? AND turn_id=? AND preview_id=? AND generation=?').get(scope.accountId, scope.sessionId, scope.turnId, previewId, generation); return row ? JSON.parse(String(row.data)) as AiDraftSendOperation : null; }
   private creation(operation: AiDraftSendOperation): AiDraftCreation { const row = this.store.db.prepare('SELECT data FROM ai_draft_creations WHERE id=? AND account_id=? AND session_id=? AND turn_id=? AND preview_id=? AND generation=?').get(operation.creationId, operation.accountId, operation.sessionId, operation.turnId, operation.previewId, operation.generation); if (!row) conflict('The Send creation identity is unavailable'); return JSON.parse(String(row.data)); }
   private candidate(preview: AiDraftPreview): Draft { return { id: 'unpersisted', accountId: preview.accountId, ...draftPreviewHeaders(preview.payload), subject: preview.payload.subject, body: preview.payload.body, ...(preview.payload.html !== undefined ? { html: preview.payload.html } : {}), attachments: [], status: 'draft', updatedAt: '' }; }
-  private policy(draft: Draft) {
+  private policy(draft: Draft) {this.store.ordinaryActions.assertDraftActivation(draft);
     const account = this.store.required<Account>('account', draft.accountId);
     if (account.provider !== 'google') throw new HttpError(409, 'Demo accounts cannot send email', 'demo_delivery_disabled');
     if (!this.google.status().configured) throw new HttpError(503, 'Configure the Google provider before sending', 'provider_not_configured');

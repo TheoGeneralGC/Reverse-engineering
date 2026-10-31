@@ -88,6 +88,7 @@ if(Array.isArray(value))return value.map(x=>this.annotate(x));
 const v=value as Record<string,unknown>,out=Object.fromEntries(Object.entries(v).map(([k,x])=>[k,this.annotate(x)]));
 if(typeof v.id==='string'&&typeof v.accountId==='string'&&typeof v.folder==='string'&&typeof v.subject==='string'&&(Array.isArray(v.messages)||typeof v.messageCount==='number'))out.archiveBasis=this.basis(v.id,v.accountId);
 return out}
+ private owned<T>(r:RecordValue,work:()=>T):T{return this.store.ordinaryActions.run({kind:'archive',accountId:r.request.accountId,accountVersion:r.request.accountVersion,key:r.request.clientRequestId},work)}
  private stamp(){return new Date(this.now()).toISOString()}
  private assertOpen(){if(this.stopped)fail('archive_stopping',503)}
  private row(accountId:string,accountVersion:string,key:string):RecordValue|null{const row=this.store.db.prepare('SELECT * FROM archive_action_operations WHERE account_id=? AND account_version=? AND request_id=?').get(accountId,accountVersion,key);
@@ -126,7 +127,7 @@ return this.envelope(r)}
  assertNotLocked(threadId:string){for(const row of this.store.db.prepare('SELECT account_id,account_version,request_id FROM archive_action_operations WHERE thread_id=?').all(threadId)){const r=this.row(String(row.account_id),String(row.account_version),String(row.request_id))!;
 if(r.state==='pending'||r.state==='issued'||r.state==='unknown'||r.state==='refused'&&r.undoId!==null||r.undo&&['pending','issued','unknown'].includes(r.undo.state))fail('archive_unknown_locked')}
 }
- private current(r:RecordValue,sourceVersion:string){const value=this.identity(r),basis=verifiedActionBasis(this.store,r.threadId,r.request.accountId);
+ private current(r:RecordValue,sourceVersion:string){this.store.ordinaryActions.run({kind:'archive',accountId:r.request.accountId,accountVersion:r.request.accountVersion,key:r.request.clientRequestId},()=>this.store.ordinaryActions.assertAvailable(r.threadId));const value=this.identity(r),basis=verifiedActionBasis(this.store,r.threadId,r.request.accountId);
 if(!basis||basis.sourceVersion!==sourceVersion)fail('archive_source_changed');
 if(this.grant(r.request.accountId)!==r.grantVersion)fail('archive_grant_changed');
 return value}
@@ -141,7 +142,7 @@ return this.envelope(existing)}
 const r=this.create(threadId,request);
 let before:Thread|undefined,accepted=false;
   try{this.identity(r);
-this.assertNotLocked(threadId);
+this.assertNotLocked(threadId);this.store.ordinaryActions.assertTrashAvailable(threadId);
 const basis=verifiedActionBasis(this.store,threadId,request.accountId);
 if(!basis||basis.accountVersion!==request.accountVersion||basis.sourceVersion!==request.expectedSourceVersion)fail('archive_source_changed');
 r.grantVersion=this.grant(request.accountId);
@@ -152,7 +153,7 @@ r.acceptedSourceVersion=verifiedActionBasis(this.store,threadId,request.accountI
 if(!r.acceptedSourceVersion)fail('archive_context_unavailable');
 this.save(r,true)}
 ,()=>{this.identity(r);
-this.assertNotLocked(threadId);
+this.assertNotLocked(threadId);this.store.ordinaryActions.assertTrashAvailable(threadId);
 const current=verifiedActionBasis(this.store,threadId,request.accountId);
 if(!current||current.sourceVersion!==request.expectedSourceVersion||this.grant(request.accountId)!==r.grantVersion)fail('archive_source_changed');
 const fresh=this.store.prepareAction(threadId,'archive');
@@ -187,10 +188,10 @@ this.save(r)}
 else if(accepted){r.state='refused';
 r.reason=this.code(e);
 try{this.identity(r);
-const undo=this.store.pendingUndo(r.undoId!);
-this.store.commitUndo(r.undoId!,undo,()=>{r.undoId=null;
+const undo=this.owned(r,()=>this.store.pendingUndo(r.undoId!));
+this.owned(r,()=>this.store.commitUndo(r.undoId!,undo,()=>{r.undoId=null;
 this.save(r)}
-)}
+))}
 catch{r.reason='archive_refused_local_conflict';
 this.save(r)}
 }
@@ -211,16 +212,16 @@ return this.envelope(r)}
 if(r.state!=='confirmed'||!r.undoId)fail('archive_undo_unavailable');
 const u:UndoRecord={request,fingerprint:archiveHash(request),state:'pending',reason:null,sourceVersion:'',issuedAt:null,ack:null};
 r.undo=u;
-  try{const{account,thread}=this.identity(r),basis=verifiedActionBasis(this.store,threadId,request.accountId);
+  try{this.store.ordinaryActions.run({kind:'archive',accountId:r.request.accountId,accountVersion:r.request.accountVersion,key:r.request.clientRequestId},()=>this.store.ordinaryActions.assertAvailable(r.threadId));const{account,thread}=this.identity(r),basis=verifiedActionBasis(this.store,threadId,request.accountId);
 if(!basis)fail('archive_context_unavailable');
 u.sourceVersion=basis.sourceVersion;
-const target=this.store.pendingUndo(r.undoId);
+const target=this.owned(r,()=>this.store.pendingUndo(r.undoId!));
 this.save(r);
 const beforeInbox=(thread.providerLabels??(thread.folder==='inbox'?['INBOX']:[])).includes('INBOX'),afterInbox=(target.providerLabels??(target.folder==='inbox'?['INBOX']:[])).includes('INBOX');
 if(account.provider==='google'&&beforeInbox!==afterInbox){if(!thread.providerId)fail('archive_native_scope');
 await this.native({accountId:request.accountId,providerThreadId:thread.providerId,addInbox:afterInbox,removeInbox:!afterInbox},{signal:this.abort.signal,beforeIssue:()=>{this.assertOpen();
 this.current(r,u.sourceVersion);
-this.store.pendingUndo(r.undoId!);
+this.owned(r,()=>this.store.pendingUndo(r.undoId!));
 const live=this.row(request.accountId,request.accountVersion,archiveKeyValue);
 if(live?.undo?.request.clientRequestId!==u.request.clientRequestId||live.undo.state!=='pending'||live.undo.issuedAt||u.issuedAt)fail('archive_already_issued');
 u.state='issued';
@@ -232,11 +233,11 @@ this.save(r)}
 if(!u.issuedAt||!u.ack)fail('archive_native_unknown')}
    this.assertOpen();
 this.current(r,u.sourceVersion);
-const current=this.store.pendingUndo(r.undoId);
-this.store.commitUndo(r.undoId,current,()=>{u.state='confirmed';
+const current=this.owned(r,()=>this.store.pendingUndo(r.undoId!));
+this.owned(r,()=>this.store.commitUndo(r.undoId!,current,()=>{u.state='confirmed';
 u.reason=null;
 this.save(r)}
-);
+));
 return this.envelope(r);
   }
 catch(e){u.state=u.issuedAt?'unknown':'refused';

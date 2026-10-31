@@ -1,3 +1,4 @@
+import {OrdinaryActionGuard} from './ordinary-action-guard.ts';
 import {requireReplySource,presentationThread,type MessageWitnessAuthority} from './reminder-message-projection.ts';
 import type {Scope as ReminderMessageScope} from './reminder-message-classifier.ts';
 import {generatedHash,generatedScopeValid,type GeneratedPublicationScope,type DraftWriteContext,type ProviderDraftMetadataRequest,type ProviderMetadataVerifier,type ProviderMetadataWriter,type GeneratedMetadataPolicyVerifier,type ProviderAckWriteContext} from './generated-draft-policy.ts';
@@ -53,7 +54,8 @@ export class Store {
   private readonly messageWitnessAuthorities=new Set<MessageWitnessAuthority>();
   registerMessageWitnessAuthority(authority:MessageWitnessAuthority){this.messageWitnessAuthorities.add(authority);return()=>this.messageWitnessAuthorities.delete(authority)}
   messageWitnesses(scope:ReminderMessageScope,thread:Thread){return [...this.messageWitnessAuthorities].flatMap(authority=>authority(scope,thread))}
-  publishProviderThread(thread:Thread){this.assertReminderOwner(thread.accountId,thread.id);this.reminderProjectionDepth++;try{return this.put('thread',thread.id,thread)}finally{this.reminderProjectionDepth--}}
+  registerProviderThreadObserver(){const producer=this.ordinaryActions.registerObservationProducer();return{publish:(thread:Thread)=>{const next=presentationThread(this,thread);return this.publishProviderThread(next,producer.publish(next))},remove:(accountId:string,threadId:string)=>{const current=this.get<Thread>('thread',threadId);if(current&&current.accountId!==accountId)throw new HttpError(409,'Provider observation changed account','message_source_changed');return this.remove('thread',threadId,undefined,producer.missing(threadId))}}}
+  publishProviderThread(thread:Thread,observation?:object){this.assertReminderOwner(thread.accountId,thread.id);this.reminderProjectionDepth++;try{return this.put('thread',thread.id,thread,observation)}finally{this.reminderProjectionDepth--}}
   replySource(threadId:string){return requireReplySource(this,this.required<Thread>('thread',threadId))}
   private reminderProjectionDepth=0;
   private readonly reminderPreparedActions=new WeakMap<Thread,string>();
@@ -108,6 +110,7 @@ export class Store {
       const before=JSON.parse(String(row.data)) as Draft;
       if(before.id!==request.draftId||before.accountId!==request.accountId||generatedHash(before)!==request.expectedCurrentRecordFingerprint)return{applied:false,reason:'local-cas-miss'};
       verify(request,before);
+      this.ordinaryActions.assertDraftActivation(before);
       if(!['draft','failed'].includes(before.status)||before.artifactSendId||before.composerSendId||before.deliveryAttemptId||this.artifactDeliveryId(before.id)||this.composerDeliveryId(before.id))return{applied:false,reason:'not-editable'};
       if(before.providerDraftId&&before.providerDraftId!==request.patch.providerDraftId)throw new HttpError(409,'Cloud draft mapping changed','provider_draft_revision_conflict');
       const next={...before,...request.patch},context:ProviderAckWriteContext={lane:'provider-ack-v1',accountId:before.accountId,draftId:before.id,operationId:request.operationId,linkRevision:request.expectedLinkRevision,currentRecordFingerprint:request.expectedCurrentRecordFingerprint};this.metadataContexts.add(context);
@@ -124,13 +127,14 @@ export class Store {
         // metadata savepoint that advanced authority or replaced this row.
         if(closed)throw new HttpError(503,'Cloud metadata owner stopped','provider_draft_stopping');
         verify(request,before);
+        this.ordinaryActions.assertDraftActivation(before);
         if(this.db.prepare("SELECT data FROM records WHERE kind='draft' AND id=?").get(before.id)?.data!==JSON.stringify(next))throw new HttpError(409,'Cloud metadata local row changed','provider_draft_revision_conflict');
         this.db.exec('RELEASE provider_metadata_write');return{applied:true,draft:next};
       }catch(error){this.db.exec('ROLLBACK TO provider_metadata_write; RELEASE provider_metadata_write');throw error}finally{this.metadataContexts.delete(context)}
     }};
   }
-  assertProviderDraftDeliveryReady(draft: Draft) { for (const hook of this.draftLifecycleHooks) hook.deliveryReadiness?.(draft); }
-  assertProviderDraftNativeSend(draft: Draft) { for (const hook of this.draftLifecycleHooks) hook.beforeNativeSend?.(draft); }
+  assertProviderDraftDeliveryReady(draft: Draft) { this.ordinaryActions.assertDraftActivation(draft); for (const hook of this.draftLifecycleHooks) hook.deliveryReadiness?.(draft); }
+  assertProviderDraftNativeSend(draft: Draft) { this.ordinaryActions.assertDraftActivation(draft); for (const hook of this.draftLifecycleHooks) hook.beforeNativeSend?.(draft); }
   hasProviderDraftLink(draftId: string): boolean { return !!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_draft_links'").get() && !!this.db.prepare('SELECT 1 FROM provider_draft_links WHERE draft_id=?').get(draftId); }
   registerDraftLifecycleHooks(hooks: DraftLifecycleHooks) { this.draftLifecycleHooks.add(hooks); return () => { this.draftLifecycleHooks.delete(hooks); }; }
   noteDraftIntent(draft: Draft, intent: 'discard') { if (!this.db.isTransaction) throw new Error('Draft intent observation requires its acceptance transaction'); for (const hook of this.draftLifecycleHooks) hook.acceptedIntent?.(draft, intent); }
@@ -157,6 +161,7 @@ export class Store {
   private assertDraftMutable(draft: Draft) { if (draft.artifactSendId || draft.composerSendId || this.artifactDeliveryId(draft.id) || this.composerDeliveryId(draft.id)) throw new HttpError(409, 'A reviewed artifact delivery cannot be edited or reused', 'artifact_delivery_locked'); }
 
   db: SqlDatabase;
+  readonly ordinaryActions:OrdinaryActionGuard;
   constructor(path: string, seed = true, options: { databaseFactory?: SqlDatabaseFactory; ownerLiveness?: StoreOwnerLiveness } = {}) {
     if (!options || typeof options !== 'object' || Array.isArray(options) ||
         Object.keys(options).some(key => !['databaseFactory', 'ownerLiveness'].includes(key)) ||
@@ -189,6 +194,7 @@ export class Store {
         WHERE kind='thread' AND json_type(data,'$.snoozedUntil')='text' AND json_extract(data,'$.snoozedUntil')<>'';`);
     if (!this.db.prepare('PRAGMA table_info(undo)').all().some(row => row.name === 'after_data')) this.db.exec('ALTER TABLE undo ADD COLUMN after_data TEXT');
     if (!this.db.prepare('PRAGMA table_info(oauth_states)').all().some(row => row.name === 'context')) this.db.exec('ALTER TABLE oauth_states ADD COLUMN context TEXT');
+    this.ordinaryActions=new OrdinaryActionGuard(this);
     initializeThreadSummaries(this.db);
     initializeRecipientContacts(this.db);
     initializeContactContext(this.db);
@@ -198,10 +204,10 @@ export class Store {
   }
   list<T>(kind: string): T[] { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(String(r.data))); }
   get<T>(kind: string, id: string): T | undefined { const row = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return row ? JSON.parse(String(row.data)) : undefined; }
-  put<T>(kind: string, id: string, data: T): T {
+  put<T>(kind: string, id: string, data: T, observation?:object): T {
     if(kind==='thread'&&Array.isArray((data as Thread)?.messages)&&(data as Thread).messages.some(m=>m.reminderHeaderFacts))data=presentationThread(this,data as Thread) as T;
     const oldDraft = kind === 'draft' ? this.get<Draft>('draft', id) : undefined;
-    const oldThread=kind==='thread'?this.get<Thread>('thread',id):undefined;const oldAccount=kind==='account'?this.get<Account>('account',id):undefined;const accountHooked=kind==='account'&&this.reminderHooks.size>0;if(accountHooked)this.db.exec('SAVEPOINT reminder_account_write');
+    const oldThread=kind==='thread'?this.get<Thread>('thread',id):undefined;const oldAccount=kind==='account'?this.get<Account>('account',id):undefined;if(kind==='thread')this.ordinaryActions.assertThread(oldThread,data as Thread,observation);if(kind==='account')this.ordinaryActions.assertAccount(oldAccount,data as Account);if(kind==='draft')this.ordinaryActions.assertDraft(oldDraft,data as Draft);if(kind==='delivery')this.ordinaryActions.assertDelivery(this.get<DeliveryAttempt>('delivery',id),data as DeliveryAttempt);const accountHooked=kind==='account'&&this.reminderHooks.size>0;if(accountHooked)this.db.exec('SAVEPOINT reminder_account_write');
     if(oldThread&&!this.reminderHooks.size&&this.reminderThreadFields(oldThread)!==this.reminderThreadFields(data as Thread))this.assertReminderOwner(oldThread.accountId,oldThread.id);
     if(oldAccount&&!this.reminderHooks.size&&JSON.stringify([oldAccount.id,oldAccount.provider,oldAccount.email.toLowerCase()])!==JSON.stringify([(data as Account).id,(data as Account).provider,(data as Account).email?.toLowerCase()]))this.assertReminderOwner(oldAccount.id);
     if (oldDraft && !this.deliveryWriteDepth) this.assertDraftMutable(oldDraft);
@@ -211,14 +217,15 @@ export class Store {
     try {
       if (draftHooked && !this.deliveryWriteDepth) for (const hook of this.draftLifecycleHooks) hook.beforeWrite?.(oldDraft, data as Draft, {lane:'authored'});
       this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind, id, JSON.stringify(data));
-      if (draftHooked) { for (const hook of this.draftLifecycleHooks) hook.written?.(oldDraft, data as Draft, {lane:'authored'}); this.db.exec('RELEASE provider_draft_record_write'); }
+      if (draftHooked) { for (const hook of this.draftLifecycleHooks) hook.written?.(oldDraft, data as Draft, {lane:'authored'});this.ordinaryActions.assertDraft(oldDraft,this.required<Draft>('draft',id)); this.db.exec('RELEASE provider_draft_record_write'); }
       if(kind==='thread'&&!this.reminderProjectionDepth)for(const hook of this.reminderHooks)hook.threadWritten?.(oldThread,data as Thread);
       if(accountHooked){for(const hook of this.reminderHooks)hook.accountWritten?.(oldAccount,data as Account);this.db.exec('RELEASE reminder_account_write')}
       if (kind === 'thread') { refreshRecipientContacts(this.db, { threadId: id }); refreshSplitHeaders(this.db, { threadId: id }); this.db.exec('RELEASE recipient_record_write'); }
       return data;
     } catch (error) { if(accountHooked)this.db.exec('ROLLBACK TO reminder_account_write; RELEASE reminder_account_write'); if (kind === 'thread') this.db.exec('ROLLBACK TO recipient_record_write; RELEASE recipient_record_write'); if (draftHooked) this.db.exec('ROLLBACK TO provider_draft_record_write; RELEASE provider_draft_record_write'); throw error; }
   }
-  remove(kind: string, id: string, context?: { providerDiscardId?: string }) {
+  remove(kind: string, id: string, context?: { providerDiscardId?: string },observation?:object) {
+    if(kind==='thread')this.ordinaryActions.assertThread(this.get<Thread>('thread',id),undefined,observation);if(kind==='account')this.ordinaryActions.assertAccount(this.get<Account>('account',id),undefined);if(kind==='draft'){const d=this.get<Draft>('draft',id);if(d)this.ordinaryActions.assertDraftActivation(d)}
     if(!this.reminderHooks.size){if(kind==='account')this.assertReminderOwner(id);else if(kind==='thread'){const t=this.get<Thread>('thread',id);if(t)this.assertReminderOwner(t.accountId,id)}}
     const reminderHooked=['account','thread'].includes(kind)&&this.reminderHooks.size>0;if(reminderHooked)this.db.exec('SAVEPOINT reminder_record_remove');
     const hooked = kind === 'draft' && this.draftLifecycleHooks.size > 0;
@@ -277,16 +284,17 @@ export class Store {
   commitAction(before: Thread, thread: Thread, accepted?: (result:{thread:Thread;undoId:string})=>void, fresh?:()=>{before:Thread;thread:Thread}) {
     const undoId = randomUUID();
     this.db.exec('BEGIN');
-    try {if(fresh){const current=fresh();before=current.before;thread=current.thread}const handled=[...this.reminderHooks].map(h=>h.legacyCommit?.(before,thread,undoId,this.reminderPreparedActions.get(thread))).some(Boolean);if(handled)this.reminderProjectionDepth++;try{this.put('thread',thread.id,thread)}finally{if(handled)this.reminderProjectionDepth--} this.db.prepare('INSERT INTO undo(id,thread_id,data,expires,after_data) VALUES(?,?,?,?,?)').run(undoId, thread.id, JSON.stringify(before), Date.now() + 300_000, JSON.stringify(thread)); accepted?.({thread,undoId});this.db.exec('COMMIT'); }
+    try {if(fresh){const current=fresh();before=current.before;thread=current.thread}this.ordinaryActions.assertTrashAvailable(thread.id);const handled=[...this.reminderHooks].map(h=>h.legacyCommit?.(before,thread,undoId,this.reminderPreparedActions.get(thread))).some(Boolean);if(handled)this.reminderProjectionDepth++;try{this.put('thread',thread.id,thread)}finally{if(handled)this.reminderProjectionDepth--} this.db.prepare('INSERT INTO undo(id,thread_id,data,expires,after_data) VALUES(?,?,?,?,?)').run(undoId, thread.id, JSON.stringify(before), Date.now() + 300_000, JSON.stringify(thread)); accepted?.({thread,undoId});this.db.exec('COMMIT'); }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return { thread, undoId };
   }
   pendingUndo(id: string): Thread {
+    this.ordinaryActions.assertUndo(id);
     const row = this.db.prepare('SELECT thread_id,data,expires,after_data FROM undo WHERE id=?').get(id);
     if (!row || Number(row.expires) < Date.now()) throw new HttpError(410, 'Undo expired', 'undo_expired');
     const before: Thread = JSON.parse(String(row.data));
     if (!row.after_data) throw new HttpError(409, 'This older undo record cannot safely be restored', 'undo_conflict');
-    const after: Thread = JSON.parse(String(row.after_data));if(!before||!after||before.id!==row.thread_id||after.id!==row.thread_id||before.accountId!==after.accountId)throw new HttpError(409,'Undo scope changed','undo_conflict'); const current = this.required<Thread>('thread', before.id);if(current.id!==before.id||current.accountId!==before.accountId)throw new HttpError(409,'Undo scope changed','undo_conflict');
+    const after: Thread = JSON.parse(String(row.after_data));if(!before||!after||before.id!==row.thread_id||after.id!==row.thread_id||before.accountId!==after.accountId)throw new HttpError(409,'Undo scope changed','undo_conflict'); const current = this.required<Thread>('thread', before.id);this.ordinaryActions.assertTrashAvailable(current.id);if(current.id!==before.id||current.accountId!==before.accountId)throw new HttpError(409,'Undo scope changed','undo_conflict');
     if(!this.reminderHooks.size&&this.reminderThreadFields(before)!==this.reminderThreadFields(after))this.assertReminderOwner(current.accountId,current.id);
     for(const hook of this.reminderHooks)hook.assertUndo?.(id,before,after,current);
     const next = { ...current } as Thread & Record<string, unknown>;
@@ -362,7 +370,7 @@ export class Store {
     const draft: Draft = { id: input.id ?? randomUUID(), accountId, to: '', cc: '', bcc: '', subject: '', body: '', attachments: [], status: 'draft', ...old, ...content, revision:(old?.revision??0)+1, updatedAt: new Date().toISOString() };
     if (!old && creationOrigin && this.draftLifecycleHooks.size) {
       this.db.exec('SAVEPOINT provider_draft_creation');
-      try { this.put('draft', draft.id, draft); for (const hook of this.draftLifecycleHooks) hook.created?.(draft, creationOrigin); this.db.exec('RELEASE provider_draft_creation'); return draft; }
+      try { this.put('draft', draft.id, draft); for (const hook of this.draftLifecycleHooks) hook.created?.(draft, creationOrigin);this.ordinaryActions.assertDraft(undefined,draft); this.db.exec('RELEASE provider_draft_creation'); return draft; }
       catch (error) { this.db.exec('ROLLBACK TO provider_draft_creation; RELEASE provider_draft_creation'); throw error; }
     }
     return this.put('draft', draft.id, draft);
@@ -393,6 +401,7 @@ export class Store {
     const draft=this.required<Draft>('draft',id),row=this.db.prepare("SELECT account_id,data FROM draft_send_operations WHERE id=? AND draft_id=? AND state='queued'").get(operationId,id);
     if(!row||row.account_id!==draft.accountId||!['draft','failed'].includes(draft.status)||draft.artifactSendId||draft.composerSendId||this.artifactDeliveryId(id)||draft.deliveryAttemptId)throw new HttpError(409,'Draft cannot be locked for this intent','draft_send_conflict');
     const op=JSON.parse(String(row.data))as {mode?:string;scheduledAt?:string|null};
+    this.ordinaryActions.assertDraftActivation(draft);
     for (const hook of this.draftLifecycleHooks) hook.beforeDelivery?.(draft);
     return this.putDeliveryDraft({...draft,status:op.mode==='scheduled'?'scheduled':'send_queued',scheduledAt:op.mode==='scheduled'?op.scheduledAt??undefined:undefined,composerSendId:operationId,deliveryReplyContext:replyContext});
   }
@@ -411,6 +420,7 @@ export class Store {
       if (draft.status === 'sent') throw new HttpError(409, 'Message was already sent', 'already_sent');
       if (draft.status === 'sending' || draft.status === 'delivery_unknown' || draft.status === 'delivery_held') throw new HttpError(409, 'Delivery outcome must be reconciled; this message will not be resent automatically', 'delivery_requires_reconciliation');
       if(!context.artifactOperationId&&!context.composerOperationId&&this.cancelledDeliveryHistory(id))throw new HttpError(409,'A fresh explicit keyed Send intent is required after Undo','send_intent_required');
+      this.ordinaryActions.assertDraftActivation(draft);
       const hooks=this.requireDeliveryHook(draft,context);
       for (const hook of this.draftLifecycleHooks) hook.beforeDelivery?.(draft);
       parseOutgoingRecipientHeaders(draft);

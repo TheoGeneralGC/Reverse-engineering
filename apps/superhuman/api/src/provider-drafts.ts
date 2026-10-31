@@ -184,7 +184,7 @@ export class ProviderDraftService {
         if(current.generated)this.store.assertGeneratedEnrollment(local,current.generated.scope,current.generated.ownerFingerprint);
         return this.repository.insertOperation(current,snapshot,current.providerDraftId?'update':'create',this.owner);
       });
-      const value=operation.kind==='create'?await this.io(this.transport.create(account,{raw:snapshot.raw.toString('base64url'),...(snapshot.threadId?{threadId:snapshot.threadId}:{})},controller.signal),controller.signal):await this.io(this.transport.update(account,operation.providerDraftId!,{raw:snapshot.raw.toString('base64url'),...(snapshot.threadId?{threadId:snapshot.threadId}:{})},controller.signal),controller.signal);
+      this.store.ordinaryActions.assertDraftActivation(this.store.required<Draft>('draft',draftId));const value=operation.kind==='create'?await this.io(this.transport.create(account,{raw:snapshot.raw.toString('base64url'),...(snapshot.threadId?{threadId:snapshot.threadId}:{})},controller.signal),controller.signal):await this.io(this.transport.update(account,operation.providerDraftId!,{raw:snapshot.raw.toString('base64url'),...(snapshot.threadId?{threadId:snapshot.threadId}:{})},controller.signal),controller.signal);
       if(!validGmailDraft(value)||operation.providerDraftId&&value.id!==operation.providerDraftId||snapshot.threadId&&value.message.threadId!==snapshot.threadId)throw new HttpError(502,'Gmail returned an invalid owned draft acknowledgment','provider_draft_invalid_ack');
       this.acknowledge(operation,value);
     }catch(error){
@@ -256,7 +256,7 @@ export class ProviderDraftService {
         if(!current){this.removeDiscardedLocal(link.accountId,link.draftId,receipt.id);this.repository.pruneSnapshots(link.accountId,link.draftId,null)}return operation;
       });
       if(!current)return;
-      await this.io(this.transport.delete(account,link.providerDraftId,controller.signal),controller.signal);this.finishDiscard(op,true);
+      this.store.ordinaryActions.assertDraftActivation(this.store.required<Draft>('draft',link.draftId));await this.io(this.transport.delete(account,link.providerDraftId,controller.signal),controller.signal);this.finishDiscard(op,true);
     }catch(error){if(op&&op.state==='dispatching')this.markUnknown(op);else if(!this.closing)this.setFailure(link,'remote_conflict',error instanceof HttpError?error.code:'provider_draft_discard_blocked','The local discard remains pending. Check the owned remote draft.')}
     finally{deadline.cancel();if(this.aborts.get(link.draftId)===controller)this.aborts.delete(link.draftId)}
   }

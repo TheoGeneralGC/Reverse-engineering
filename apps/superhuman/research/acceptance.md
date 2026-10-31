@@ -275,3 +275,11 @@ Visual tolerances must be agreed from actual capture noise. Start by reporting
 pixel/geometry differences and review them; do not invent a permissive threshold
 and label the interface one-to-one. Re-run changed scenarios after fixes, plus
 the integration path affected by shared code. Keep inaccessible cases open.
+
+## Scoped Trash and hosted Calendar
+
+The [Trash/Calendar checkpoint](trash-calendar-checkpoint-20261030.md) adds
+TC-01–04 and HC-01. It separates the earlier-source controlled native pair,
+current affected controls, synthetic native cold/upgrade/reopen and actual
+personal hosted Calendar connection. Production rollout, rapid Original Trash,
+finite motion and full feature parity remain separate outstanding gates.

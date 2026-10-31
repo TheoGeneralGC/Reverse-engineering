@@ -1582,3 +1582,177 @@ test('Command catalogue AI-origin new conversation uses the existing single new-
   await act(async()=>create.resolve(response({session:aiSession('demo','command-new')},201)));await act(async()=>new Promise(r=>setTimeout(r,60)));assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')?.value,'');assert.equal(app.host.querySelector('input[aria-label="Superhuman Command"]'),null);
  }finally{create.resolve(response({},500));await app.close()}
 });
+
+// TF owner tests append to the unchanged 342700-byte historical fixture above.
+const tfHash = async () => { await act(async () => { window.document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key:'#',code:'Digit3',shiftKey:true,bubbles:true,cancelable:true })); }); };
+function tfTrashAck(request:Request,state:'confirmed'|'unknown'|'refused'='confirmed',thread?:unknown,undo?:{key:string;state:'confirmed'|'unknown'|'refused'}){
+ const threadId=decodeURIComponent(request.path.match(/\/threads\/([^/]+)/)![1]),b=request.body;
+ const flags=(s:string)=>s==='confirmed'?{mode:'local',issuePossible:false,ackKnown:false,effectVerified:true}:s==='unknown'?{mode:'google',issuePossible:true,ackKnown:false,effectVerified:false}:{mode:'local',issuePossible:false,ackKnown:false,effectVerified:false};
+ return{version:1,scopeCurrent:true,...(thread?{thread}:{}),receipt:{version:1,action:'trash',clientRequestId:b.clientRequestId,accountId:b.accountId,accountVersion:b.accountVersion,threadId,state,undoId:state==='refused'?null:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',locked:state==='unknown'||undo?.state==='unknown',reason:state==='refused'?'trash_source_changed':state==='unknown'?'trash_native_unconfirmed':null,native:flags(state)},undo:undo?{version:1,clientRequestId:undo.key,state:undo.state,reason:undo.state==='refused'?'trash_undo_expired':null,native:flags(undo.state)}:null};
+}
+const tfJournal=(kind:'archive'|'trash')=>JSON.parse(window.localStorage.getItem('rea:'+kind+'-actions:v1:demo')!).records as any[];
+const tfPostId=(r:Request)=>decodeURIComponent(r.path.match(/\/threads\/([^/]+)/)![1]);
+
+for(const split of ['important','other','calendar'] as const)test('TF builtin '+split+' admits distinct # seats and latest Z returns its row before held parent and inverse acknowledgements',async()=>{
+ const held=deferred<void>(),inverseHeld=deferred<void>(),issued:string[]=[],actions=new Map<string,Request>();
+ const originals=[row('one',1),row('two',2),row('three',3),row('four',4)];let rows=[...originals];
+ const app=await mount('',{compose:false,readPage:()=>thinPage(rows),providerRequest:async r=>{
+  if(r.path.endsWith('/trash-actions')){const id=tfPostId(r);actions.set(r.body.clientRequestId,r);issued.push('trash:'+id);if(id==='one')await held.promise;rows=rows.filter(t=>t.id!==id);return response(tfTrashAck(r,'confirmed',withArchive({...full(originals.find(t=>t.id===id)!),folder:'trash'})))}
+  if(r.path.includes('/trash-action-operations/')&&r.path.endsWith('/undo')){const key=r.path.split('/trash-action-operations/')[1].split('/')[0],parent=actions.get(key)!,id=tfPostId(parent);issued.push('undo:'+id);await inverseHeld.promise;rows=originals.filter(t=>t.id!=='one');return response(tfTrashAck(parent,'confirmed',withArchive(full(originals.find(t=>t.id===id)!)),{key:r.body.clientRequestId,state:'confirmed'}))}
+  return undefined;
+ }});
+ try{
+  const tab=app.host.querySelector<HTMLButtonElement>('[data-split-ref="builtin:'+split+'"]');assert.ok(tab);await act(async()=>tab.click());
+  await tfHash();await tfHash();
+  assert.equal(focusedId(app.host),'Subject three');assert.deepEqual(mailRows(app).map(n=>n.dataset.threadId),['three','four']);assert.deepEqual(issued,['trash:one']);
+  assert.equal(app.host.querySelectorAll('[data-done-transition="out"]').length,2);
+  const accepted=tfJournal('trash');assert.deepEqual(accepted.map(r=>r.intent.threadId),['one','two']);assert.equal(new Set(accepted.map(r=>r.intent.clientRequestId)).size,2);
+  assert.equal(accepted.every(r=>r.intent.version===1&&r.intent.action==='trash'&&r.intent.accountId==='demo'&&r.intent.accountVersion===archiveVersion('demo')),true);
+  await app.key('z');
+  assert.equal(mailRows(app).some(n=>n.dataset.threadId==='two'),true);assert.equal(mailRows(app).some(n=>n.dataset.threadId==='one'),false);assert.deepEqual(issued,['trash:one']);
+  const savedUndo=tfJournal('trash')[1];assert.equal(savedUndo.undo.state,'pending');assert.equal(savedUndo.undoDispatch.state,'not-issued');
+  assert.equal([...app.host.querySelectorAll('.toast button')].some(b=>b.textContent?.trim().startsWith('Undo')),false);
+  await act(async()=>held.resolve());
+  assert.deepEqual(issued,['trash:one','trash:two','undo:two']);assert.equal(mailRows(app).filter(n=>n.dataset.threadId==='two').length,1);
+  const inverseRequest=app.requests.find(r=>r.path.includes('/trash-action-operations/')&&r.path.endsWith('/undo'))!;
+  assert.deepEqual(inverseRequest.body,{version:1,accountId:'demo',accountVersion:archiveVersion('demo'),clientRequestId:savedUndo.undoDispatch.clientRequestId});
+  await act(async()=>inverseHeld.resolve());
+  assert.equal(tfJournal('trash')[1].undo.state,'confirmed');assert.equal(mailRows(app).filter(n=>n.dataset.threadId==='two').length,1);
+  assert.equal(app.requests.some(r=>r.path==='/api/undo'||r.path.endsWith('/actions')&&r.body?.action==='trash'),false);
+  assert.equal(app.requests.some(r=>r.method==='GET'&&/^\/api\/threads\/[^/]+$/.test(r.path)),false);
+ }finally{held.resolve();inverseHeld.resolve();await app.close()}
+});
+
+test('TF mixed E # Z uses one account FIFO while keeping separate durable journals and an immediate owned return',async()=>{
+ const held=deferred<void>(),inverseHeld=deferred<void>(),issued:string[]=[],actions=new Map<string,Request>(),originals=[row('one',1),row('two',2),row('three',3)];let rows=[...originals];
+ const app=await mount('',{compose:false,readPage:()=>thinPage(rows),providerRequest:async r=>{
+  if(r.path.endsWith('/actions')&&r.body?.action==='archive'){issued.push('archive:'+tfPostId(r));await held.promise;rows=rows.filter(t=>t.id!==tfPostId(r));return response(doneAck(r))}
+  if(r.path.endsWith('/trash-actions')){issued.push('trash:'+tfPostId(r));actions.set(r.body.clientRequestId,r);rows=rows.filter(t=>t.id!==tfPostId(r));return response(tfTrashAck(r))}
+  if(r.path.includes('/trash-action-operations/')&&r.path.endsWith('/undo')){issued.push('undo:two');await inverseHeld.promise;rows=[originals[1],originals[2]];return response(tfTrashAck(actions.get(r.path.split('/trash-action-operations/')[1].split('/')[0])!,'confirmed',withArchive(full(originals[1])),{key:r.body.clientRequestId,state:'confirmed'}))}
+  return undefined;
+ }});
+ try{
+  await app.key('e');await tfHash();assert.equal(focusedId(app.host),'Subject three');
+  assert.deepEqual(tfJournal('archive').map(r=>r.intent.threadId),['one']);assert.deepEqual(tfJournal('trash').map(r=>r.intent.threadId),['two']);
+  await app.key('z');assert.equal(mailRows(app).some(n=>n.dataset.threadId==='two'),true);assert.deepEqual(issued,['archive:one']);
+  await act(async()=>held.resolve());assert.deepEqual(issued,['archive:one','trash:two','undo:two']);
+  assert.equal(mailRows(app).filter(n=>n.dataset.threadId==='two').length,1);await act(async()=>inverseHeld.resolve());
+  assert.equal(tfJournal('trash')[0].undo.state,'confirmed');assert.equal(tfJournal('archive')[0].undo,null);
+  assert.equal(app.requests.some(r=>r.path==='/api/undo'||r.path.endsWith('/actions')&&r.body?.action==='trash'),false);
+ }finally{held.resolve();inverseHeld.resolve();await app.close()}
+});
+
+test('TF late Trash and Archive unknown or refused outcomes cannot replace a newer nontriage legacy notice',async()=>{
+ for(const kind of ['trash','archive'] as const)for(const outcome of ['unknown','refused'] as const){
+  const held=deferred<Response>();let forward:Request|undefined,rows=[row('one',1),row('two',2),row('three',3)];
+  const app=await mount('',{compose:false,readPage:()=>thinPage(rows),providerRequest:r=>{
+   if(kind==='trash'&&r.path.endsWith('/trash-actions')||kind==='archive'&&r.path.endsWith('/actions')&&r.body?.action==='archive'){forward=r;return held.promise}
+   if(r.path.endsWith('/actions')&&r.body?.action==='star'){rows=rows.map(t=>t.id===tfPostId(r)?{...t,starred:true}:t);return response({undoId:null})}
+   return undefined;
+  }});
+  try{
+   if(kind==='trash')await tfHash();else await app.key('e');assert.ok(forward);await app.key('s');
+   assert.equal(app.host.querySelector('.toast')?.getAttribute('data-notification-kind'),'legacy');const newer=app.host.querySelector('.toast')?.textContent;assert.match(newer||'',/Starred/);
+   await act(async()=>held.resolve(outcome==='unknown'?response({error:{message:'Synthetic lost '+kind+' ACK'}},500):response(kind==='trash'?tfTrashAck(forward!,'refused'):doneAck(forward!,'refused'))));
+   assert.equal(app.host.querySelector('.toast')?.textContent,newer);assert.equal(app.host.querySelector('.toast')?.getAttribute('data-notification-kind'),'legacy');assert.equal(tfJournal(kind)[0].phase,outcome);
+   if(outcome==='unknown')assert.match(app.host.querySelector(kind==='trash'?'.trash-status':'.archive-status')?.textContent||'',/unconfirmed/);
+   await app.key('z');assert.equal(app.requests.some(r=>r.path==='/api/undo'||r.path.endsWith('/undo')),false);
+  }finally{held.resolve(response({}));await app.close()}
+ }
+});
+
+test('TF expired ordinary notices stay absent after late Trash and Archive unknown or refused outcomes while journals settle',async t=>{
+ for(const kind of ['trash','archive'] as const)for(const outcome of ['unknown','refused'] as const){
+  const held=deferred<Response>();let forward:Request|undefined;
+  const app=await mount('',{compose:false,readPage:()=>thinPage([row('one',1),row('two',2)]),providerRequest:r=>{
+   if(kind==='trash'&&r.path.endsWith('/trash-actions')||kind==='archive'&&r.path.endsWith('/actions')&&r.body?.action==='archive'){forward=r;return held.promise}return undefined;
+  }});
+  try{
+   t.mock.timers.enable({apis:['setTimeout']});if(kind==='trash')await tfHash();else await app.key('e');assert.ok(forward);
+   await act(async()=>t.mock.timers.tick(8000));await act(async()=>t.mock.timers.tick(2000));assert.equal(app.host.querySelector('.toast'),null);
+   await act(async()=>held.resolve(outcome==='unknown'?response({error:{message:'Synthetic lost '+kind+' ACK'}},500):response(kind==='trash'?tfTrashAck(forward!,'refused'):doneAck(forward!,'refused'))));
+   assert.equal(app.host.querySelector('.toast')===null,true);assert.equal(tfJournal(kind)[0].phase,outcome);
+   if(outcome==='unknown')assert.match(app.host.querySelector(kind==='trash'?'.trash-status':'.archive-status')?.textContent||'',/unconfirmed/);
+   await app.key('z');assert.equal(app.requests.some(r=>r.path==='/api/undo'||r.path.endsWith('/undo')),false);
+  }finally{t.mock.timers.reset();held.resolve(response({}));await app.close()}
+ }
+});
+
+test('TF a newly mounted rich editor keeps its caret recipients and attachment nodes while a queued inverse loses first-issue authority',async()=>{
+ const held=deferred<Response>();let forward:Request|undefined;
+ const app=await mount('Initial retained composer body',{compose:false,readPage:()=>thinPage([row('one',1),row('two',2)]),providerRequest:r=>r.path.endsWith('/trash-actions')?(forward=r,held.promise):undefined});
+ try{
+  await tfHash();await app.key('z');assert.equal(mailRows(app).some(n=>n.dataset.threadId==='one'),true);assert.equal(app.requests.some(r=>r.path.endsWith('/undo')),false);
+  await app.click('Compose');const editor=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!,recipients=app.host.querySelector('.recipient-fields'),attachments=app.host.querySelector('.draft-attachments');assert.ok(editor);assert.ok(recipients);assert.ok(attachments);
+  await act(async()=>{editor.innerHTML='<div>New <b>authored</b> work after queued Trash Undo</div>';editor.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}))});
+  const to=app.host.querySelector<HTMLInputElement>('input[aria-label="To"]')!;await act(async()=>to.focus());await fillInput(to,'additional@example.test');await recipientKey(app,'Enter');
+  await act(async()=>{editor.focus();const point=editor.querySelector('b')!.firstChild!,range=window.document.createRange();range.setStart(point,3);range.collapse(true);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);window.document.dispatchEvent(new window.Event('selectionchange'))});
+  const html=editor.innerHTML,selection=window.getSelection()!,anchor=selection.anchorNode,offset=selection.anchorOffset,recipientText=recipients!.textContent,subject=app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!.value;
+  await act(async()=>held.resolve(response(tfTrashAck(forward!,'confirmed',withArchive({...full(row('one',1)),folder:'trash'})))));
+  assert.equal(app.host.querySelector('[aria-label="Message body"]'),editor);assert.equal(app.host.querySelector('.recipient-fields'),recipients);assert.equal(app.host.querySelector('.draft-attachments'),attachments);assert.equal(editor.innerHTML,html);assert.equal(recipients!.textContent,recipientText);assert.match(recipientText||'',/additional@example.test/);assert.equal(app.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!.value,subject);
+  assert.equal(window.getSelection()!.anchorNode,anchor);assert.equal(window.getSelection()!.anchorOffset,offset);assert.equal(window.document.activeElement,editor);
+  assert.equal(app.requests.some(r=>r.path.endsWith('/undo')),false);const record=tfJournal('trash')[0];assert.equal(record.undoDispatch.state,'not-issued');assert.equal(record.localReason,'trash-context-changed');
+  assert.equal(app.requests.some(r=>r.path.endsWith('/reply')||r.path.endsWith('/send-operations')&&r.method==='POST'),false);
+ }finally{held.resolve(response({}));await app.close()}
+});
+
+test('TF matching query retains its owned row highlight checks and counts before Trash acknowledgement and uses the keyed route',async()=>{
+ const held=deferred<Response>();let forward:Request|undefined,rows=[row('one',1),row('two',2)];
+ const app=await mount('',{compose:false,readPage:()=>thinPage(rows),providerRequest:r=>r.path.endsWith('/trash-actions')?(forward=r,held.promise):undefined});
+ try{
+  await app.click('Search');const search=app.host.querySelector<HTMLInputElement>('[aria-label="Search email"]')!;await fillInput(search,'subject:Subject');await act(async()=>search.closest('form')!.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+  await act(async()=>mailRows(app)[0].querySelector<HTMLElement>('.row-marker')!.click());const original=mailRows(app)[0],count=app.host.querySelector('.mailbox-pagination [role="status"]')?.textContent,highlight=focusedId(app.host);
+  await act(async()=>original.focus());await tfHash();assert.ok(forward);assert.equal(mailRows(app)[0],original);assert.equal(focusedId(app.host),highlight);assert.equal(original.getAttribute('aria-pressed'),'true');assert.equal(app.host.querySelector('.mailbox-pagination [role="status"]')?.textContent,count);assert.equal(app.host.querySelector('[data-done-transition="out"]'),null);
+  rows=[{...rows[0],folder:'trash'},rows[1]];await act(async()=>held.resolve(response(tfTrashAck(forward!,'confirmed',withArchive(full(rows[0]))))));
+  assert.equal(mailRows(app).filter(n=>n.dataset.threadId==='one').length,1);assert.equal(focusedId(app.host),highlight);assert.equal(mailRows(app).find(n=>n.dataset.threadId==='one')!.getAttribute('aria-pressed'),'true');assert.equal(app.requests.some(r=>r.path.endsWith('/actions')&&r.body?.action==='trash'||r.path==='/api/undo'),false);
+ }finally{held.resolve(response({}));await app.close()}
+});
+
+test('TF batch dismissal counts only actual leaves for animation and retains matching checked rows',async()=>{for(const [total,leaves]of[[35,5],[30,30]]){const held=deferred<Response>(),rows=Array.from({length:total},(_,i)=>({...row('batch-'+i,i+1),providerLabels:i<leaves?['INBOX']:['INBOX','DRAFT']}));let first=true;const app=await mount('',{compose:false,readPage:()=>thinPage(rows),providerRequest:r=>{if(!r.path.endsWith('/trash-actions'))return undefined;if(first){first=false;return held.promise}return response(tfTrashAck(r,'refused'))}});try{await act(async()=>{for(const row of mailRows(app))row.querySelector<HTMLElement>('.row-marker')!.click()});await tfHash();const visible=mailRows(app);assert.equal(visible.length,total-leaves);assert.equal(app.host.querySelectorAll('[data-done-transition="out"]').length,leaves<30?leaves:0);assert.equal(visible.every(r=>r.getAttribute('aria-pressed')==='true'),true);assert.equal(app.requests.filter(r=>r.path.endsWith('/trash-actions')).length,1);assert.equal(tfJournal('trash').length,total)}finally{await act(async()=>held.resolve(response({error:{message:'Synthetic stopped batch'}},500)));await app.close()}}});
+
+test('TF restored Trash history exposes only an explicit same-key Check without loading writes or reviving a toast',async()=>{let forward:Request|undefined;const first=await mount('',{compose:false,readPage:()=>thinPage([row('one',1),row('two',2)]),providerRequest:r=>r.path.endsWith('/trash-actions')?(forward=r,response({error:{message:'Synthetic lost ACK'}},500)):undefined});await tfHash();const key=tfJournal('trash')[0].intent.clientRequestId;assert.equal(tfJournal('trash')[0].phase,'unknown');await first.close();const second=await mount('',{compose:false,preserveStorage:true,readPage:()=>thinPage([row('one',1),row('two',2)]),providerRequest:r=>r.method==='GET'&&r.path.includes('/trash-action-operations/')?response(tfTrashAck(forward!,'unknown',withArchive(full(row('one',1))))):undefined});try{assert.equal(second.host.querySelector('.toast'),null);assert.ok(second.button('Check Trash status'));assert.equal(second.requests.some(r=>r.path.includes('/trash-action-operations/')||r.path.endsWith('/trash-actions')),false);await second.click('Check Trash status');const gets=second.requests.filter(r=>r.method==='GET'&&r.path.includes('/trash-action-operations/'));assert.equal(gets.length,1);assert.match(gets[0].path,new RegExp('/'+key+'\\?'));assert.equal(second.requests.some(r=>r.method==='POST'&&(r.path.endsWith('/trash-actions')||r.path.endsWith('/undo'))),false);assert.equal(tfJournal('trash')[0].intent.clientRequestId,key)}finally{await second.close()}});
+
+
+test('TF v2 false-scope forward settles history strips only its Undo and preserves message original clock and current rows',async t=>{
+ const held=deferred<Response>();let forward:Request|undefined;const rows=[row('one',1),row('two',2)];const app=await mount('',{compose:false,readPage:()=>thinPage(rows),providerRequest:r=>r.path.endsWith('/trash-actions')?(forward=r,held.promise):undefined});
+ try{t.mock.timers.enable({apis:['setTimeout']});await tfHash();assert.ok(forward);const text=app.host.querySelector('.notification-text')?.textContent;assert.match(text??'',/Moving to Trash/);assert.ok(app.host.querySelector('.toast button')?.textContent?.startsWith('Undo'));const reads=app.requests.filter(r=>r.path.startsWith('/api/thread-summaries')).length;await act(async()=>t.mock.timers.tick(7999));const wire={...tfTrashAck(forward!),scopeCurrent:false};delete (wire as any).thread;await act(async()=>held.resolve(response(wire)));
+  assert.equal(tfJournal('trash')[0].receipt.state,'confirmed');assert.equal(tfJournal('trash')[0].scopeCurrent,false);assert.equal(app.host.querySelector('.notification-text')?.textContent,text);assert.equal([...app.host.querySelectorAll('.toast button')].some(b=>b.textContent?.trim().startsWith('Undo')),false);assert.equal(app.requests.filter(r=>r.path.startsWith('/api/thread-summaries')).length,reads);assert.deepEqual(mailRows(app).map(n=>n.dataset.threadId),['two']);await app.key('z');assert.equal(app.requests.some(r=>r.path.endsWith('/undo')),false);await act(async()=>t.mock.timers.tick(1));assert.equal(app.host.querySelector('.toast')?.getAttribute('data-notification-phase'),'fading');await act(async()=>t.mock.timers.tick(2000));assert.equal(app.host.querySelector('.toast')===null,true);
+ }finally{t.mock.timers.reset();held.resolve(response({}));await app.close()}
+});
+test('TF v2 false-scope inverse removes only its own projected row without a captured-thread restore or authoritative refresh',async()=>{
+ const held=deferred<Response>();let forward:Request|undefined,inverse:Request|undefined;let rows=[row('one',1),row('two',2),row('three',3)];const app=await mount('',{compose:false,readPage:()=>thinPage(rows),providerRequest:r=>{if(r.path.endsWith('/trash-actions')){forward=r;rows=rows.filter(t=>t.id!=='one');return response(tfTrashAck(r))}if(r.path.includes('/trash-action-operations/')&&r.path.endsWith('/undo')){inverse=r;return held.promise}return undefined}});
+ try{await tfHash();await app.key('z');assert.ok(inverse);assert.equal(mailRows(app).some(n=>n.dataset.threadId==='one'),true);await app.key('j');const selected=focusedId(app.host),text=app.host.querySelector('.notification-text')?.textContent,reads=app.requests.filter(r=>r.path.startsWith('/api/thread-summaries')).length;assert.match(text??'',/Undoing Trash/);const wire={...tfTrashAck(forward!,'confirmed',undefined,{key:inverse!.body.clientRequestId,state:'confirmed'}),scopeCurrent:false};delete (wire as any).thread;await act(async()=>held.resolve(response(wire)));
+  assert.equal(tfJournal('trash')[0].undo.state,'confirmed');assert.equal(tfJournal('trash')[0].scopeCurrent,false);assert.equal(app.host.querySelector('.notification-text')?.textContent,text);assert.equal(app.requests.filter(r=>r.path.startsWith('/api/thread-summaries')).length,reads);assert.equal(mailRows(app).some(n=>n.dataset.threadId==='one'),false);assert.equal(focusedId(app.host),selected);await app.key('z');assert.equal(app.requests.filter(r=>r.path.endsWith('/undo')).length,1);
+ }finally{held.resolve(response({}));await app.close()}
+});
+test('TF v2 explicit false-scope Check settles restored history without current refresh new key or success presentation',async()=>{
+ let forward:Request|undefined;const rows=[row('one',1),row('two',2)];const first=await mount('',{compose:false,readPage:()=>thinPage(rows),providerRequest:r=>r.path.endsWith('/trash-actions')?(forward=r,response({error:{message:'Synthetic lost ACK'}},500)):undefined});await tfHash();const key=tfJournal('trash')[0].intent.clientRequestId;await first.close();const second=await mount('',{compose:false,preserveStorage:true,readPage:()=>thinPage(rows),providerRequest:r=>r.method==='GET'&&r.path.includes('/trash-action-operations/')?response({...tfTrashAck(forward!),scopeCurrent:false}):undefined});
+ try{const reads=second.requests.filter(r=>r.path.startsWith('/api/thread-summaries')).length;await second.click('Check Trash status');assert.equal(tfJournal('trash')[0].scopeCurrent,false);assert.equal(tfJournal('trash')[0].intent.clientRequestId,key);assert.equal(second.requests.filter(r=>r.path.startsWith('/api/thread-summaries')).length,reads);assert.equal(second.requests.filter(r=>r.path.includes('/trash-action-operations/')).length,1);assert.equal(second.requests.some(r=>r.method==='POST'&&(r.path.endsWith('/trash-actions')||r.path.endsWith('/undo'))),false);assert.equal(second.host.querySelector('.notification-text')?.textContent,'Checking Trash status…');assert.equal([...second.host.querySelectorAll('button')].some(b=>b.textContent?.trim()==='Check Trash status'),false);assert.deepEqual(mailRows(second).map(n=>n.dataset.threadId),['one','two']);
+ }finally{await second.close()}
+});
+
+test('Union modal ownership preserves mixed Done Trash FIFO and permits only the final current Undo after Command and Help close',async()=>{
+ const held=deferred<void>(),inverseHeld=deferred<void>(),issued:string[]=[],actions=new Map<string,Request>(),originals=[row('one',1),row('two',2),row('three',3)];let rows=[...originals];const app=await mount('',{compose:false,readPage:()=>thinPage(rows),providerRequest:async r=>{
+  if(r.path.endsWith('/actions')&&r.body?.action==='archive'){issued.push('archive:'+tfPostId(r));await held.promise;rows=rows.filter(t=>t.id!==tfPostId(r));return response(doneAck(r))}
+  if(r.path.endsWith('/trash-actions')){issued.push('trash:'+tfPostId(r));actions.set(r.body.clientRequestId,r);rows=rows.filter(t=>t.id!==tfPostId(r));return response(tfTrashAck(r))}
+  if(r.path.includes('/trash-action-operations/')&&r.path.endsWith('/undo')){issued.push('undo:two');await inverseHeld.promise;rows=[originals[1],originals[2]];return response(tfTrashAck(actions.get(r.path.split('/trash-action-operations/')[1].split('/')[0])!,'confirmed',withArchive(full(originals[1])),{key:r.body.clientRequestId,state:'confirmed'}))}return undefined;
+ }});
+ try{await app.key('e');await tfHash();assert.deepEqual(issued,['archive:one']);assert.equal(focusedId(app.host),'Subject three');await recipientKey(app,'k',{metaKey:true});let input=app.host.querySelector<HTMLInputElement>('input[aria-label="Superhuman Command"]')!;await fillInput(input,'Shortcuts');await recipientKey(app,'Enter',{repeat:true,metaKey:true});assert.equal(app.host.querySelector('[role="dialog"][aria-label="shortcuts"]')===null,true);assert.ok(app.host.querySelector('input[aria-label="Superhuman Command"]'));await app.key('z');assert.equal(tfJournal('trash')[0].undo,null);await recipientKey(app,'Escape');assert.equal(input.value,'');assert.ok(app.host.querySelector('input[aria-label="Superhuman Command"]'));await recipientKey(app,'Escape');assert.equal(app.host.querySelector('input[aria-label="Superhuman Command"]')===null,true);
+  await recipientKey(app,'k',{metaKey:true});input=app.host.querySelector<HTMLInputElement>('input[aria-label="Superhuman Command"]')!;await fillInput(input,'Shortcuts');await recipientKey(app,'Enter');assert.ok(app.host.querySelector('[role="dialog"][aria-label="shortcuts"]'));await app.key('z');assert.equal(tfJournal('trash')[0].undo,null);await app.key('Escape');await app.key('z');assert.equal(mailRows(app).some(n=>n.dataset.threadId==='two'),true);assert.equal(tfJournal('trash')[0].undo.state,'pending');assert.deepEqual(issued,['archive:one']);await act(async()=>held.resolve());assert.deepEqual(issued,['archive:one','trash:two','undo:two']);await act(async()=>inverseHeld.resolve());assert.equal(tfJournal('trash')[0].undo.state,'confirmed');assert.equal(tfJournal('archive')[0].undo,null);assert.equal(mailRows(app).filter(n=>n.dataset.threadId==='two').length,1);assert.equal(app.requests.some(r=>r.path==='/api/undo'||r.path.endsWith('/turns')||r.path.endsWith('/send-operations')),false);
+ }finally{held.resolve();inverseHeld.resolve();await app.close()}
+});
+test('Union false-scope Trash settlement cannot steal Command Subject return from a newer rich draft and visible unsent Ask AI',async()=>{
+ const held=deferred<Response>();let forward:Request|undefined;const app=await mount('',{compose:false,readPage:()=>thinPage([row('one',1),row('two',2)]),providerRequest:r=>r.path.endsWith('/trash-actions')?(forward=r,held.promise):undefined});
+ try{await tfHash();assert.ok(forward);await physicalQuestion(app);const question=app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')!;await fillQuestion(question,'Unsent mixed-scope question');await app.click('Compose');const body=app.host.querySelector<HTMLElement>('[aria-label="Message body"]')!,recipients=app.host.querySelector('.recipient-fields'),subject=app.host.querySelector<HTMLInputElement>('input[aria-label="Subject"]')!;await act(async()=>{body.focus();body.textContent='Retain exact mixed-scope rich draft';body.dispatchEvent(new window.InputEvent('input',{bubbles:true,inputType:'insertText'}));const range=window.document.createRange();range.selectNodeContents(body);const selected=window.getSelection()!;selected.removeAllRanges();selected.addRange(range);window.document.dispatchEvent(new window.Event('selectionchange'))});await recipientKey(app,'b',{metaKey:true});assert.ok(body.querySelector('b,strong'));await act(async()=>subject.focus());await recipientKey(app,'k',{metaKey:true});assert.ok(app.host.querySelector('input[aria-label="Superhuman Command"]'));const posts=app.requests.filter(r=>r.method==='POST').length,reads=app.requests.filter(r=>r.path.startsWith('/api/thread-summaries')).length;await act(async()=>held.resolve(response({...tfTrashAck(forward!),scopeCurrent:false})));await recipientKey(app,'Escape');await act(async()=>new Promise(r=>setTimeout(r,60)));
+  assert.equal(window.document.activeElement===subject,true);assert.equal(app.host.querySelector('[aria-label="Message body"]')===body,true);assert.equal(app.host.querySelector('.recipient-fields')===recipients,true);assert.equal(body.textContent,'Retain exact mixed-scope rich draft');assert.ok(body.querySelector('b,strong'));assert.equal(app.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI"]')?.value,'Unsent mixed-scope question');assert.equal(tfJournal('trash')[0].scopeCurrent,false);assert.equal(app.requests.filter(r=>r.method==='POST').length,posts);assert.equal(app.requests.filter(r=>r.path.startsWith('/api/thread-summaries')).length,reads);assert.equal(app.requests.some(r=>r.path.endsWith('/turns')||r.path.endsWith('/send-operations')),false);
+ }finally{held.resolve(response({}));await app.close()}
+});
+
+for(const branch of ['reservation','selection'] as const)test('IU01 '+branch+' rejection releases its reserved account seat without new Trash state transport notice or acceptance',async()=>{
+ const {useTrashActions}=await import('../src/useTrashActions.ts'),{createActionAdmission}=await import('../src/action-admission.ts');window.localStorage.clear();const admission=createActionAdmission(),held=deferred<never>(),rowValue=withArchive(row('controlled',1)),calls:string[]=[],presentations:unknown[]=[];let owner!:ReturnType<typeof useTrashActions>;let follower=0;
+ const mailbox={getSnapshot:()=>({threads:branch==='reservation'?[rowValue]:[],selectedId:branch==='reservation'?rowValue.id:null}),reserveDismissal:()=>{calls.push('reserveDismissal');return held.promise},settleSelection:()=>{calls.push('settleSelection');return held.promise}} as unknown as Parameters<typeof useTrashActions>[0]['mailbox'];
+ function Probe(){owner=useTrashActions({accountId:'demo',accountVersion:archiveVersion('demo'),scope:'controlled-scope',admission,mailbox,motion:{} as Parameters<typeof useTrashActions>[0]['motion'],canLeave:()=>true,isTargetBlocked:()=>false,currentNotice:()=>null,notify:text=>presentations.push(text),notifyOrdinary:notice=>presentations.push(notice),refresh:async()=>{calls.push('refresh')},captureUndoGuard:()=>()=>true});return null}
+ const host=window.document.createElement('div');window.document.body.append(host);const root=createRoot(host);const priorFetch=globalThis.fetch;let transports=0;globalThis.fetch=async()=>{transports++;throw Error('Unexpected synthetic Trash transport')};
+ try{await act(async()=>root.render(createElement(Probe)));await act(async()=>owner.trash([undefined],undefined,{isCurrent:()=>true,onAccepted:()=>calls.push('accepted')}));assert.deepEqual(calls,[branch==='reservation'?'reserveDismissal':'settleSelection']);const following=admission.reserve('demo').run(async()=>{follower++});void following.catch(()=>{});assert.equal(follower,0,'The following action waits while target resolution is pending');await act(async()=>{held.reject(Error('Synthetic '+branch+' resolution failed'));for(let n=0;n<8;n++)await Promise.resolve()});assert.equal(follower,1,'Target failure must release the account seat rather than starve following work');await following;assert.equal(window.localStorage.getItem('rea:trash-actions:v1:demo'),null);assert.equal(transports,0);assert.deepEqual(presentations,[]);assert.deepEqual(calls,[branch==='reservation'?'reserveDismissal':'settleSelection']);assert.equal(owner.status,null);
+ }finally{admission.dispose();await act(async()=>root.unmount());host.remove();globalThis.fetch=priorFetch}
+});

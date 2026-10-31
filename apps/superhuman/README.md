@@ -9,6 +9,7 @@ The setup phase does not establish full parity. The feature inventory is a
 candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
+- [Scoped Trash/Undo and hosted Calendar checkpoint](research/trash-calendar-checkpoint-20261030.md)
 - [Hosted tracking server configuration](research/hosted-tracking-configuration-checkpoint-20261030.md)
 - [Hosted summary basis batching](research/hosted-summary-batching-checkpoint-20261030.md)
 - [Hosted Google callback diagnostics](research/hosted-google-callback-diagnostics-20261030.md)

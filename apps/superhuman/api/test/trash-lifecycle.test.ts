@@ -1,0 +1,72 @@
+import './archive-network-deny.ts';
+import test,{after} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {createApp} from '../src/server.ts';
+import {AccountIncarnationAuthority} from '../src/account-incarnation.ts';
+import {verifiedActionBasis} from '../src/archive-action-basis.ts';
+import {trashCachedMessages,type TrashNative} from '../src/trash-action-google.ts';
+import type {TrashEnvelope} from '../src/trash-action-contract.ts';
+import type {ProviderDraftTransport} from '../src/provider-draft-transport.ts';
+import {AutoDraftFoundation,type FoundationBasis} from '../src/auto-drafts-foundation.ts';
+import {threadInputVersion} from '../src/auto-drafts-mutation-guard.ts';
+import type {IngressVersion} from '../src/auto-drafts-generation-contract.ts';
+import {syntheticFullThread} from './reminder-projection-fixture.ts';
+import type {Draft,Thread,DeliveryAttempt} from '../src/types.ts';
+
+after(()=>assert.equal((globalThis as Record<symbol,{attempts:number}>)[Symbol.for('rea.generated-cloud.network-denied')].attempts,0));
+const code=(expected:string)=>(e:unknown)=>(e as {code?:string})?.code===expected,h='a'.repeat(64);
+function deferred<T>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>{resolve=r});return{promise,resolve}}
+function fixture(options:{holdTrash?:boolean;holdProfile?:boolean}={}){
+ let now=Date.now(),trashReads=0,trashModifies=0,cloudProfiles=0,cloudCreates=0,opaque=0;
+ const entered=deferred<void>(),readGate=deferred<void>(),profileEntered=deferred<void>(),profileGate=deferred<void>();let pending:Promise<TrashEnvelope>|undefined;
+ const remote=new Map<string,ReturnType<typeof trashCachedMessages>>();
+ const native:TrashNative={async read(input,phase,guard){guard.check();trashReads++;if(phase==='required'&&options.holdTrash!==false){entered.resolve();await readGate.promise;guard.check()}return{providerThreadId:input.providerThreadId,messages:structuredClone(remote.get(input.providerThreadId)!),profileEmail:'own@example.test',observedAt:new Date(now).toISOString()}},async modify(input,guard){guard.check();guard.beforeIssue();trashModifies++;remote.set(input.providerThreadId,remote.get(input.providerThreadId)!.map(m=>({...m,labels:[...new Set([...m.labels.filter(l=>!input.removeLabelIds.includes(l)),...input.addLabelIds])].sort()})));guard.onAck(input.providerThreadId)}};
+ const denied=async():Promise<never>=>{throw Error('Unselected synthetic cloud operation')};
+ const transport:ProviderDraftTransport={ready(){},async profile(){cloudProfiles++;if(options.holdProfile){profileEntered.resolve();await profileGate.promise}return'own@example.test'},async create(_account,message){cloudCreates++;return{id:'cloud-draft',message:{id:'cloud-message',threadId:message.threadId??'new-cloud-thread',labelIds:['DRAFT']}}},update:denied,get:denied,list:denied,metadata:denied,delete:denied};
+ const app=createApp({databasePath:':memory:',env:{DATABASE_PATH:':memory:',GOOGLE_CLIENT_ID:'synthetic-client',GOOGLE_CLIENT_SECRET:'synthetic-secret',TOKEN_ENCRYPTION_KEY:'1'.repeat(64),APPROVED_TEST_SENDERS:'own@example.test',APPROVED_TEST_RECIPIENTS:'other@example.test'},seed:false,runJobs:false,providerDraftAutomatic:false,trashNative:native,providerDraftTransport:transport,scheduler:{now:()=>now,schedule:()=>({cancel(){}})}});
+ app.google.fetcher=(async()=>{opaque++;throw Error('No provider/model native request is selected')})as typeof fetch;
+ app.store.put('account','a',{id:'a',provider:'google',email:'own@example.test',name:'Synthetic',color:'#000'});app.store.put('googleGrant','mail:a',{accountId:'a',service:'mail',requestedScopes:['https://www.googleapis.com/auth/gmail.modify'],grantedScopes:['https://www.googleapis.com/auth/gmail.modify'],outcome:'granted',scopeSource:'response',updatedAt:new Date(now).toISOString()});const authority=new AccountIncarnationAuthority(app.store);authority.adoptAccount('a');app.google.saveTokens('a',{access_token:'synthetic-access',refresh_token:'synthetic-refresh',expires_at:Date.now()+3_600_000});
+ for(const id of ['t','u']){const thread:Thread={id,accountId:'a',providerId:id,subject:'Fictional '+id,snippet:'Fictional only',sender:{name:'Other',email:'other@example.test'},participants:[],lastMessageAt:new Date(now).toISOString(),unread:true,starred:false,important:false,folder:'inbox',labels:[],providerLabels:['INBOX'],messages:[{id:'m-'+id,sender:{name:'Other',email:'other@example.test'},to:[{name:'Own',email:'own@example.test'}],date:new Date(now).toISOString(),internetMessageId:`<${id}@example.test>`,text:'Fictional question.',attachments:[],providerLabels:['INBOX']}]};app.store.put('thread',id,syntheticFullThread(app.store,thread));remote.set(id,trashCachedMessages(app.store.required('thread',id)))}
+ const request=(threadId='t')=>{const b=verifiedActionBasis(app.store,threadId,'a')!;return{version:1 as const,action:'trash' as const,accountId:'a',accountVersion:b.accountVersion,expectedSourceVersion:b.sourceVersion,clientRequestId:randomUUID()}};
+ return{app,authority,entered,profileEntered,profileGate,remote,now:()=>now,advance(ms:number){now+=ms},counts:()=>({trashReads,trashModifies,cloudProfiles,cloudCreates,opaque}),request,start(threadId='t'){const q=request(threadId);pending=app.trashActions.trash(threadId,q);return{q,promise:pending}},async held(threadId='t'){const p=this.start(threadId);await entered.promise;return p},async release(){readGate.resolve();profileGate.resolve();if(pending)await pending},async close(){await this.release();await app.close()}};
+}
+type Fixture=ReturnType<typeof fixture>;
+const rows=(f:Fixture)=>f.app.store.db.prepare("SELECT kind,id,data FROM records WHERE kind IN('draft','delivery') ORDER BY kind,id").all();
+function ownTransaction<T>(f:Fixture,run:()=>T){f.app.store.db.exec('SAVEPOINT lifecycle_fixture');try{const result=run();f.app.store.db.exec('RELEASE lifecycle_fixture');return result}catch(e){f.app.store.db.exec('ROLLBACK TO lifecycle_fixture;RELEASE lifecycle_fixture');throw e}}
+
+test('Draft-first conditional claim keeps the Thread basis unchanged and refuses Trash before acceptance',async()=>{
+ const f=fixture();try{const d=f.app.store.saveDraft({accountId:'a',threadId:'t',to:'',body:''}),basis=verifiedActionBasis(f.app.store,'t','a')!,q=f.request(),saved=f.app.store.saveDraft({id:d.id,body:'Fictional claimed text'},undefined,{accountId:'a',threadId:'t',expectedRevision:d.revision!});assert.equal(saved.revision,d.revision!+1);assert.deepEqual(verifiedActionBasis(f.app.store,'t','a'),basis);
+  const r=await f.app.trashActions.trash('t',q);assert.equal(r.receipt.state,'refused');assert.equal(r.receipt.reason,'trash_ineligible');assert.equal(r.receipt.undoId,null);assert.equal(r.receipt.native.issuePossible,false);assert.equal(f.app.store.required<Draft>('draft',d.id).body,'Fictional claimed text');assert.equal(f.app.store.required<Thread>('thread','t').folder,'inbox');assert.equal(f.counts().trashReads+f.counts().trashModifies,0);
+ }finally{await f.close()}
+});
+
+test('Trash-first preflight denies local/raw/reply/generated admissions but unrelated conditional saves remain usable',async()=>{
+ const f=fixture();try{const unrelated=f.app.store.saveDraft({accountId:'a',threadId:'u',to:'',body:'Fictional unrelated'}),{q}=await f.held(),before=rows(f),links=f.app.store.db.prepare('SELECT * FROM provider_draft_links').all();
+  const d:Draft={id:randomUUID(),accountId:'a',threadId:'t',to:'',cc:'',bcc:'',subject:'',body:'',status:'draft',revision:1,updatedAt:new Date(f.now()).toISOString()};
+  for(const attempt of [()=>f.app.store.saveDraft({accountId:'a',threadId:'t',body:''}),()=>f.app.store.put('draft',d.id,d),()=>f.app.store.replyDraft('t','reply'),()=>ownTransaction(f,()=>f.app.store.createGeneratedLocalDraft({accountId:'a',threadId:'t',to:'other@example.test',subject:'Fictional',body:'Fictional',html:'<p>Fictional</p>',deliveryReplyContext:{providerThreadId:'t'}})),()=>ownTransaction(f,()=>f.app.store.createGeneratedManagedDraft({accountId:'a',threadId:'t',to:'other@example.test',subject:'Fictional',body:'Fictional',html:'<p>Fictional</p>',deliveryReplyContext:{providerThreadId:'t'}},{accountId:'a',threadId:'t',generationId:randomUUID(),accountVersion:q.accountVersion,leaseId:randomUUID(),attemptRef:randomUUID()}))])assert.throws(attempt,code('ordinary_action_locked'));
+  assert.deepEqual(rows(f),before);assert.deepEqual(f.app.store.db.prepare('SELECT * FROM provider_draft_links').all(),links);const saved=f.app.store.saveDraft({id:unrelated.id,body:'Fictional edited unrelated'},undefined,{accountId:'a',threadId:'u',expectedRevision:unrelated.revision!});assert.equal(saved.body,'Fictional edited unrelated');assert(f.app.store.saveDraft({accountId:'a',body:'Fictional new-message'}));assert.equal(f.app.trashActions.get('t','a',q.accountVersion,q.clientRequestId).receipt.state,'pending');assert.equal(f.counts().trashModifies+f.counts().cloudCreates+f.counts().opaque,0);
+ }finally{await f.close()}
+});
+
+test('a removed stale Draft snapshot cannot enroll cloud work or cross actual generic Google sync/Send native gates',async()=>{
+ const f=fixture();try{const old=f.app.store.saveDraft({accountId:'a',threadId:'t',to:'other@example.test',subject:'Fictional',body:'Fictional'});f.app.store.deleteDraft(old.id);await f.held();const before=rows(f),repo=f.app.providerDrafts.repository;
+  assert.throws(()=>repo.enroll(old,'reply'),code('ordinary_action_locked'));assert.throws(()=>repo.desire(old,h,true),code('ordinary_action_locked'));assert.throws(()=>f.app.store.assertProviderDraftDeliveryReady(old),code('ordinary_action_locked'));assert.throws(()=>f.app.store.assertProviderDraftNativeSend(old),code('ordinary_action_locked'));await assert.rejects(f.app.google.syncDraft(old),code('ordinary_action_locked'));await assert.rejects(f.app.google.send(old),code('ordinary_action_locked'));assert.deepEqual(rows(f),before);assert.equal(f.app.store.db.prepare('SELECT COUNT(*) n FROM provider_draft_links').get()!.n,0);assert.equal(f.app.store.db.prepare('SELECT COUNT(*) n FROM provider_draft_operations').get()!.n,0);assert.equal(f.counts().opaque+f.counts().cloudCreates+f.counts().trashModifies,0);
+ }finally{await f.close()}
+});
+
+test('an actual cloud profile/claim/ACK finishes before queued Trash, which then refuses the editable mapping',async()=>{
+ const f=fixture({holdTrash:false,holdProfile:true});try{const d=f.app.store.saveDraft({accountId:'a',threadId:'t',to:'other@example.test',subject:'Fictional',body:'Fictional'},'reply'),flush=f.app.providerDrafts.flush('a',d.id);await f.profileEntered.promise;const q=f.request(),trash=f.app.trashActions.trash('t',q);await Promise.resolve();assert.equal(f.app.store.db.prepare('SELECT COUNT(*) n FROM trash_action_operations').get()!.n,0,'the existing account FIFO retains the cloud owner');f.profileGate.resolve();await flush;const r=await trash;assert.equal(r.receipt.state,'refused');assert.equal(r.receipt.reason,'trash_ineligible');assert.equal(f.app.providerDrafts.repository.link('a',d.id)!.state,'synced');assert.equal(f.app.store.db.prepare("SELECT COUNT(*) n FROM provider_draft_operations WHERE state='confirmed'").get()!.n,1);assert.equal(f.app.store.required<Draft>('draft',d.id).providerDraftId,'cloud-draft');assert.deepEqual(f.counts(),{trashReads:0,trashModifies:0,cloudProfiles:1,cloudCreates:1,opaque:0});
+ }finally{await f.close()}
+});
+
+test('owned Sent history permits Trash and late matching delivery metadata remains recorded under the new lock',async()=>{
+ const f=fixture();try{const d=f.app.store.saveDraft({accountId:'a',threadId:'t',to:'other@example.test',subject:'Fictional',body:'Fictional'}),pending=f.app.store.beginDelivery(d.id),attemptId=pending.deliveryAttemptId!;f.app.store.completeDelivery(d.id,'confirmed-message');const saved=f.app.store.required<Draft>('draft',d.id);assert.equal(saved.status,'sent');const {q}=await f.held();f.app.store.recordDeliveryMetadata(d.id,attemptId,'confirmed-message','<confirmed@example.test>',true);assert.equal(f.app.store.required<Draft>('draft',d.id).providerInternetMessageId,'<confirmed@example.test>');const attempt=f.app.store.required<DeliveryAttempt>('delivery',attemptId);assert.equal(attempt.status,'sent');assert.equal(attempt.markerVerified,true);assert.equal(f.app.trashActions.get('t','a',q.accountVersion,q.clientRequestId).receipt.state,'pending');assert.throws(()=>f.app.store.saveDraft({id:d.id,body:'Cannot reactivate'}));assert.equal(f.counts().opaque+f.counts().cloudCreates+f.counts().trashModifies,0);
+ }finally{await f.close()}
+});
+
+test('a held Trash preflight rejects genuine new generation admission while unrelated generation remains queued without dispatch',async()=>{
+ const f=fixture();let engine:AutoDraftFoundation|undefined;try{engine=new AutoDraftFoundation(f.app.store,f.now);const prepare=(threadId:string,sequence:number)=>{const t=f.app.store.required<Thread>('thread',threadId),sourceRef=randomUUID(),input:IngressVersion={version:1,id:randomUUID(),accountId:'a',accountVersion:f.authority.version('a'),sequence,sourceRef,inputVersion:h,providerInternalDate:new Date(f.now()).toISOString(),committedAt:new Date(f.now()).toISOString(),origin:'google-live-history-message-added',history:{entryId:String(10+sequence),afterCursor:'10',throughCursor:'20',addedSourceRefs:[sourceRef]},baselineVersion:h,immutableFactsHash:h};engine!.commitIngress(t,input);const basis:FoundationBasis={accountId:'a',activationId:randomUUID(),activationEpoch:1,preferences:{settingsId:randomUUID(),revision:1,fingerprint:h},accountVersion:input.accountVersion,configurationVersion:h,sourceRef,inputVersion:h,threadId,target:engine!.guard.capture('a',threadId,{threadRef:randomUUID(),threadInputVersion:threadInputVersion(t),replyMetadataVersion:h,sourceFactsVersion:h})};return{input,basis}};
+  const selected=prepare('t',1),other=prepare('u',2);await f.held();assert.throws(()=>engine!.admit(selected.input.id,selected.basis),code('ordinary_action_locked'));assert.equal(f.app.store.db.prepare('SELECT COUNT(*) n FROM auto_draft_jobs').get()!.n,0);const allowed=engine.admit(other.input.id,other.basis);assert.equal(allowed.state,'queued');assert.equal(allowed.attempt,null);assert.equal(f.app.store.db.prepare('SELECT COUNT(*) n FROM auto_draft_jobs WHERE request_utf8 IS NOT NULL').get()!.n,0);assert.equal(f.counts().opaque+f.counts().cloudCreates+f.counts().trashModifies,0);
+ }finally{await f.release();engine?.close();await f.close()}
+});

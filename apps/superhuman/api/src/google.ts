@@ -98,6 +98,7 @@ function parts(payload: GmailPart, messageId: string) {
 
 export class GoogleProvider implements MailProvider {
   store: Store;
+  private readonly threadObserver:ReturnType<Store['registerProviderThreadObserver']>;
   env: NodeJS.ProcessEnv;
   fetcher: typeof fetch;
   timing: GoogleTiming;
@@ -107,7 +108,7 @@ export class GoogleProvider implements MailProvider {
   readonly ingress?:GoogleIngressAdapter;
   /** Trusted observational composition only; never native/SQL authority. */
   oauthDiagnostic?: (entry: GoogleOAuthCallbackDiagnostic) => void;
-  constructor(store: Store, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch, timing: Partial<GoogleTiming> = {}, ingress?:GoogleIngressAdapter) { this.ingress=ingress;this.store = store; initializeCredentialMaintenance(store); this.env = env; this.fetcher = fetcher; this.timing = { now: Date.now, sleep, random: Math.random, yieldSync: yieldEventLoop, ...timing }; }
+  constructor(store: Store, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch, timing: Partial<GoogleTiming> = {}, ingress?:GoogleIngressAdapter) { this.ingress=ingress;this.store = store;this.threadObserver=store.registerProviderThreadObserver(); initializeCredentialMaintenance(store); this.env = env; this.fetcher = fetcher; this.timing = { now: Date.now, sleep, random: Math.random, yieldSync: yieldEventLoop, ...timing }; }
   private headerBasis(accountId:string){
    const account=this.store.required<Account>('account',accountId);if(account.provider!=='google'||!mailHeaderGrant(this.store,accountId))return null;const grant=this.store.required<any>('googleGrant','mail:'+accountId);let version:string|null=null;try{version=currentAccountIncarnation(this.store,accountId)}catch{}
    const registry=this.store.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='auto_draft_ready_accounts'").get(),authority=registry?this.store.db.prepare('SELECT incarnation,epoch,facts,present FROM auto_draft_ready_accounts WHERE account_id=?').get(accountId)??null:null,grantRegistry=this.store.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='auto_draft_ready_grants'").get(),grantEpoch=grantRegistry?this.store.db.prepare('SELECT epoch,present,facts FROM auto_draft_ready_grants WHERE account_id=?').get(accountId)??null:null;
@@ -127,7 +128,7 @@ export class GoogleProvider implements MailProvider {
    const profile=await this.headerRead(accountId,'profile',{signal:guard.signal,beforeIssue:check})as{emailAddress?:unknown};check();if(typeof profile.emailAddress!=='string'||profile.emailAddress.toLowerCase()!==account.email.toLowerCase())throw new HttpError(409,'Google identity did not match this account','message_source_changed');if(basis.version===null){authority.adoptAccount(accountId);const adopted=this.headerBasis(accountId)!;if(adopted.identity!==basis.identity||adopted.grant!==basis.grant||adopted.grantEpoch!==basis.grantEpoch)throw new HttpError(409,'The message source account changed','message_source_changed');basis.version=adopted.version;basis.authorityStamp=adopted.authorityStamp}check();
    const data=await this.headerRead(accountId,`threads/${encodeURIComponent(before.providerId)}?format=full`,{signal:guard.signal,beforeIssue:check})as{id:string;messages?:GmailMessage[]};check();if(data.id!==before.providerId||!Array.isArray(data.messages)||data.messages.length===0||data.messages.some(m=>m.threadId!==before.providerId))throw new HttpError(502,'Google returned another conversation','invalid_google_thread');
    const staged:{id:string;record:AttachmentRecord}[]=[],raw=[...data.messages].sort((a,b)=>Number(a.internalDate)-Number(b.internalDate)),messages=raw.map(m=>this.normalizeFullMessage(accountId,basis.version,m,staged)),latest=messages.at(-1)!,lastRaw=raw.at(-1)!,labels=[...new Set(raw.flatMap(m=>m.labelIds??[]))];
-   return this.syncUnit(undefined,()=>{check();const current=this.store.required<Thread>('thread',threadId),next=presentationThread(this.store,{...current,subject:header(lastRaw.payload,'subject')||'(no subject)',snippet:gmailSnippetToText(typeof lastRaw.snippet==='string'?lastRaw.snippet:''),sender:latest.sender,lastMessageAt:latest.date,messages,participants:[...new Map(messages.flatMap(m=>[m.sender,...m.to,...m.cc??[]]).map(p=>[p.email,p])).values()],providerLabels:labels,unread:current.unread,starred:current.starred});for(const item of staged)this.store.put('messageAttachment',item.id,item.record);return this.store.publishProviderThread(next)});
+   return this.syncUnit(undefined,()=>{check();const current=this.store.required<Thread>('thread',threadId),next=presentationThread(this.store,{...current,subject:header(lastRaw.payload,'subject')||'(no subject)',snippet:gmailSnippetToText(typeof lastRaw.snippet==='string'?lastRaw.snippet:''),sender:latest.sender,lastMessageAt:latest.date,messages,participants:[...new Map(messages.flatMap(m=>[m.sender,...m.to,...m.cc??[]]).map(p=>[p.email,p])).values()],providerLabels:labels,unread:current.unread,starred:current.starred});for(const item of staged)this.store.put('messageAttachment',item.id,item.record);return this.threadObserver.publish(next)});
   }
   get redirectUri() { return this.env.GOOGLE_REDIRECT_URI || 'http://127.0.0.1:3001/api/auth/google/callback'; }
   status(): ProviderStatus {
@@ -337,6 +338,8 @@ export class GoogleProvider implements MailProvider {
     throw new HttpError(502,'Google read attempts exhausted');
   }
   private async headerResponseBytes(response:Response,signal:AbortSignal,check:()=>void,max:number){const declared=response.headers.get('content-length');if(declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>max)){void response.body?.cancel().catch(()=>{});throw new HttpError(502,'Conversation is too large to refresh','message_source_limit')}const reader=response.body?.getReader(),chunks:Uint8Array[]=[];let size=0;const cancel=()=>{if(reader)void reader.cancel().catch(()=>{})};signal.addEventListener('abort',cancel,{once:true});try{if(reader)for(;;){check();signal.throwIfAborted();const part=await reader.read();check();signal.throwIfAborted();if(part.done)break;size+=part.value.byteLength;if(size>max)throw new HttpError(502,'Conversation is too large to refresh','message_source_limit');chunks.push(part.value)}return Buffer.concat(chunks)}finally{signal.removeEventListener('abort',cancel);cancel()}}
+  /** Quota pacing only; this grants no transport, Thread or Draft authority. */
+  async paceOrdinaryActionRead(accountId:string,kind:'profile'|'thread',guard:{signal:AbortSignal;check:()=>void}){if(!['profile','thread'].includes(kind)||!(guard.signal instanceof AbortSignal)||typeof guard.check!=='function')throw new HttpError(400,'Invalid ordinary read pacing','trash_native_scope');guard.signal.throwIfAborted();guard.check();await this.paceRead(accountId,readCost(kind==='profile'?'profile':'threads/owned').units);guard.signal.throwIfAborted();guard.check()}
   private paceRead(accountId: string, units: number) {
     const previous = this.readTails.get(accountId) ?? Promise.resolve();
     const turn = previous.then(async () => {
@@ -470,17 +473,17 @@ export class GoogleProvider implements MailProvider {
     const basis=this.headerBasis(account.id);
     let data: { id: string; messages?: GmailMessage[] };
     try { data = await this.syncRead(account.id, `threads/${encodeURIComponent(threadId)}?format=full`,lease) as typeof data; }
-    catch (error) { if (error instanceof HttpError && error.code === 'google_not_found') { this.syncUnit(lease,()=>this.store.remove('thread', `${account.id}:${threadId}`)); return; } throw error; }
+    catch (error) { if (error instanceof HttpError && error.code === 'google_not_found') { this.syncUnit(lease,()=>this.threadObserver.remove(account.id, `${account.id}:${threadId}`)); return; } throw error; }
     if(basis)this.assertHeaderBasis(basis);
     if(data.id!==threadId||(data.messages??[]).some(message=>message.threadId!==threadId))throw new HttpError(502,'Google returned another thread','invalid_google_thread');
     const staged:{id:string;record:AttachmentRecord}[]=[];
     const raw = [...(data.messages ?? [])].sort((a, b) => Number(a.internalDate) - Number(b.internalDate));
-    const messages = raw.map(message => this.normalizeFullMessage(account.id,basis?.version??null,message,staged)); if (!messages.length) { this.syncUnit(lease,()=>this.store.remove('thread', `${account.id}:${threadId}`)); return; }
+    const messages = raw.map(message => this.normalizeFullMessage(account.id,basis?.version??null,message,staged)); if (!messages.length) { this.syncUnit(lease,()=>this.threadObserver.remove(account.id, `${account.id}:${threadId}`)); return; }
     const latest = messages.at(-1)!; const lastRaw = raw.at(-1)!; const labels = [...new Set(raw.flatMap(message => message.labelIds ?? []))];
     const id = `${account.id}:${data.id}`; const existing = this.store.get<Thread>('thread', id);
     const folder = labels.includes('INBOX') ? 'inbox' : raw.every(message => message.labelIds?.includes('TRASH')) ? 'trash' : raw.every(message => message.labelIds?.includes('SPAM')) ? 'spam' : raw.every(message => message.labelIds?.includes('DRAFT')) ? 'drafts' : labels.includes('SENT') ? 'sent' : 'done';
     const thread:Thread={ id, accountId: account.id, providerId: data.id, subject: header(lastRaw.payload, 'subject') || '(no subject)', snippet: gmailSnippetToText(lastRaw.snippet), sender: latest.sender, participants: [...new Map(messages.flatMap(message => [message.sender, ...message.to, ...(message.cc ?? [])]).map(p => [p.email, p])).values()], lastMessageAt: latest.date, unread: labels.includes('UNREAD'), starred: labels.includes('STARRED'), important: labels.includes('IMPORTANT'), folder, labels: labels.filter(label => !/^[A-Z_]+$/.test(label)).map(label => `${account.id}:${label}`), messages, snoozedUntil: existing?.snoozedUntil, snoozeRetryAt: existing?.snoozeRetryAt, snoozeError: existing?.snoozeError, muted: existing?.muted, syncGeneration: generation, providerLabels: labels };
-    this.syncUnit(lease,()=>{for(const entry of staged)this.store.put('messageAttachment',entry.id,entry.record);this.store.publishProviderThread(presentationThread(this.store,thread));if(lease)this.ingress!.publish(lease,this.store.required<Thread>('thread',id),provenance,origin,new Map(raw.map(m=>[m.id,this.replyMetadata(m.payload)])))});
+    this.syncUnit(lease,()=>{for(const entry of staged)this.store.put('messageAttachment',entry.id,entry.record);this.threadObserver.publish(presentationThread(this.store,thread));if(lease)this.ingress!.publish(lease,this.store.required<Thread>('thread',id),provenance,origin,new Map(raw.map(m=>[m.id,this.replyMetadata(m.payload)])))});
   }
   private replyMetadata(payload:GmailPart):GoogleReplyMetadata{
     const headers=payload.headers;if(!Array.isArray(headers)||headers.length>1000||headers.some(h=>typeof h.name!=='string'||typeof h.value!=='string'||h.name.length>256||Buffer.byteLength(h.value)>16384||/[\r\n\0]/.test(h.name+h.value)))return{headersComplete:false,replyTo:null};
@@ -516,6 +519,7 @@ export class GoogleProvider implements MailProvider {
     return { raw, ...(providerThreadId ? { threadId: providerThreadId } : {}) };
   }
   async syncDraft(draft: Draft) {
+    this.store.ordinaryActions.assertDraftActivation(draft);
     if (draft.composerSendId || this.store.composerDeliveryId(draft.id)) throw new HttpError(409, 'Composer deliveries cannot synchronize an editable provider draft', 'composer_delivery_locked');
     if (draft.artifactSendId || this.store.artifactDeliveryId(draft.id)) throw new HttpError(409, 'Artifact deliveries cannot synchronize an editable provider draft', 'artifact_delivery_locked');
     if (this.store.hasProviderDraftLink(draft.id)) throw new HttpError(409, 'Use the owned cloud draft ledger', 'provider_draft_owned_requires_ledger');

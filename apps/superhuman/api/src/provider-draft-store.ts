@@ -69,7 +69,7 @@ export class ProviderDraftRepository {
   }
   enroll(draft: Draft, origin: ProviderDraftOrigin, scope?:GeneratedPublicationScope): ProviderDraftLink | undefined {
     return this.transaction(() => {
-      const account = this.account(draft.accountId);
+      this.store.ordinaryActions.assertDraftActivation(draft);const account = this.account(draft.accountId);
       if (account.provider !== 'google') return;
       if (!['composer','reply','forward','ai-created','ai-send','auto-generated-managed'].includes(origin) || !keys(draft.id) || !revision(draft.revision) || draft.revision < 1 || draft.providerDraftId || this.link(draft.accountId,draft.id)) throw new HttpError(409, 'Only a newly replica-created draft can be enrolled', 'provider_draft_enrollment_conflict');
       if(origin==='auto-generated-managed'?!scope||!generatedScopeValid(scope)||scope.accountId!==draft.accountId||scope.threadId!==draft.threadId:scope!==undefined)throw new HttpError(409,'Invalid generated enrollment scope','provider_draft_enrollment_conflict');
@@ -84,7 +84,7 @@ export class ProviderDraftRepository {
   }
   desire(draft: Draft, contentHash: string, meaningful: boolean): ProviderDraftLink | undefined {
     return this.transaction(() => {
-      const current = this.link(draft.accountId,draft.id); if (!current) return;
+      this.store.ordinaryActions.assertDraftActivation(draft);const current = this.link(draft.accountId,draft.id); if (!current) return;
       if (!sha(contentHash) || !revision(draft.revision) || draft.revision < 1) providerDraftInvalid();
       if (['discarded','consumed'].includes(current.state) || current.discardId) throw new HttpError(409,'The cloud draft has a terminal discard/delivery intent','provider_draft_locked');
       if(current.desiredRevision!==null&&(draft.revision<current.desiredRevision||draft.revision===current.desiredRevision&&current.desiredHash!==contentHash))throw new HttpError(409,'The desired cloud snapshot revision or identity regressed','provider_draft_revision_conflict');
@@ -107,7 +107,7 @@ export class ProviderDraftRepository {
     return op;
   }
   insertOperation(link: ProviderDraftLink, snapshot: ProviderDraftMimeSnapshot, kind: 'create'|'update', owner: string): ProviderDraftOperation {
-    if (!this.store.db.isTransaction) throw new Error('Cloud draft claim requires a transaction');
+    if (!this.store.db.isTransaction) throw new Error('Cloud draft claim requires a transaction');const local=this.draft(link.accountId,link.draftId);if(local)this.store.ordinaryActions.assertDraftActivation(local);
     const prior = link.activeOperationId ? this.operation(link.accountId,link.draftId,link.activeOperationId) : null;
     if (prior && ['queued','dispatching','unknown'].includes(prior.state) || link.discardId || link.state !== 'queued' || snapshot.marker.owner !== link.ownerMarker || snapshot.marker.revision !== link.desiredRevision || snapshot.contentHash !== link.desiredHash || snapshot.raw.length > PROVIDER_DRAFT_MAX_RAW_BYTES || !sha(snapshot.decodedHash) || !sha(snapshot.rawHash) || createHash('sha256').update(snapshot.raw).digest('hex') !== snapshot.rawHash || kind === 'create' && link.providerDraftId !== null || kind === 'update' && !link.providerDraftId) throw new HttpError(409,'The queued cloud snapshot changed','provider_draft_revision_conflict');
     const at = new Date(this.now()).toISOString(), op: ProviderDraftOperation = { id:snapshot.marker.operationId,accountId:link.accountId,draftId:link.draftId,kind,state:'dispatching',draftRevision:snapshot.marker.revision,contentHash:snapshot.contentHash,providerDraftId:link.providerDraftId,providerMessageId:link.providerMessageId,providerThreadId:link.providerThreadId,result:null,createdAt:at,issuedAt:at,completedAt:null,resolution:'unverified',error:null };

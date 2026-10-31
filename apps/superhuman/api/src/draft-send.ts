@@ -165,7 +165,7 @@ export class DraftSendService{
       }:null,attachments
     });
   }
-  private policy(draft:Draft){
+  private policy(draft:Draft){this.store.ordinaryActions.assertDraftActivation(draft);
     const account=this.store.required<Account>('account',draft.accountId);
     if(account.provider!=='google')throw new HttpError(409,'Demo accounts cannot deliver email','demo_delivery_disabled');
     if(!this.google.status().configured)throw new HttpError(503,'Configure Google before sending','provider_not_configured');
