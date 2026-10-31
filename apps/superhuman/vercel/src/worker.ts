@@ -10,6 +10,7 @@ import { createLibsqlPrimaryFactory } from './sql.ts';
 import { PrivateBodyTransport } from './blob-transport.ts';
 import { VercelPrivateBlobStore } from './vercel-blob-sdk.ts';
 import { ThreadedCoreAdapter } from './core-thread.ts';
+import { loadTrackingRuntimeConfiguration } from '../../api/src/tracking-runtime-config.ts';
 import { CoreStartupDiagnostic, reportWorkerFailure, type WorkerFailurePhase } from './startup-diagnostic.ts';
 
 export type WorkerConfiguration = Readonly<{ namespace: string; webOrigin: string; databaseUrl: string; databaseToken: string; controlUrl: string; controlToken: string;
@@ -151,13 +152,22 @@ export function projectCoreEnvironment(environment: Readonly<NodeJS.ProcessEnv>)
     'GMAIL_SYNC_PAGES_PER_RUN', 'GOOGLE_CALENDAR_ENABLED', 'APPROVED_CALENDAR_TEST_ACCOUNTS', 'APPROVED_CALENDAR_TEST_IDS',
     'APPROVED_CALENDAR_TEST_ATTENDEES', 'CALENDAR_READS_PER_MINUTE', 'AUTO_DRAFTS_PERSISTENCE', 'MAIL_REPLY_TIME_ZONE',
     'MAIL_RUNTIME_NAMESPACE', 'TZ', 'LANG', 'LC_ALL', 'TRACKING_PUBLIC_ORIGIN', 'TRACKING_MAIN_SIGNER_FILE',
-    'TRACKING_COLLECTOR_TIMEOUT_MS', 'TRACKING_COLLECTOR_SOURCE_IDENTITY', 'TRACKING_OPERATOR_VERIFICATION_FILE'];
+    'TRACKING_COLLECTOR_TIMEOUT_MS', 'TRACKING_COLLECTOR_SOURCE_IDENTITY', 'TRACKING_OPERATOR_VERIFICATION_FILE',
+    'TRACKING_MAIN_SIGNER_JSON', 'TRACKING_OPERATOR_VERIFICATION_JSON'];
   const selected: NodeJS.ProcessEnv = {};
   for (const name of names) { const value = environment[name]; if (value !== undefined) { if (typeof value !== 'string') throw invalid(); selected[name] = value; } }
   return selected;
 }
 
+/** Validate explicit tracking material before opening Mail/Control or acquiring
+ * ownership. The ordinary child repeats this validation with its fenced transport. */
+export function preflightTrackingRuntimeConfiguration(env: NodeJS.ProcessEnv): void {
+  const configuration = loadTrackingRuntimeConfiguration(env, async () => { throw new TypeError('Tracking configuration preflight cannot request transport.'); });
+  configuration?.key.fill(0);
+}
+
 export async function startProductionWorker(env: NodeJS.ProcessEnv = process.env): Promise<{ runtime: MailWorkerRuntime; stop: () => Promise<void> }> {
+  preflightTrackingRuntimeConfiguration(env);
   const configuration = loadWorkerConfiguration(env);
   preflightNativeMail(configuration);
   const sql = createLibsqlControl({ url: configuration.controlUrl, authToken: configuration.controlToken });
