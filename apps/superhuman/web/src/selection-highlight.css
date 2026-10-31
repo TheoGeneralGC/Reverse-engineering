@@ -1,0 +1,15 @@
+/* Shared selection is independent of horizontal Done/Trash presence. Tokens
+   are declarations from the current reference, not measured pixel timing. */
+.thread-list{position:relative}
+.mail-selection-highlight{position:absolute;inset:0 0 auto;height:0;pointer-events:none}
+.mail-selection-highlight[hidden]{display:none}
+.mail-selection-surface,.mail-selection-bar{position:absolute;top:0;height:36px;transform-origin:top left;border-radius:4px;pointer-events:none;transition:transform 256ms cubic-bezier(0.19,1,0.22,1),filter 256ms cubic-bezier(0.19,1,0.22,1)}
+.mail-selection-surface{z-index:0;background:var(--focus)}
+.mail-selection-bar{z-index:2;background:transparent}
+.mail-selection-bar::before{content:'';display:block;position:absolute;left:0;top:0;height:100%;width:4px;background:var(--purple);border-radius:4px 0 0 4px}
+.mail-selection-highlight[data-checked="true"] .mail-selection-surface{filter:opacity(0)}
+.thread-list[data-selection-highlight="ready"] .mail-row{z-index:1}
+.thread-list[data-selection-highlight="ready"] .mail-row.focused{background:transparent}
+.thread-list[data-selection-highlight="ready"] .mail-row.focused::before{display:none}
+.thread-list[data-selection-highlight="ready"] .mail-row.focused.checked{background:var(--selected)}
+@media(prefers-reduced-motion:reduce){.mail-selection-surface,.mail-selection-bar{transition:none!important}}

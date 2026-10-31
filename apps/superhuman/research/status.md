@@ -1,5 +1,14 @@
 # Implementation checkpoint — 2026-10-27–30
 
+At the latest protected-beta check, the user confirmed Safari Inbox loading and
+the personal hosted Calendar connection displayed its selected calendars.
+The [Trash/Calendar source checkpoint](trash-calendar-checkpoint-20261030.md)
+and [shared selection highlight](shared-selection-checkpoint-20261030.md)
+record the next reviewed interaction changes; Production rollout is a separate
+gate. Public Gmail enrollment, normal delivery beyond the approved test pair,
+attachment-row chips, exact typography and full parity remain unfinished.
+Earlier checkpoint paragraphs below retain their own source/run boundaries.
+
 The protected Vercel backend now imports real Gmail and renders its inbox after
 the [Core thread correction](vercel-gmail-sync-thread-20261030.md), an exact
 incident-specific recovery and preserved queued reads. Browser acceptance found

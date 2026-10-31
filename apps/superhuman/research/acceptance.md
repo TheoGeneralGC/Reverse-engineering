@@ -283,3 +283,11 @@ TC-01–04 and HC-01. It separates the earlier-source controlled native pair,
 current affected controls, synthetic native cold/upgrade/reopen and actual
 personal hosted Calendar connection. Production rollout, rapid Original Trash,
 finite motion and full feature parity remain separate outstanding gates.
+
+## Shared selection highlight
+
+The [selection checkpoint](shared-selection-checkpoint-20261030.md) adds
+HL-01–04 for keyboard retargeting, pointer snap/no-scroll, physical slot/owner
+cleanup and Command return. It records41 affected checks plus two independent
+actual-App checks, the qualified Original keyboard subset and separate view
+restoration. Attachment markup, fonts, moving pixels and full parity remain open.

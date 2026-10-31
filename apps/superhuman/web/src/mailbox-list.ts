@@ -1,3 +1,4 @@
+import type {SelectionOrigin,SelectionPresentation} from './selection-highlight.ts';
 import {visibleMessages} from '../../api/src/message-presentation.ts';
 import type { Thread,ThreadListOptions,ThreadListPage,ThreadSummary } from './api.ts';
 import type {SplitViewRef} from './split-inbox-client.ts';
@@ -13,7 +14,7 @@ const adjustCounts=(counts:ThreadListPage['counts'],delta:ThreadListPage['counts
 export type DismissalReservation=DoneReservation;
 const reservationKey=(r:DoneReservation)=>(r.kind??'archive')+':'+r.requestId;
 const doneSourceIdentity=(t:ThreadSummary)=>{const b=(t as ThreadSummary&{archiveBasis?:{sourceVersion?:unknown}}).archiveBasis;return typeof b?.sourceVersion==='string'?b.sourceVersion:JSON.stringify([t.id,t.accountId,t.providerId,t.lastMessageAt])};
-export type MailboxSnapshot={threads:ThreadSummary[];selectedId:string|null;total:number|null;viewIdentity?:MailboxPage['viewIdentity'];coverage?:SplitCoverage;counts:ThreadListPage['counts'];hasMore:boolean;nextCursor:string|null;loading:boolean;loadingMore:boolean;openingId:string|null;error:string;ready:boolean};
+export type MailboxSnapshot={selectionPresentation?:SelectionPresentation;threads:ThreadSummary[];selectedId:string|null;total:number|null;viewIdentity?:MailboxPage['viewIdentity'];coverage?:SplitCoverage;counts:ThreadListPage['counts'];hasMore:boolean;nextCursor:string|null;loading:boolean;loadingMore:boolean;openingId:string|null;error:string;ready:boolean};
 export const emptyMailbox=():MailboxSnapshot=>({threads:[],selectedId:null,total:0,counts:{inbox:0,important:0,other:0,calendar:0},hasMore:false,nextCursor:null,loading:false,loadingMore:false,openingId:null,error:'',ready:false});
 // Clone caller context so one list's date boundary cannot change during paging.
 export function browserMailboxContext(context:MailboxContext|null):MailboxContext|null{return context?{...context,...(context.q.trim()?{timeZone:context.timeZone??Intl.DateTimeFormat().resolvedOptions().timeZone}:{})}:null}
@@ -31,16 +32,16 @@ function mergeSummaries(previous:ThreadSummary[],incoming:ThreadSummary[],accoun
 
 export function createMailboxList(context:MailboxContext,dependencies:{readPage:(options:MailboxOptions)=>Promise<MailboxPage>;readThread:(id:string,signal:AbortSignal,onCached:(thread:Thread)=>void)=>Promise<Thread>;onChange:(snapshot:MailboxSnapshot)=>void}){
  const owner=crypto.randomUUID(),done=new Map<string,DoneReservation>(),inverses=new Map<string,{key:string;phase:'pending'|'unknown';selectionBefore:string|null;manualRevision:number}>(),revokedInverses=new Set<string>();let reservationOrdinal=0,serverRead=0,counterRevision=0,movementPending=0;
- let state=emptyMailbox(),active=true,listRevision=0,detailRevision=0,selectionRevision=0,manualNavigationRevision=0,detailAbort:AbortController|null=null;
+ let state=emptyMailbox(),active=true,listRevision=0,detailRevision=0,selectionRevision=0,manualNavigationRevision=0,presentationRevision=0,detailAbort:AbortController|null=null;
  let refreshRequest:Promise<void>|null=null,moreRequest:Promise<void>|null=null,moves:Promise<ThreadSummary|undefined>=Promise.resolve(undefined);
  const suppressed=(row:ThreadSummary)=>[...done.values()].some(r=>r.phase!=='unknown'&&r.thread.id===row.id&&r.sourceIdentity===doneSourceIdentity(row));
  const rowsVisible=(rows:ThreadSummary[])=>{const visible=rows.filter(row=>!suppressed(row)||[...inverses.keys()].some(key=>done.get(key)?.thread.id===row.id));for(const[key]of inverses){const r=done.get(key);if(!r)continue;const current=visible.find(row=>row.id===r.thread.id);if(current&&doneSourceIdentity(current)!==r.sourceIdentity){inverses.delete(key);revokedInverses.add(key);done.delete(key);continue}if(!current)visible.push(r.thread)}return visible.sort((a,b)=>positionCompare(b,a))};
- const publish=(patch:Partial<MailboxSnapshot>)=>{if(!active)return;state={...state,...patch};dependencies.onChange(state)};
+ const publish=(patch:Partial<MailboxSnapshot>,origin?:SelectionOrigin)=>{if(!active)return;const moved=patch.selectedId!==undefined&&patch.selectedId!==state.selectedId;state={...state,...patch,...(moved||origin==='pointer'?{selectionPresentation:Object.freeze({owner,revision:++presentationRevision,origin:origin??'layout'})}:{})};dependencies.onChange(state)};
  const checkPage=(page:MailboxPage,previous?:MailboxPage['viewIdentity'])=>{if(!context.viewRef)return;const id=page.viewIdentity;if(!id||id.viewRef!==context.viewRef||id.settingsRevision!==context.settingsRevision||id.policyVersion!==context.policyVersion||previous&&JSON.stringify(previous)!==JSON.stringify(id))throw Error('The Split Inbox changed while loading. Refresh conversations to load a consistent view.');};
  const current=()=>state.threads.find(thread=>thread.id===state.selectedId);
  const fail=(error:unknown)=>error instanceof Error?error.message:'Unable to load conversations';
  const cancelDetail=()=>{detailRevision++;detailAbort?.abort();detailAbort=null;if(state.openingId)publish({openingId:null})};
- const select=(id:string|null,manual=true)=>{if(!active)return;if(manual){selectionRevision++;manualNavigationRevision++}if(id!==state.selectedId)cancelDetail();publish({selectedId:id&&state.threads.some(thread=>thread.id===id)?id:state.threads[0]?.id||null})};
+ const select=(id:string|null,manual=true,origin:SelectionOrigin='layout')=>{if(!active)return;if(manual){selectionRevision++;manualNavigationRevision++}if(id!==state.selectedId)cancelDetail();publish({selectedId:id&&state.threads.some(thread=>thread.id===id)?id:state.threads[0]?.id||null},origin)};
  const refresh=()=>{
   if(!active)return Promise.resolve();
   const revision=++listRevision,read=++serverRead,oldRows=state.threads,oldBoundary=oldRows.at(-1),targetLength=oldRows.length;
@@ -81,7 +82,7 @@ export function createMailboxList(context:MailboxContext,dependencies:{readPage:
    while(refreshRequest)await refreshRequest;if(!active||intent!==selectionRevision)return;
    let index=state.threads.findIndex(thread=>thread.id===state.selectedId);if(index<0)index=0;const destination=Math.max(0,index+delta);
    while(destination>=state.threads.length&&state.hasMore){await loadMore();if(!active||intent!==selectionRevision)return}
-   const thread=state.threads[Math.min(destination,state.threads.length-1)];if(thread)select(thread.id,false);return thread;
+   const thread=state.threads[Math.min(destination,state.threads.length-1)];if(thread)select(thread.id,false,'keyboard');return thread;
   });moves=work;void work.then(()=>movementPending--,()=>movementPending--);return work;
  };
  const reserveNow=(requestId:string,id?:string,fallback?:ThreadSummary,onReserved?:(r:DoneReservation)=>void,kind:'archive'|'trash'='archive',beforePublish?:(r:DoneReservation,commit:()=>void)=>boolean):DoneReservation|null=>{
