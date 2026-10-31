@@ -3,6 +3,7 @@ import type { ActorContext, ActorCore } from './actor.ts';
 import type { CommandRequest, CommandResponse } from './command-log.ts';
 import type { PrivateBodyTransport } from './blob-transport.ts';
 import type { CoreStartupStage } from './startup-diagnostic.ts';
+import { googleOAuthCallbackDiagnostic, writeGoogleOAuthCallbackDiagnostic } from '../../api/src/google-oauth-diagnostic.ts';
 import { CORE_THREAD_VERSION, CoreThreadError, blobBody, bodyScope, bootstrap, byteArray, commandRequest, commandResponse,
   errorCode, exact, fingerprint, projectedError, record, serial, startupStage, type SqlFingerprint, type ThreadConfiguration, type ThreadOperation } from './core-thread-protocol.ts';
 
@@ -38,6 +39,7 @@ export class ThreadedCoreAdapter implements ActorCore {
   private sequence = 0;
   private nativeSequence = 0;
   private bodySequence = 0;
+  private oauthDiagnostics = 0;
   private isReady = false;
   private admitting = true;
   private closeAcknowledged = false;
@@ -135,6 +137,14 @@ export class ThreadedCoreAdapter implements ActorCore {
     if (value.kind === 'fatal' && exact(value, ['kind', 'code']) && errorCode(value.code)) { this.fail(value.code); return; }
     if (value.kind === 'startup-stage' && exact(value, ['kind', 'stage']) && !this.isReady && startupStage(value.stage)) { try { this.options.onStartupStage?.(value.stage); } catch {} return; }
     if (value.kind === 'startup-sql' && exact(value, ['kind', 'fingerprint']) && !this.isReady && fingerprint(value.fingerprint)) { try { this.options.onStartupSqlFingerprint?.(value.fingerprint); } catch {} return; }
+    // Observations cannot resolve work or change authority, even when malformed.
+    if (value.kind === 'oauth-callback-failure') {
+      if (this.isReady && this.oauthDiagnostics < 32) {
+        this.oauthDiagnostics++;
+        if (exact(value, ['kind', 'diagnostic']) && googleOAuthCallbackDiagnostic(value.diagnostic)) writeGoogleOAuthCallbackDiagnostic(value.diagnostic);
+      }
+      return;
+    }
     if (value.kind === 'response' && serial(value.id) && typeof value.ok === 'boolean') {
       const pending = this.pending.get(value.id);
       if (!pending) throw new CoreThreadError('core_thread_protocol_invalid');

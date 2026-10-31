@@ -1,3 +1,4 @@
+import type {GoogleOAuthCallbackDiagnostic} from '../../api/src/google-oauth-diagnostic.ts';
 import { request as httpRequest, type ClientRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../../api/src/server.ts';
@@ -16,6 +17,7 @@ export type LoopbackCoreOptions = {
   bodies: Pick<PrivateBodyTransport, 'readRequestBody' | 'writeResponseBody'>;
   maxInlineBytes?: number; maxResponseBytes?: number; transport?: typeof fetch;
   onStartupStage?: (stage: CoreStartupStage) => void;
+  googleOAuthDiagnostic?: (entry: GoogleOAuthCallbackDiagnostic) => void;
   /** Trusted construction seam for isolated tests; the production worker does not supply overrides. */
   overrides?: TestOverrides;
 };
@@ -51,7 +53,7 @@ export class LoopbackCoreAdapter implements ActorCore {
   }
   static async create(options: LoopbackCoreOptions): Promise<LoopbackCoreAdapter> {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(options.namespace) || options.env.DATABASE_PATH !== options.databasePath ||
-        typeof options.databaseFactory !== 'function' || options.onStartupStage !== undefined && typeof options.onStartupStage !== 'function' || !Number.isSafeInteger(options.maxInlineBytes ?? 1_000_000) ||
+        typeof options.databaseFactory !== 'function' || options.googleOAuthDiagnostic !== undefined && typeof options.googleOAuthDiagnostic !== 'function' || options.onStartupStage !== undefined && typeof options.onStartupStage !== 'function' || !Number.isSafeInteger(options.maxInlineBytes ?? 1_000_000) ||
         (options.maxInlineBytes ?? 1_000_000) < 1 || (options.maxInlineBytes ?? 1_000_000) > 3_000_000 ||
         !Number.isSafeInteger(options.maxResponseBytes ?? 64 * 1024 ** 2) || (options.maxResponseBytes ?? 64 * 1024 ** 2) < 1 ||
         (options.maxResponseBytes ?? 64 * 1024 ** 2) > 128 * 1024 ** 2) throw new TypeError('Invalid worker Core configuration');
@@ -65,7 +67,7 @@ export class LoopbackCoreAdapter implements ActorCore {
       observe('auto-draft-config');
       automatic = loadAutoDraftRuntimeConfiguration(options.env, { modelFetch: fenced });
       observe('app-construction');
-      app = createApp({ ...options.overrides, databasePath: options.databasePath, databaseFactory: options.databaseFactory, env: options.env,
+      app = createApp({ ...options.overrides, googleOAuthDiagnostic: options.googleOAuthDiagnostic, databasePath: options.databasePath, databaseFactory: options.databaseFactory, env: options.env,
         ownerLiveness(localRegistered) { options.context.assertLocal(); return localRegistered; },
         aiFetch: fenced, trackingCollector: collector,
         autoDraftGeneration: automatic.generation ? { ...automatic.generation, googleFetch: fenced } : undefined,

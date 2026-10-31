@@ -9,11 +9,12 @@ import { createLibsqlPrimaryFactory } from './sql.ts';
 import { CoreThreadError, blobBody, bodyScope, bootstrap, byteArray, commandRequest, commandResponse, errorCode, exact, name,
   projectedError, record, serial, type BlobBody, type BodyScope, type SqlFingerprint, type ThreadBootstrap } from './core-thread-protocol.ts';
 import type { CoreStartupStage } from './startup-diagnostic.ts';
+import { googleOAuthCallbackDiagnostic, type GoogleOAuthCallbackDiagnostic } from '../../api/src/google-oauth-diagnostic.ts';
 
 export type ThreadCoreFactory = (options: { context: ActorContext; bodies: {
   readRequestBody: (body: BlobBody, scope: BodyScope) => Promise<Buffer>;
   writeResponseBody: (scope: BodyScope, bytes: Buffer) => Promise<BlobBody>;
-}; stage: (stage: CoreStartupStage) => void; sql: (kind: SqlFingerprint['kind'], text: string) => void }) => Promise<ActorCore>;
+}; oauth: (diagnostic: GoogleOAuthCallbackDiagnostic) => void; stage: (stage: CoreStartupStage) => void; sql: (kind: SqlFingerprint['kind'], text: string) => void }) => Promise<ActorCore>;
 
 /** Exported only as a trusted isolated-test construction seam. The production
  * entrypoint below always chooses the validated remote-primary factory. */
@@ -27,6 +28,10 @@ export async function serveCoreThread(port: MessagePort, data: unknown, createCo
   const bodies = new Map<number, { read: boolean; resolve: (value: Buffer | BlobBody) => void; reject: (error: Error) => void }>();
   const assertLocal = () => { if (failed || closed || Atomics.load(fence, 0) !== 1) throw new CoreThreadError('core_thread_authority_lost'); };
   const send = (message: object, transfer: ArrayBuffer[] = []) => { port.postMessage(message, transfer); };
+  let oauthDiagnostics = 0;
+  const oauth = (diagnostic: GoogleOAuthCallbackDiagnostic) => {
+    try { if (ready && !closed && oauthDiagnostics < 32 && googleOAuthCallbackDiagnostic(diagnostic)) { oauthDiagnostics++; send({ kind: 'oauth-callback-failure', diagnostic }); } } catch {}
+  };
   const fatal = (error: unknown) => {
     if (failed || closed) return; failed = true; Atomics.store(fence, 0, 0);
     const selectedError = new CoreThreadError(projectedError(error));
@@ -124,7 +129,7 @@ export async function serveCoreThread(port: MessagePort, data: unknown, createCo
   port.on('close', () => { if (!closed) fatal(new CoreThreadError('core_thread_exited')); });
   try {
     assertLocal();
-    core = await createCore({ context, bodies: bodyPort,
+    core = await createCore({ context, bodies: bodyPort, oauth,
       stage: stage => { if (!ready) send({ kind: 'startup-stage', stage }); },
       sql: (kind, text) => { assertLocal(); if (!ready) send({ kind: 'startup-sql', fingerprint: { kind, sha256: createHash('sha256').update(text).digest('hex') } }); },
     });
@@ -137,7 +142,7 @@ if (!isMainThread && parentPort && process.argv[1] && resolve(process.argv[1]) =
   void serveCoreThread(parentPort, workerData, async options => {
     const selected = workerData as ThreadBootstrap, configuration = selected.configuration;
     return LoopbackCoreAdapter.create({ context: options.context, bodies: options.bodies, namespace: configuration.namespace,
-      env: configuration.env, databasePath: configuration.databaseUrl, onStartupStage: options.stage,
+      env: configuration.env, databasePath: configuration.databaseUrl, onStartupStage: options.stage, googleOAuthDiagnostic: options.oauth,
       databaseFactory: createLibsqlPrimaryFactory({ url: configuration.databaseUrl, authToken: configuration.authToken, journalMode: configuration.journalMode, statementReuse: 'transaction-hot-select-v1',
         beforeOperation: operation => { options.context.assertLocal(); options.sql(operation.kind, operation.sql); } }),
     });

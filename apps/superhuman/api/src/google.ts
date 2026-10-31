@@ -1,3 +1,4 @@
+import {reportGoogleOAuthCallbackFailure,type GoogleOAuthCallbackPhase,type GoogleOAuthCallbackDiagnostic} from './google-oauth-diagnostic.ts';
 import {captureCredentialMaintenance,assertCredentialMaintenance,initializeCredentialMaintenance,credentialGrantMutationEpoch} from './google-credential-maintenance.ts';
 import {AccountIncarnationAuthority,currentAccountIncarnation} from './account-incarnation.ts';
 import {captureFullHeaderFacts,presentationThread,projectStoredMessages,threadSourceVersion,mailHeaderGrant} from './reminder-message-projection.ts';
@@ -104,6 +105,8 @@ export class GoogleProvider implements MailProvider {
   readTails = new Map<string, Promise<void>>();
   refreshes = new Map<string, Promise<Tokens>>();
   readonly ingress?:GoogleIngressAdapter;
+  /** Trusted observational composition only; never native/SQL authority. */
+  oauthDiagnostic?: (entry: GoogleOAuthCallbackDiagnostic) => void;
   constructor(store: Store, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch, timing: Partial<GoogleTiming> = {}, ingress?:GoogleIngressAdapter) { this.ingress=ingress;this.store = store; initializeCredentialMaintenance(store); this.env = env; this.fetcher = fetcher; this.timing = { now: Date.now, sleep, random: Math.random, yieldSync: yieldEventLoop, ...timing }; }
   private headerBasis(accountId:string){
    const account=this.store.required<Account>('account',accountId);if(account.provider!=='google'||!mailHeaderGrant(this.store,accountId))return null;const grant=this.store.required<any>('googleGrant','mail:'+accountId);let version:string|null=null;try{version=currentAccountIncarnation(this.store,accountId)}catch{}
@@ -199,41 +202,61 @@ export class GoogleProvider implements MailProvider {
     this.store.put('googleGrant', `${context.service}:${accountId}`, grant); this.store.put('googleOAuthAttempt', `${context.service}:${accountId}`, { service: context.service, accountId, requestedScopes: context.requestedScopes, outcome: grant.outcome, updatedAt: grant.updatedAt }); return grant;
   }
   async finishAuth(state: string, cookieState: string, code: string) {
+    let phase: GoogleOAuthCallbackPhase = 'state-validation';
+    try {
     const a = Buffer.from(state); const b = Buffer.from(cookieState);
     if (!state || a.length !== b.length || !timingSafeEqual(a, b)) throw new HttpError(400, 'Invalid authorization state', 'invalid_oauth_state');
+    phase = 'state-read';
     const row = this.store.db.prepare('SELECT verifier,expires,context FROM oauth_states WHERE state=?').get(state);
+    phase = 'state-consume';
     this.store.db.prepare('DELETE FROM oauth_states WHERE state=?').run(state);
     if (!row || Number(row.expires) < Date.now()) throw new HttpError(400, 'Authorization expired; try again', 'invalid_oauth_state');
     if (!code) throw new HttpError(400, 'Google did not return an authorization code', 'missing_oauth_code');
+    phase = 'context-read';
     const context: GoogleAuthContext = row.context ? JSON.parse(String(row.context)) : { service: 'mail', requestedScopes: [GMAIL_SCOPE] };
+    phase = 'token-exchange';
     const token = await this.tokenRequest({ grant_type: 'authorization_code', code, code_verifier: String(row.verifier), redirect_uri: this.redirectUri }, context.service);
     if (context.service === 'calendar') {
       if (this.env.GOOGLE_CALENDAR_ENABLED !== 'true') throw new HttpError(503, 'Calendar integration is disabled', 'calendar_not_enabled');
+      phase = 'calendar-account-read';
       const account = this.store.required<Account>('account', context.accountId!);
+      phase = 'calendar-userinfo-fetch';
       const identityResponse = await this.fetcher('https://openidconnect.googleapis.com/v1/userinfo', { signal: AbortSignal.timeout(20_000), headers: { authorization: `Bearer ${token.access_token}` } });
       if (!identityResponse.ok) throw new HttpError(403, 'Could not verify Calendar account identity', 'calendar_identity_unverified');
+      phase = 'calendar-userinfo-json';
       const identity = await identityResponse.json() as { email?: unknown; email_verified?: unknown; sub?: unknown };
+      phase = 'calendar-identity-check';
       if (typeof identity.email !== 'string' || identity.email.toLowerCase() !== account.email.toLowerCase() || identity.email_verified !== true || typeof identity.sub !== 'string' || !identity.sub) throw new HttpError(403, 'Calendar consent must use the selected Gmail account', 'calendar_account_mismatch');
+      phase = 'calendar-existing-token-read';
       let old: Tokens | undefined; try { old = this.readTokens(account.id, 'calendar'); } catch { /* first Calendar grant */ }
       const refreshToken = token.refresh_token ?? old?.refresh_token; if (!refreshToken) throw new HttpError(401, 'Offline Calendar access was not granted; existing Gmail access is unchanged', 'offline_access_not_granted');
-      this.store.db.exec('BEGIN IMMEDIATE'); try { const grant = this.persistGrant(account.id, context, token); this.saveTokens(account.id, { access_token: token.access_token, refresh_token: refreshToken, expires_at: Date.now() + token.expires_in * 1000, grantedScopes: grant.grantedScopes }, 'calendar'); this.store.db.exec('COMMIT'); return account.id; } catch (error) { this.store.db.exec('ROLLBACK'); throw error; }
+      phase = 'calendar-begin'; this.store.db.exec('BEGIN IMMEDIATE');
+      try {
+        phase = 'calendar-grant-write'; const grant = this.persistGrant(account.id, context, token);
+        phase = 'calendar-token-save'; this.saveTokens(account.id, { access_token: token.access_token, refresh_token: refreshToken, expires_at: Date.now() + token.expires_in * 1000, grantedScopes: grant.grantedScopes }, 'calendar');
+        phase = 'calendar-commit'; this.store.db.exec('COMMIT'); return account.id;
+      } catch (error) { const failedPhase = phase; phase = 'calendar-rollback'; this.store.db.exec('ROLLBACK'); phase = failedPhase; throw error; }
     }
+    phase = 'mail-profile-fetch';
     const profileResponse = await this.fetcher('https://gmail.googleapis.com/gmail/v1/users/me/profile', { signal: AbortSignal.timeout(20_000), headers: { authorization: `Bearer ${token.access_token}` } });
     if (!profileResponse.ok) throw new HttpError(profileResponse.status === 403 ? 403 : 502, profileResponse.status === 403 ? 'Gmail access was denied. Enable the Gmail API and grant Gmail permissions.' : 'Could not retrieve Google profile', 'google_profile_unavailable');
+    phase = 'mail-profile-json';
     const profile = await profileResponse.json() as { emailAddress: string };
     if (!profile || typeof profile.emailAddress !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.emailAddress)) throw new HttpError(502, 'Google returned an invalid mailbox identity', 'invalid_google_profile');
     const accountId = `google:${profile.emailAddress.toLowerCase()}`;
+    phase = 'mail-existing-token-read';
     let old: Tokens | undefined; try { old = this.readTokens(accountId); } catch { /* new account */ }
     const refreshToken = token.refresh_token ?? old?.refresh_token;
     if (!refreshToken) throw new HttpError(401, 'Offline access was not granted. Reconnect and grant consent so this account can remain synchronized.', 'offline_access_not_granted');
-    this.store.db.exec('BEGIN IMMEDIATE');
+    phase = 'mail-begin'; this.store.db.exec('BEGIN IMMEDIATE');
     try {
-      const grant = this.persistGrant(accountId, context, token);
-      this.saveTokens(accountId, { access_token: token.access_token, refresh_token: refreshToken, expires_at: Date.now() + token.expires_in * 1000, grantedScopes: grant.grantedScopes });
+      phase = 'mail-grant-write'; const grant = this.persistGrant(accountId, context, token);
+      phase = 'mail-token-save'; this.saveTokens(accountId, { access_token: token.access_token, refresh_token: refreshToken, expires_at: Date.now() + token.expires_in * 1000, grantedScopes: grant.grantedScopes });
       const existing = this.store.get<Account>('account', accountId);
-      this.store.put<Account>('account', accountId, { ...existing, id: accountId, email: profile.emailAddress, name: existing?.name ?? profile.emailAddress.split('@')[0], provider: 'google', color: existing?.color ?? '#6e65cc' });
-      this.store.updatePreferences({ activeAccountId: accountId }); this.store.db.exec('COMMIT'); return accountId;
-    } catch (error) { this.store.db.exec('ROLLBACK'); throw error; }
+      phase = 'mail-account-write'; this.store.put<Account>('account', accountId, { ...existing, id: accountId, email: profile.emailAddress, name: existing?.name ?? profile.emailAddress.split('@')[0], provider: 'google', color: existing?.color ?? '#6e65cc' });
+      phase = 'mail-preferences-write'; this.store.updatePreferences({ activeAccountId: accountId }); phase = 'mail-commit'; this.store.db.exec('COMMIT'); return accountId;
+    } catch (error) { const failedPhase = phase; phase = 'mail-rollback'; this.store.db.exec('ROLLBACK'); phase = failedPhase; throw error; }
+    } catch (error) { reportGoogleOAuthCallbackFailure(phase, error, this.oauthDiagnostic); throw error; }
   }
   async request(accountId: string, path: string, options: RequestInit = {}, nativeGate?:()=>void, readGuard?:GoogleReadGuard, syncLease?:GoogleReadLease) {
     // Internal producer capability: preserve request DI and default reads while

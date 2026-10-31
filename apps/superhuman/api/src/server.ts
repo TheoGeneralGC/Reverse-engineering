@@ -1,3 +1,4 @@
+import type {GoogleOAuthCallbackDiagnostic} from './google-oauth-diagnostic.ts';
 import {ArchiveActionService} from './archive-actions.ts';
 import {publicWireValue} from './reminder-message-projection.ts';
 import {ReminderNativeOwner,validateReminderNativeConfiguration,type ReminderNativeConfiguration} from './reminder-native-owner.ts';
@@ -69,9 +70,10 @@ export function resolveApplicationDatabasePath(optionPath: unknown, environmentP
 
 export type AutoDraftGenerationOptions=Pick<AutoDraftsV2AuthorityOptions,'processing'|'replyTimeZone'|'generatedPersistence'|'model'|'cursorKey'|'maximumIdentityAgeMs'>&{googleFetch?:typeof fetch;modelProfile:(accountId:string)=>AutoDraftModelProfileInput};
 
-export function createApp(options: { databasePath?: string; databaseFactory?: SqlDatabaseFactory; ownerLiveness?: StoreOwnerLiveness; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration; autoDraftGeneration?:AutoDraftGenerationOptions; reminderFoundation?:ReminderFoundationOptions;reminderNative?:ReminderNativeConfiguration } = {}) {
-  const unknownOptions = Object.keys(options).filter(key => !['databasePath', 'databaseFactory', 'ownerLiveness', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector', 'autoDraftGeneration', 'reminderFoundation','reminderNative'].includes(key));
+export function createApp(options: { googleOAuthDiagnostic?: (entry: GoogleOAuthCallbackDiagnostic) => void; databasePath?: string; databaseFactory?: SqlDatabaseFactory; ownerLiveness?: StoreOwnerLiveness; env?: NodeJS.ProcessEnv; seed?: boolean; runJobs?: boolean; scheduler?: AppScheduler; aiFetch?: typeof fetch; undoWindowMs?: number; automationFixture?: AutomationFixtureClassifier<AutomationConfiguration>; providerDraftTransport?: ProviderDraftTransport; providerDraftAutomatic?: boolean; trackingCollector?: CollectorConfiguration; autoDraftGeneration?:AutoDraftGenerationOptions; reminderFoundation?:ReminderFoundationOptions;reminderNative?:ReminderNativeConfiguration } = {}) {
+  const unknownOptions = Object.keys(options).filter(key => !['googleOAuthDiagnostic','databasePath', 'databaseFactory', 'ownerLiveness', 'env', 'seed', 'runJobs', 'scheduler', 'aiFetch', 'undoWindowMs', 'automationFixture', 'providerDraftTransport', 'providerDraftAutomatic', 'trackingCollector', 'autoDraftGeneration', 'reminderFoundation','reminderNative'].includes(key));
   if (unknownOptions.length) throw new TypeError('Unknown application configuration option');
+  if (options.googleOAuthDiagnostic !== undefined && typeof options.googleOAuthDiagnostic !== 'function') throw new TypeError('Invalid OAuth diagnostic observer');
   if (options.databaseFactory !== undefined && typeof options.databaseFactory !== 'function') throw new TypeError('databaseFactory must be a function');
   if (options.ownerLiveness !== undefined && typeof options.ownerLiveness !== 'function') throw new TypeError('ownerLiveness must be a function');
   if (options.providerDraftAutomatic !== undefined && typeof options.providerDraftAutomatic !== 'boolean') throw new TypeError('providerDraftAutomatic must be a boolean');
@@ -95,6 +97,7 @@ export function createApp(options: { databasePath?: string; databaseFactory?: Sq
   let archiveActions:ArchiveActionService|undefined;const json=(response:ServerResponse,status:number,value:unknown)=>sendJson(response,status,publicWireValue(store,value));const archiveJson=(response:ServerResponse,status:number,value:unknown)=>{const wire=publicWireValue(store,value);sendJson(response,status,archiveActions?archiveActions.annotate(wire):wire)};
   let autoDraftGeneration:AutoDraftsV2Authority|undefined;let google:GoogleProvider;
   try{if(autoOptions){autoDraftGeneration=new AutoDraftsV2Authority(store,{...autoOptions,automaticCloudSaveAvailable:autoOptions.generatedPersistence==='managed'&&autoOptions.processing===true&&providerDraftAutomaticEffective,googleEnvironment:env,googleFetch:autoOptions.googleFetch??options.reminderNative?.googleFetch??fetch,webOrigin:env.WEB_ORIGIN||'http://127.0.0.1:5173',now:scheduler.now});google=autoDraftGeneration.facade.runtime.google}else google=new GoogleProvider(store,env,options.reminderNative?.googleFetch)}catch(error){store.close();trackingCollector?.close();throw error}
+  google.oauthDiagnostic = options.googleOAuthDiagnostic;
   try { google.migrateLegacyMailGrants(); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
   let automation: AutomationService;
   try { automation = new AutomationService(store, { now: scheduler.now, fixture: options.automationFixture }); } catch (error) { store.close(); trackingCollector?.close(); throw error; }
