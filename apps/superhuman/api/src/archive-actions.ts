@@ -1,7 +1,8 @@
 import type {Store} from './store.ts';
 import type {GoogleProvider} from './google.ts';
 import {OperationQueue} from './operation-queue.ts';
-import {HttpError,type Thread,type Account} from './types.ts';
+import {HttpError,type Thread,type Account,type ThreadListPage} from './types.ts';
+import {readArchiveSummaryPage} from './archive-summary-basis.ts';
 import {currentAccountIncarnation,AccountIncarnationAuthority} from './account-incarnation.ts';
 import {initializeArchiveBasis,actionBasis,verifiedActionBasis} from './archive-action-basis.ts';
 import {archiveHash,archiveStable,archiveKey,archiveId,archiveHex,parseArchiveRequest,parseArchiveUndo,type ArchiveRequest,type ArchiveReceipt,type ArchiveUndoStatus,type ArchiveState} from './archive-action-contract.ts';
@@ -81,6 +82,7 @@ catch{}
 return[a.id,version]}
 ))}
  basis(threadId:string,accountId:string){return this.eligible(accountId)?actionBasis(this.store,threadId,accountId):null}
+ summaryPage(read:()=>ThreadListPage){return readArchiveSummaryPage(this.store,read,accountId=>this.eligible(accountId),wire=>this.annotate(wire))}
  annotate(value:unknown):unknown{if(!value||typeof value!=='object'||value instanceof Date||value instanceof Uint8Array)return value;
 if(Array.isArray(value))return value.map(x=>this.annotate(x));
 const v=value as Record<string,unknown>,out=Object.fromEntries(Object.entries(v).map(([k,x])=>[k,this.annotate(x)]));

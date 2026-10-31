@@ -10,6 +10,7 @@ candidate checklist; discovery must expand it to cover the accessible product.
 
 - [Current implementation checkpoint](research/status.md)
 - [Hosted tracking server configuration](research/hosted-tracking-configuration-checkpoint-20261030.md)
+- [Hosted summary basis batching](research/hosted-summary-batching-checkpoint-20261030.md)
 - [Hosted Command keyboard correction](research/command-hosted-checkpoint-20261030.md)
 - [Hosted initial Gmail sync correction and public-access limits](research/vercel-gmail-sync-thread-20261030.md)
 - [Bounded hosted import database optimization](research/hosted-import-performance-20261030.md)
